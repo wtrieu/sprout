@@ -1,0 +1,24 @@
+# Cloudflare Tunnel config for Sprout on the Mac mini.
+#
+# Setup (same flow as Pulse):
+#   cloudflared tunnel login
+#   cloudflared tunnel create sprout        # prints UUID
+#   # Move the printed credentials JSON to ./credentials/<UUID>.json
+#   cloudflared tunnel route dns sprout sprout.<your-domain>
+#
+# In Cloudflare Zero Trust dashboard:
+#   - Access → Applications → Add → Self-hosted
+#       Domain:  sprout.<your-domain>
+#       Policy:  Allow if email in {waylantrieu@gmail.com, <wife's email>}
+#       (then add both to ALLOWED_EMAILS in the web plist)
+
+tunnel: CHANGE_ME_TUNNEL_UUID
+credentials-file: ./infra/cloudflared/credentials/CHANGE_ME_TUNNEL_UUID.json
+
+ingress:
+  - hostname: sprout.example.com
+    service: http://localhost:3100
+    originRequest:
+      noTLSVerify: true
+      connectTimeout: 30s
+  - service: http_status:404

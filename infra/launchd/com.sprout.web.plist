@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Sprout web server (Next.js on port 3100 — Pulse owns 3000).
+  Install: cp to ~/Library/LaunchAgents/ then `launchctl load -w ~/Library/LaunchAgents/com.sprout.web.plist`
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sprout.web</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/pnpm</string>
+    <string>--filter</string>
+    <string>web</string>
+    <string>start</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/waylantrieu/repos/sprout</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>NODE_ENV</key>
+    <string>production</string>
+    <key>DATABASE_URL</key>
+    <string>/Users/waylantrieu/repos/sprout/data/sprout.db</string>
+    <key>IMAGES_DIR</key>
+    <string>/Users/waylantrieu/repos/sprout/data/images</string>
+    <key>OLLAMA_URL</key>
+    <string>http://localhost:11434</string>
+    <key>OLLAMA_MODEL</key>
+    <string>qwen2.5:14b</string>
+    <key>OLLAMA_EMBED_MODEL</key>
+    <string>nomic-embed-text</string>
+    <key>ALLOWED_EMAILS</key>
+    <string>waylantrieu@gmail.com</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/sprout-web.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/sprout-web.err.log</string>
+</dict>
+</plist>

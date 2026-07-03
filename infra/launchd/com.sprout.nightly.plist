@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Nightly pipeline: crawl sources -> classify/embed new docs -> render queued
+  story images. 2:30am — after everyone is asleep, before any morning digest.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sprout.nightly</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/pnpm</string>
+    <string>tsx</string>
+    <string>scripts/nightly-pipeline.ts</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/waylantrieu/repos/sprout</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>DATABASE_URL</key>
+    <string>/Users/waylantrieu/repos/sprout/data/sprout.db</string>
+    <key>IMAGES_DIR</key>
+    <string>/Users/waylantrieu/repos/sprout/data/images</string>
+    <key>OLLAMA_URL</key>
+    <string>http://localhost:11434</string>
+    <key>OLLAMA_MODEL</key>
+    <string>qwen2.5:14b</string>
+    <key>OLLAMA_EMBED_MODEL</key>
+    <string>nomic-embed-text</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>2</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/sprout-nightly.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/sprout-nightly.err.log</string>
+</dict>
+</plist>

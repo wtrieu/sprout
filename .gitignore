@@ -1,0 +1,22 @@
+# deps
+node_modules/
+.venv/
+__pycache__/
+
+# builds
+.next/
+*.tsbuildinfo
+
+# local data (db + generated images live here)
+data/
+
+# env
+.env
+.env.local
+.env*.local
+
+# cloudflared credentials
+infra/cloudflared/credentials/
+
+# logs
+*.log

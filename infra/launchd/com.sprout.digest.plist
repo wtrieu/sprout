@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Weekly digest email. Sunday 6:30am — after weekly activities (6:00) so the
+  digest can include them.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sprout.digest</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/pnpm</string>
+    <string>tsx</string>
+    <string>scripts/weekly-digest.ts</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/waylantrieu/repos/sprout</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>DATABASE_URL</key>
+    <string>/Users/waylantrieu/repos/sprout/data/sprout.db</string>
+    <key>OLLAMA_URL</key>
+    <string>http://localhost:11434</string>
+    <key>OLLAMA_MODEL</key>
+    <string>qwen2.5:14b</string>
+    <key>RESEND_API_KEY</key>
+    <string>CHANGE_ME</string>
+    <key>DIGEST_FROM</key>
+    <string>Sprout &lt;sprout@CHANGE_ME_DOMAIN&gt;</string>
+    <key>DIGEST_TO</key>
+    <string>waylantrieu@gmail.com</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>0</integer>
+    <key>Hour</key>
+    <integer>6</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/sprout-digest.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/sprout-digest.err.log</string>
+</dict>
+</plist>
