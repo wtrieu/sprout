@@ -1,7 +1,19 @@
 import { z } from "zod";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, sql } from "drizzle-orm";
 import type { DB } from "../db/client";
-import { documents, chunks, stories, storyPages, characters, children } from "../db/schema";
+import {
+  documents,
+  chunks,
+  stories,
+  storyPages,
+  characters,
+  children,
+  materials,
+  userMaterials,
+  activities,
+  milestones,
+} from "../db/schema";
+import { ageInMonths } from "./age";
 import type { JobRow } from "./jobs";
 import { enqueue } from "./jobs";
 import { callOllamaJson } from "./ollama";
@@ -137,6 +149,100 @@ Exactly ${story.pageCount} pages.`;
 };
 
 // ---------------------------------------------------------------------------
+// llm lane: weekly activity generation (Phase 4)
+// ---------------------------------------------------------------------------
+
+const ActivitiesSchema = z.object({
+  activities: z
+    .array(
+      z.object({
+        title: z.string().min(3).max(80),
+        description: z.string().min(20).max(500),
+        materials: z.array(z.string()).max(5),
+        milestone_ids: z.array(z.number().int()).max(4),
+      }),
+    )
+    .min(4)
+    .max(7),
+});
+
+const isoWeekStart = (d: Date): string => {
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return monday.toISOString().slice(0, 10);
+};
+
+const runActivities = async (db: DB, _job: JobRow): Promise<void> => {
+  const child = db.select().from(children).limit(1).get();
+  if (!child) throw new Error("no child profile");
+  const months = ageInMonths(child.dob);
+  const weekStart = isoWeekStart(new Date());
+
+  const existing = db.get<{ n: number }>(
+    sql`SELECT COUNT(*) as n FROM activities WHERE child_id = ${child.id} AND week_start = ${weekStart}`,
+  );
+  if (existing && existing.n > 0) return; // idempotent per week
+
+  const owned = db
+    .select({ slug: materials.slug, name: materials.name })
+    .from(userMaterials)
+    .innerJoin(materials, eq(userMaterials.materialId, materials.id))
+    .all();
+  if (owned.length === 0) throw new Error("no materials marked as owned — visit /materials");
+
+  const bucket = db.get<{ age: number } | undefined>(
+    sql`SELECT MAX(age_months) as age FROM milestones WHERE age_months <= ${months}`,
+  );
+  const nextBucket = db.get<{ age: number } | undefined>(
+    sql`SELECT MIN(age_months) as age FROM milestones WHERE age_months > ${months}`,
+  );
+  const relevantMilestones = db
+    .select({ id: milestones.id, domain: milestones.domain, description: milestones.description })
+    .from(milestones)
+    .where(
+      sql`age_months IN (${bucket?.age ?? months}, ${nextBucket?.age ?? months})`,
+    )
+    .all();
+
+  const allowedSlugs = new Set(owned.map((m) => m.slug));
+  const prompt = `You design simple developmental play activities for a parent and their ${months}-month-old child.
+
+Create 5-6 activities for this week. Rules:
+- Use ONLY materials from the AVAILABLE list (reference by slug). Max 3-4 materials each; body/voice-only activities may use none.
+- Each activity should practice one or more of the DEVELOPMENT GOALS below; reference them by numeric id in milestone_ids.
+- 5-15 minutes each, safe for a ${months}-month-old with adult supervision, no choking hazards.
+- Mix domains across the week: movement, language, fine motor, sensory, social.
+
+AVAILABLE MATERIALS (slug — name):
+${owned.map((m) => `${m.slug} — ${m.name}`).join("\n")}
+
+DEVELOPMENT GOALS (id: description):
+${relevantMilestones.map((m) => `${m.id}: (${m.domain}) ${m.description}`).join("\n")}
+
+Return STRICT JSON:
+{ "activities": [ { "title": string, "description": string (how to set up and play, 2-4 sentences), "materials": string[] (slugs), "milestone_ids": int[] } ] }`;
+
+  const result = await callOllamaJson(prompt, ActivitiesSchema, { temperature: 0.7 });
+  const validMilestoneIds = new Set(relevantMilestones.map((m) => m.id));
+
+  for (const a of result.activities) {
+    const badSlug = a.materials.find((s) => !allowedSlugs.has(s));
+    if (badSlug) throw new Error(`activity references unowned material: ${badSlug}`);
+    db.insert(activities)
+      .values({
+        childId: child.id,
+        weekStart,
+        title: a.title,
+        description: a.description,
+        materials: a.materials,
+        milestoneRefs: a.milestone_ids.filter((id) => validMilestoneIds.has(id)),
+        ageMonths: months,
+      })
+      .run();
+  }
+};
+
+// ---------------------------------------------------------------------------
 // dispatch
 // ---------------------------------------------------------------------------
 
@@ -148,6 +254,8 @@ export const executeLlmJob = async (db: DB, job: JobRow): Promise<void> => {
       return runEmbedDoc(db, job);
     case "story_text":
       return runStoryText(db, job);
+    case "activities":
+      return runActivities(db, job);
     default:
       throw new Error(`no llm executor for job type ${job.type}`);
   }

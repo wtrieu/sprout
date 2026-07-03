@@ -45,7 +45,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </nav>
           </div>
         </header>
-        <main className="mx-auto max-w-3xl px-4 pb-24 pt-6">{children}</main>
+        <main className="mx-auto max-w-3xl px-4 pb-16 pt-6">{children}</main>
+        <footer className="mx-auto max-w-3xl px-4 pb-8 text-xs text-neutral-600">
+          <div className="flex gap-3 border-t border-neutral-900 pt-3">
+            {[
+              { href: "/sources", label: "Sources" },
+              { href: "/jobs", label: "Jobs" },
+              { href: "/materials", label: "Materials" },
+              { href: "/characters", label: "Characters" },
+              { href: "/growth", label: "Growth" },
+              { href: "/profile", label: "Profile" },
+            ].map((f) => (
+              <Link key={f.href} href={f.href} className="hover:text-neutral-400">
+                {f.label}
+              </Link>
+            ))}
+          </div>
+        </footer>
       </body>
     </html>
   );

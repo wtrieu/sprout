@@ -1,20 +1,22 @@
 """
-Drain-and-exit image worker.
+Drain-and-exit image worker (mflux 0.18, FLUX.2-klein-4B).
 
 Spawned by scripts/run-jobs.ts AFTER the Ollama model is unloaded — FLUX
 (~10-12GB) and qwen3:14b (~9GB) cannot coexist in 24GB unified memory. Loads
-the model once, renders every pending `imagegen` job, then exits so the
-memory is released.
+a model once, renders every pending `imagegen` job, then exits so the memory
+is released.
 
-Character consistency (MVP): detailed appearance description prepended to
-every prompt + deterministic per-character seed base. Upgrade path: FLUX
-Kontext reference editing or a one-time character LoRA.
+Character consistency: every character gets a canonical reference image
+(char_reference job, text-to-image via Flux2Klein). Story pages are then
+rendered with Flux2KleinEdit conditioned on that reference image — the model
+redraws the same character in each new scene. Reference jobs are processed
+first (priority + a two-pass drain) so pages always have a ref to work from.
 
-Env: SPROUT_DB (sqlite path), IMAGES_DIR, SPROUT_IMAGE_MODEL (default
-"schnell"), SPROUT_IMAGE_QUANTIZE (default 4), SPROUT_IMAGE_STEPS (default 4),
-SPROUT_IMAGE_SIZE (default 1024).
+Env: SPROUT_DB (sqlite path), IMAGES_DIR, SPROUT_IMAGE_QUANTIZE (default 4),
+SPROUT_IMAGE_STEPS (default 4), SPROUT_IMAGE_SIZE (default 1024).
 """
 
+import gc
 import json
 import os
 import sqlite3
@@ -25,7 +27,6 @@ from pathlib import Path
 
 DB_PATH = os.environ.get("SPROUT_DB", str(Path(__file__).resolve().parents[2] / "data/sprout.db"))
 IMAGES_DIR = Path(os.environ.get("IMAGES_DIR", str(Path(__file__).resolve().parents[2] / "data/images")))
-MODEL_NAME = os.environ.get("SPROUT_IMAGE_MODEL", "schnell")
 QUANTIZE = int(os.environ.get("SPROUT_IMAGE_QUANTIZE", "4"))
 STEPS = int(os.environ.get("SPROUT_IMAGE_STEPS", "4"))
 SIZE = int(os.environ.get("SPROUT_IMAGE_SIZE", "1024"))
@@ -46,18 +47,21 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
-def claim_next(conn: sqlite3.Connection):
+def claim_next(conn: sqlite3.Connection, job_type: str | None = None):
+    type_clause = "AND type = ?" if job_type else ""
+    params = (job_type,) if job_type else ()
     row = conn.execute(
-        """
+        f"""
         UPDATE jobs
         SET status = 'running', started_at = unixepoch(), attempts = attempts + 1
         WHERE id = (
             SELECT id FROM jobs
-            WHERE status = 'pending' AND lane = 'imagegen'
+            WHERE status = 'pending' AND lane = 'imagegen' {type_clause}
             ORDER BY priority ASC, id ASC LIMIT 1
         )
         RETURNING id, type, payload, attempts
-        """
+        """,
+        params,
     ).fetchone()
     conn.commit()
     return row
@@ -80,67 +84,63 @@ def fail(conn, job_id: int, attempts: int, error: str):
     conn.commit()
 
 
-_flux = None
+# --- lazy single-model management -------------------------------------------
+
+_model = None
+_model_kind = None  # "t2i" | "edit"
 
 
-def get_flux():
-    """Lazy-load the model once per process (~10GB, ~30s)."""
-    global _flux
-    if _flux is None:
-        from mflux.flux.flux import Flux1  # heavy import — keep out of module scope
+def get_model(kind: str):
+    """Load Flux2Klein (t2i) or Flux2KleinEdit, swapping if needed."""
+    global _model, _model_kind
+    if _model_kind == kind:
+        return _model
+    if _model is not None:
+        print(f"swapping model {_model_kind} -> {kind}", flush=True)
+        _model = None
+        gc.collect()
 
-        print(f"loading FLUX model={MODEL_NAME} quantize={QUANTIZE}…", flush=True)
-        t0 = time.time()
-        _flux = Flux1.from_name(model_name=MODEL_NAME, quantize=QUANTIZE)
-        print(f"model loaded in {time.time() - t0:.0f}s", flush=True)
-    return _flux
+    from mflux.models.common.config.model_config import ModelConfig
+    from mflux.models.flux2.variants import Flux2Klein, Flux2KleinEdit
 
-
-def generate(prompt: str, seed: int, out_path: Path) -> None:
-    from mflux.config.config import Config
-
-    flux = get_flux()
     t0 = time.time()
-    image = flux.generate_image(
-        seed=seed,
-        prompt=prompt,
-        config=Config(num_inference_steps=STEPS, height=SIZE, width=SIZE),
+    if kind == "t2i":
+        _model = Flux2Klein(quantize=QUANTIZE, model_config=ModelConfig.flux2_klein_4b())
+    else:
+        _model = Flux2KleinEdit(quantize=QUANTIZE, model_config=ModelConfig.flux2_klein_4b())
+    _model_kind = kind
+    print(f"loaded FLUX.2-klein-4B ({kind}, q{QUANTIZE}) in {time.time() - t0:.0f}s", flush=True)
+    return _model
+
+
+def render_t2i(prompt: str, seed: int, out_path: Path) -> None:
+    model = get_model("t2i")
+    t0 = time.time()
+    image = model.generate_image(
+        seed=seed, prompt=prompt, num_inference_steps=STEPS, height=SIZE, width=SIZE
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     image.save(path=str(out_path))
     print(f"rendered {out_path.name} in {time.time() - t0:.0f}s", flush=True)
 
 
-def run_story_image(conn, payload: dict) -> None:
-    story_id = int(payload["storyId"])
-    page_index = int(payload["pageIndex"])
-    page = conn.execute(
-        "SELECT id, illustration_prompt FROM story_pages WHERE story_id=? AND page_index=?",
-        (story_id, page_index),
-    ).fetchone()
-    if page is None:
-        raise RuntimeError(f"story {story_id} page {page_index} not found")
-    character = conn.execute(
-        """SELECT c.appearance_desc, c.seed FROM characters c
-           JOIN stories s ON s.character_id = c.id WHERE s.id=?""",
-        (story_id,),
-    ).fetchone()
-    if character is None:
-        raise RuntimeError(f"story {story_id} has no character")
-
-    prompt = (
-        f"{STYLE_BLOCK} The main character: {character['appearance_desc']}. "
-        f"Scene: {page['illustration_prompt']}"
+def render_with_reference(prompt: str, seed: int, ref_image: Path, out_path: Path) -> None:
+    model = get_model("edit")
+    t0 = time.time()
+    image = model.generate_image(
+        seed=seed,
+        prompt=prompt,
+        num_inference_steps=STEPS,
+        height=SIZE,
+        width=SIZE,
+        image_paths=[str(ref_image)],
     )
-    seed = int(character["seed"]) * 1000 + page_index
-    rel_path = f"stories/{story_id}/page-{page_index}.png"
-    generate(prompt, seed, IMAGES_DIR / rel_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path=str(out_path))
+    print(f"rendered {out_path.name} (ref-conditioned) in {time.time() - t0:.0f}s", flush=True)
 
-    conn.execute(
-        "UPDATE story_pages SET image_path=?, image_status='done' WHERE id=?",
-        (rel_path, page["id"]),
-    )
-    conn.commit()
+
+# --- job handlers ------------------------------------------------------------
 
 
 def run_char_reference(conn, payload: dict) -> None:
@@ -153,12 +153,55 @@ def run_char_reference(conn, payload: dict) -> None:
 
     prompt = (
         f"{STYLE_BLOCK} Character sheet portrait, full body, standing, facing viewer, "
-        f"plain soft background. The character: {character['appearance_desc']}."
+        f"plain soft cream background. The character: {character['appearance_desc']}."
     )
     rel_path = f"characters/{char_id}.png"
-    generate(prompt, int(character["seed"]), IMAGES_DIR / rel_path)
-
+    render_t2i(prompt, int(character["seed"]), IMAGES_DIR / rel_path)
     conn.execute("UPDATE characters SET ref_image_path=? WHERE id=?", (rel_path, char_id))
+    conn.commit()
+
+
+def run_story_image(conn, payload: dict) -> None:
+    story_id = int(payload["storyId"])
+    page_index = int(payload["pageIndex"])
+    page = conn.execute(
+        "SELECT id, illustration_prompt FROM story_pages WHERE story_id=? AND page_index=?",
+        (story_id, page_index),
+    ).fetchone()
+    if page is None:
+        raise RuntimeError(f"story {story_id} page {page_index} not found")
+    character = conn.execute(
+        """SELECT c.id, c.appearance_desc, c.seed, c.ref_image_path FROM characters c
+           JOIN stories s ON s.character_id = c.id WHERE s.id=?""",
+        (story_id,),
+    ).fetchone()
+    if character is None:
+        raise RuntimeError(f"story {story_id} has no character")
+
+    seed = int(character["seed"]) * 1000 + page_index
+    rel_path = f"stories/{story_id}/page-{page_index}.png"
+    out = IMAGES_DIR / rel_path
+
+    ref = IMAGES_DIR / character["ref_image_path"] if character["ref_image_path"] else None
+    if ref is not None and ref.exists():
+        prompt = (
+            f"Redraw the character from the reference image in a new scene, keeping their "
+            f"appearance, outfit and art style exactly the same. {STYLE_BLOCK} "
+            f"Scene: {page['illustration_prompt']}"
+        )
+        render_with_reference(prompt, seed, ref, out)
+    else:
+        # No reference yet — fall back to appearance-prompt discipline.
+        prompt = (
+            f"{STYLE_BLOCK} The main character: {character['appearance_desc']}. "
+            f"Scene: {page['illustration_prompt']}"
+        )
+        render_t2i(prompt, seed, out)
+
+    conn.execute(
+        "UPDATE story_pages SET image_path=?, image_status='done' WHERE id=?",
+        (rel_path, page["id"]),
+    )
     conn.commit()
 
 
@@ -173,19 +216,18 @@ def mark_failed_page(conn, payload: dict) -> None:
         pass
 
 
-def main() -> int:
-    conn = connect()
+def drain(conn, job_type: str | None) -> int:
     done = 0
     while True:
-        job = claim_next(conn)
+        job = claim_next(conn, job_type)
         if job is None:
-            break
+            return done
         payload = json.loads(job["payload"])
         try:
-            if job["type"] == "story_image":
-                run_story_image(conn, payload)
-            elif job["type"] == "char_reference":
+            if job["type"] == "char_reference":
                 run_char_reference(conn, payload)
+            elif job["type"] == "story_image":
+                run_story_image(conn, payload)
             else:
                 raise RuntimeError(f"unknown imagegen job type {job['type']}")
             complete(conn, job["id"])
@@ -195,7 +237,14 @@ def main() -> int:
             fail(conn, job["id"], job["attempts"], str(err))
             if job["type"] == "story_image" and job["attempts"] >= MAX_ATTEMPTS:
                 mark_failed_page(conn, payload)
-    print(f"image worker done ({done} rendered), exiting to release memory", flush=True)
+
+
+def main() -> int:
+    conn = connect()
+    # References first (t2i model), then pages (edit model) — one swap max.
+    refs = drain(conn, "char_reference")
+    pages = drain(conn, None)
+    print(f"image worker done ({refs} refs, {pages} pages), exiting to release memory", flush=True)
     return 0
 
 
