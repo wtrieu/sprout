@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
-import type { DB } from "@/db/client";
-import { jobs, type JobLane, type JobType } from "@/db/schema";
+import type { DB } from "../db/client";
+import { jobs, type JobLane, type JobType } from "../db/schema";
 
 // Lock is considered stale after 2h — a crashed orchestrator must not wedge
 // the queue forever.

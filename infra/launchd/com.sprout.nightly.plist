@@ -31,7 +31,7 @@
     <key>OLLAMA_URL</key>
     <string>http://localhost:11434</string>
     <key>OLLAMA_MODEL</key>
-    <string>qwen2.5:14b</string>
+    <string>qwen3:14b</string>
     <key>OLLAMA_EMBED_MODEL</key>
     <string>nomic-embed-text</string>
   </dict>
