@@ -31,6 +31,7 @@ export const jobTypes = [
   "embed_doc",
   "story_text",
   "story_image",
+  "char_reference",
   "digest",
   "activities",
 ] as const;

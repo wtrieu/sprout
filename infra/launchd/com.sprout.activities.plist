@@ -13,8 +13,10 @@
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/pnpm</string>
-    <string>tsx</string>
-    <string>scripts/weekly-activities.ts</string>
+    <string>--filter</string>
+    <string>web</string>
+    <string>run</string>
+    <string>job:activities</string>
   </array>
 
   <key>WorkingDirectory</key>

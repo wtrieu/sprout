@@ -1,0 +1,9 @@
+[project]
+name = "sprout-imagegen"
+version = "0.1.0"
+description = "Drain-and-exit FLUX image worker for Sprout story illustrations"
+requires-python = ">=3.11"
+dependencies = [
+    "mflux>=0.6",
+    "pillow>=10.0",
+]

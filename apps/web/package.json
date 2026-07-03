@@ -14,7 +14,11 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx ../../scripts/seed-sources.ts && tsx ../../scripts/seed-milestones.ts && tsx ../../scripts/seed-who-lms.ts && tsx ../../scripts/seed-materials.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "job:run": "tsx ../../scripts/run-jobs.ts",
+    "job:nightly": "tsx ../../scripts/nightly-pipeline.ts",
+    "job:digest": "tsx ../../scripts/weekly-digest.ts",
+    "job:activities": "tsx ../../scripts/weekly-activities.ts"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
