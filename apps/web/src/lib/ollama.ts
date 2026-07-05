@@ -7,6 +7,18 @@ type GenerateOptions = {
   temperature?: number;
   /** Ollama keep_alive — set to 0 to unload the model after the call. */
   keepAlive?: string | number;
+  /**
+   * Enable qwen3's thinking mode for steps that need reasoning (judging,
+   * planning). Slower but measurably better on small models; off by default
+   * for fast structured calls.
+   */
+  think?: boolean;
+  /**
+   * Context window. Ollama's default (4096) SILENTLY truncates long RAG
+   * prompts from the front — set explicitly for anything stuffed with
+   * retrieved chunks. Costs KV-cache memory, so keep it honest.
+   */
+  numCtx?: number;
 };
 
 const generate = async (
@@ -20,11 +32,13 @@ const generate = async (
       model: OLLAMA_MODEL,
       prompt,
       stream: false,
-      // qwen3 is a thinking model; disable thinking for fast structured calls.
-      think: false,
+      think: opts.think ?? false,
       ...(opts.json ? { format: "json" } : {}),
       ...(opts.keepAlive !== undefined ? { keep_alive: opts.keepAlive } : {}),
-      options: { temperature: opts.temperature ?? 0.4 },
+      options: {
+        temperature: opts.temperature ?? 0.4,
+        ...(opts.numCtx ? { num_ctx: opts.numCtx } : {}),
+      },
     }),
   });
 
@@ -41,9 +55,21 @@ export const callOllamaText = async (
   opts: GenerateOptions = {},
 ): Promise<string> => generate(prompt, opts);
 
+/** Model output sometimes arrives fenced or with prose; cut to the outermost JSON value. */
+export const extractJson = (raw: string): string => {
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const body = fenced ? fenced[1] : raw;
+  const start = body.search(/[{[]/);
+  return start === -1 ? body : body.slice(start);
+};
+
 /**
  * JSON generation validated against a zod schema, with one retry that feeds
  * the validation error back to the model (Pulse's proven pattern).
+ *
+ * With think enabled we CANNOT use Ollama's JSON grammar — qwen3 + think +
+ * format:"json" instantly returns "{}" (the grammar suppresses the thinking
+ * pass). Instead: think freely, demand bare JSON, extract it from the text.
  */
 export const callOllamaJson = async <S extends z.ZodTypeAny>(
   prompt: string,
@@ -51,11 +77,14 @@ export const callOllamaJson = async <S extends z.ZodTypeAny>(
   opts: GenerateOptions = {},
 ): Promise<z.infer<S>> => {
   const attempt = async (errorContext?: string) => {
-    const fullPrompt = errorContext
+    let fullPrompt = errorContext
       ? `${prompt}\n\nYour previous response failed validation: ${errorContext}\nReturn a corrected JSON object.`
       : prompt;
-    const raw = await generate(fullPrompt, { ...opts, json: true });
-    return schema.parse(JSON.parse(raw));
+    if (opts.think) {
+      fullPrompt += "\n\nRespond with ONLY the JSON object — no prose before or after it.";
+    }
+    const raw = await generate(fullPrompt, { ...opts, json: !opts.think });
+    return schema.parse(JSON.parse(extractJson(raw)));
   };
 
   try {

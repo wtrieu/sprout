@@ -12,6 +12,13 @@ type Story = {
   pageCount: number;
   characterName: string;
 };
+type Arc = {
+  id: number;
+  title: string;
+  focus: string | null;
+  ageMonths: number;
+  stories: Array<{ id: number; arcIndex: number; title: string | null; status: string }>;
+};
 
 const STATUS_LABEL: Record<string, string> = {
   queued: "✍️ writing soon",
@@ -24,19 +31,26 @@ const STATUS_LABEL: Record<string, string> = {
 export default function StoriesPage() {
   const [storyList, setStoryList] = useState<Story[]>([]);
   const [charList, setCharList] = useState<Character[]>([]);
+  const [arcList, setArcList] = useState<Arc[]>([]);
   const [prompt, setPrompt] = useState("");
   const [characterId, setCharacterId] = useState<number | null>(null);
   const [pageCount, setPageCount] = useState(8);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [arcFocus, setArcFocus] = useState("");
+  const [arcCount, setArcCount] = useState(3);
+  const [arcBusy, setArcBusy] = useState(false);
+  const [arcError, setArcError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [s, c] = await Promise.all([
+    const [s, c, a] = await Promise.all([
       fetch("/api/stories").then((r) => r.json()),
       fetch("/api/characters").then((r) => r.json()),
+      fetch("/api/arcs").then((r) => r.json()),
     ]);
     setStoryList(s.stories);
     setCharList(c.characters);
+    setArcList(a.arcs ?? []);
     if (c.characters.length > 0) {
       setCharacterId((prev) => prev ?? c.characters[0].id);
     }
@@ -47,6 +61,33 @@ export default function StoriesPage() {
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
   }, [load]);
+
+  const createArc = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!characterId) return;
+    setArcBusy(true);
+    setArcError(null);
+    const res = await fetch("/api/arcs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        characterId,
+        storyCount: arcCount,
+        focus: arcFocus.trim() || undefined,
+      }),
+    });
+    setArcBusy(false);
+    if (res.ok) {
+      setArcFocus("");
+      setNotice(
+        "Arc planned! The stories are queued — text is written first, then illustrations render in the next batch.",
+      );
+      load();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setArcError(data.error ?? "Arc planning failed.");
+    }
+  };
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,6 +172,76 @@ export default function StoriesPage() {
           </div>
           {notice && <p className="text-xs text-amber-300/80">{notice}</p>}
         </form>
+      )}
+
+      {charList.length > 0 && (
+        <form
+          onSubmit={createArc}
+          className="space-y-3 rounded-xl border border-neutral-800 bg-neutral-900 p-5"
+        >
+          <h2 className="font-medium">Story arc</h2>
+          <p className="text-xs text-neutral-500">
+            A connected mini-series where each story gently models a skill from
+            the current developmental stage — sharing, naming feelings, trying
+            new things.
+          </p>
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <input
+              value={arcFocus}
+              onChange={(e) => setArcFocus(e.target.value)}
+              placeholder="Optional focus — e.g. new sibling arriving, starting daycare"
+              className="min-w-0 flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-1.5 outline-none focus:border-amber-500"
+            />
+            <label className="flex items-center gap-2 text-neutral-400">
+              Stories
+              <input
+                type="number"
+                min={2}
+                max={5}
+                value={arcCount}
+                onChange={(e) => setArcCount(Number(e.target.value))}
+                className="w-14 rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={arcBusy}
+              className="rounded-md bg-amber-500 px-4 py-1.5 font-medium text-neutral-950 hover:bg-amber-400 disabled:opacity-50"
+            >
+              {arcBusy ? "Planning…" : "Plan arc"}
+            </button>
+          </div>
+          {arcError && <p className="text-xs text-red-400">{arcError}</p>}
+        </form>
+      )}
+
+      {arcList.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-medium text-neutral-400">Arcs</h2>
+          {arcList.map((arc) => (
+            <div key={arc.id} className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3">
+              <div className="font-medium">{arc.title}</div>
+              <div className="text-xs text-neutral-500">
+                planned at {arc.ageMonths} months
+                {arc.focus ? ` · focus: ${arc.focus}` : ""}
+              </div>
+              <div className="mt-2 space-y-1">
+                {arc.stories.map((s) => (
+                  <Link
+                    key={s.id}
+                    href={`/stories/${s.id}`}
+                    className="flex items-center justify-between text-sm text-neutral-300 hover:text-amber-400"
+                  >
+                    <span>
+                      {s.arcIndex + 1}. {s.title ?? "…"}
+                    </span>
+                    <span className="text-xs">{STATUS_LABEL[s.status] ?? s.status}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       <div className="space-y-2">

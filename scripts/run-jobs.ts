@@ -9,6 +9,7 @@
  * Guarded by the single-row job_lock (stale after 2h). Run via:
  *   pnpm --filter web run job:run
  */
+import "./env"; // .env.local in dev (ANTHROPIC_API_KEY etc.); launchd env wins in prod
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";

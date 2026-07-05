@@ -25,22 +25,19 @@ const extract = (xml: string, tag: string): string[] => {
   return out;
 };
 
-/**
- * PubMed E-utilities: esearch (recent matches for the configured query) →
- * efetch (abstracts) → elink (related articles become source suggestions).
- */
-export const pubmedAdapter: CrawlAdapter = async (source) => {
-  const query = String(source.config.query ?? "");
-  const retmax = Number(source.config.retmax ?? 20);
-  if (!query) throw new Error("pubmed source missing config.query");
-
+/** esearch + efetch: abstracts matching a query. Also used by research briefs. */
+export const searchPubmed = async (
+  query: string,
+  retmax: number,
+  sort: "pub_date" | "relevance" = "pub_date",
+): Promise<{ pmids: string[]; docs: FetchedDoc[] }> => {
   const searchRes = await fetch(
-    `${EUTILS}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmax=${retmax}&sort=pub_date&retmode=json`,
+    `${EUTILS}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmax=${retmax}&sort=${sort}&retmode=json`,
   );
   if (!searchRes.ok) throw new Error(`esearch ${searchRes.status}`);
   const search = (await searchRes.json()) as { esearchresult: { idlist: string[] } };
   const pmids = search.esearchresult.idlist;
-  if (pmids.length === 0) return { docs: [], suggestions: [] };
+  if (pmids.length === 0) return { pmids, docs: [] };
 
   await sleep(THROTTLE_MS);
   const fetchRes = await fetch(
@@ -65,6 +62,20 @@ export const pubmedAdapter: CrawlAdapter = async (source) => {
       publishedAt: year ? new Date(`${year}-01-01T00:00:00`) : undefined,
     });
   }
+  return { pmids, docs };
+};
+
+/**
+ * PubMed E-utilities: esearch (recent matches for the configured query) →
+ * efetch (abstracts) → elink (related articles become source suggestions).
+ */
+export const pubmedAdapter: CrawlAdapter = async (source) => {
+  const query = String(source.config.query ?? "");
+  const retmax = Number(source.config.retmax ?? 20);
+  if (!query) throw new Error("pubmed source missing config.query");
+
+  const { pmids, docs } = await searchPubmed(query, retmax);
+  if (pmids.length === 0) return { docs: [], suggestions: [] };
 
   // Related articles for the top hits → suggestion queue.
   const suggestions: Suggestion[] = [];

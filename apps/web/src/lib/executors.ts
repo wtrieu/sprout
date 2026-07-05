@@ -17,6 +17,7 @@ import { ageInMonths } from "./age";
 import type { JobRow } from "./jobs";
 import { enqueue } from "./jobs";
 import { callOllamaJson } from "./ollama";
+import { callClaudeJson } from "./claude";
 import { embed, toBuffer, chunkText } from "./embeddings";
 import { formatAge } from "./age";
 
@@ -119,11 +120,18 @@ Rules:
 - 1-3 short sentences per page. No scary elements, no peril.
 - Each page needs an "illustration_prompt": a self-contained visual description of THAT page's scene for an illustrator. Describe the setting, what ${character.name} is doing, time of day, mood. Do NOT describe the character's appearance (the illustrator has a character sheet). Never include text/words in the scene.
 
+EXAMPLE of the quality to match — two pages from a different story (a character named Momo, theme "jumping in puddles"):
+{ "text": "Drip, drip, drop. The rain sang on the window. Momo pressed one small nose against the glass.", "illustration_prompt": "Cozy interior by a rain-streaked window, late afternoon grey-blue light, the character kneeling on a window seat looking out at gentle rain, warm lamp glow behind, soft peaceful mood." }
+{ "text": "One more jump. A small, sleepy jump. Then home, where warm towels were waiting.", "illustration_prompt": "A quiet lane at dusk with one shallow puddle reflecting orange sky, the character mid-tiny-hop above the puddle, golden porch light visible down the lane, calm winding-down mood." }
+Notice: concrete sensory words, rhythm ("drip, drip, drop"), each illustration_prompt states setting + action + time of day + mood and nothing about how the character looks. Match that quality — but never reuse Momo, the rain, or any wording from the example.
+
 Return STRICT JSON:
 { "title": string, "pages": [ { "text": string, "illustration_prompt": string } ] }
 Exactly ${story.pageCount} pages.`;
 
-  const result = await callOllamaJson(prompt, StoryTextSchema, { temperature: 0.8 });
+  // Story prose is the one lane where model quality is most visible — use
+  // Claude when a key is configured, local qwen3 otherwise.
+  const result = await callClaudeJson(prompt, StoryTextSchema, { temperature: 0.8 });
 
   db.delete(storyPages).where(eq(storyPages.storyId, storyId)).run(); // idempotent retry
   result.pages.forEach((page, i) => {

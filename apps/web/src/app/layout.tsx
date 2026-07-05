@@ -19,8 +19,10 @@ const navItems = [
   { href: "/", label: "Home" },
   { href: "/chat", label: "Ask" },
   { href: "/library", label: "Library" },
+  { href: "/research", label: "Research" },
   { href: "/stories", label: "Stories" },
   { href: "/activities", label: "Activities" },
+  { href: "/visit-prep", label: "Visit prep" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

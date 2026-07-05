@@ -61,7 +61,10 @@ export const POST = async (req: NextRequest) => {
   }
 
   const prompt = buildChatPrompt(body.data.question, months, retrieved, child.name);
-  const answer = await callOllamaText(prompt, { temperature: 0.3 });
+  // 8 chunks of context easily exceeds Ollama's default 4096 num_ctx, which
+  // truncates silently from the front — the rules and question survive but
+  // early context chunks vanish. Size the window to the actual prompt.
+  const answer = await callOllamaText(prompt, { temperature: 0.3, numCtx: 12288 });
   // Citations always come from retrieval metadata, never model output.
   const citations = toCitations(retrieved);
 

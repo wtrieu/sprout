@@ -245,6 +245,38 @@ export const digests = sqliteTable("digests", {
   resendId: text("resend_id"),
 });
 
+// Pediatrician visit-prep briefs: growth + milestones + recent questions
+// synthesized into a one-page "ask the doctor" summary.
+export const visitPreps = sqliteTable("visit_preps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  childId: integer("child_id")
+    .notNull()
+    .references(() => children.id),
+  ageMonths: integer("age_months").notNull(),
+  // Snapshot of what went into the brief (measurements, concerns).
+  inputs: text("inputs", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+  contentMd: text("content_md").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// On-demand deep-dive research briefs synthesized from the corpus (+ live
+// PubMed search), stored alongside the library.
+export const researchBriefs = sqliteTable("research_briefs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  childId: integer("child_id")
+    .notNull()
+    .references(() => children.id),
+  topic: text("topic").notNull(),
+  ageMonths: integer("age_months").notNull(),
+  contentMd: text("content_md").notNull(),
+  citations: text("citations", { mode: "json" }).$type<Citation[]>().notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const crawlRuns = sqliteTable("crawl_runs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   sourceId: integer("source_id")
@@ -275,6 +307,25 @@ export const characters = sqliteTable("characters", {
     .$defaultFn(() => new Date()),
 });
 
+// A planned series of stories that gently target the child's current
+// developmental frontier (one milestone theme per story).
+export const storyArcs = sqliteTable("story_arcs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  childId: integer("child_id")
+    .notNull()
+    .references(() => children.id),
+  characterId: integer("character_id")
+    .notNull()
+    .references(() => characters.id),
+  title: text("title").notNull(),
+  // Optional parent steer, e.g. "new baby sibling arriving"
+  focus: text("focus"),
+  ageMonths: integer("age_months").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const stories = sqliteTable("stories", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   childId: integer("child_id")
@@ -283,6 +334,8 @@ export const stories = sqliteTable("stories", {
   characterId: integer("character_id")
     .notNull()
     .references(() => characters.id),
+  arcId: integer("arc_id").references(() => storyArcs.id),
+  arcIndex: integer("arc_index"),
   title: text("title"),
   prompt: text("prompt").notNull(), // theme requested by the user
   ageMonths: integer("age_months").notNull(),

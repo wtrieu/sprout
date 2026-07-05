@@ -10,6 +10,27 @@ Self-hosted family companion on the Mac mini. Two halves, one age engine:
   FLUX.2-klein illustrations, fullscreen reader + printable PDF) and weekly
   age-appropriate activity ideas that only use materials you own.
 
+## Synthesis features
+
+All of the below run locally on qwen3 via decomposed, skill-based pipelines
+(`apps/web/src/lib/skills/` — see `docs/local-llm-orchestration.md`).
+Optionally set `ANTHROPIC_API_KEY` (+ `CLAUDE_MODEL`) to run the same pipelines
+on Claude for a quality lift:
+
+- **Visit prep** (`/visit-prep`) — one-page pediatrician-appointment brief:
+  WHO percentiles, milestone talking points, questions synthesized from recent
+  chat history and typed-in concerns. Printable.
+- **Story arcs** (`/stories`) — a connected mini-series where each story gently
+  models a skill from the child's current milestone bucket.
+- **Research briefs** (`/research`) — deep dive on one topic: corpus sweep +
+  live PubMed search, synthesized with citations.
+- **RAG eval** — `pnpm --filter web run eval:rag [n]` generates questions from
+  the corpus, runs the production qwen3 pipeline, and has Claude judge citation
+  faithfulness (report in `data/evals/`). Requires the API key.
+- **Corpus audit** — `pnpm --filter web run job:audit` re-grades relevance
+  decisions, flags stale guidance, reviews pending source suggestions
+  (report-only, in `data/audits/`). Requires the API key.
+
 ## Stack
 
 Next.js 15 (App Router) · TypeScript · SQLite + Drizzle · Tailwind v4 · Ollama
