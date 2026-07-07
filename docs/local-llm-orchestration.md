@@ -33,6 +33,18 @@ frontier model's taste is baked in even when it's gone.
 | Agentic Ask | ① intent classification (research/growth/milestones/journal) ② final composition with conversation history | growth percentiles, milestone checklist, and journal blocks built deterministically; citations from retrieval only |
 | Editorial planner | ① one story outline from chosen ingredients | style/character/theme chosen in code with variety memory; seasonal table authored; idempotent per day |
 | Image QC | ① targeted yes/no defect questions per render (VLM) | verdict + retry policy in code; seeds re-rolled via render_attempts; bounded at 2 re-rolls |
+| Story text | ① write to an authored FORM spec + exemplar ② editor-judge (think) ③ one revision if flagged | form picked with variety memory; age-banded word budgets, refrain recurrence, and rhyme-bank membership checked in code |
+
+## Story forms
+
+Great children's books are structure, not vocabulary — so story text is
+generated against authored forms (`lib/skills/storyText.ts`): rhythmic-prose
+(cadence + sound play), refrain (repeating chorus, one slot varied per page),
+cumulative (growing list), and lullaby-rhyme (couplets from an authored rhyme
+bank). Verified on qwen3: the first three produce genuine board-book patterns;
+**lullaby-rhyme is gated behind `ANTHROPIC_API_KEY`** — a 14B can't hear
+phonetics, and most couplets came out forced or broken even with the bank and
+a revise pass.
 
 ## Retrieval
 

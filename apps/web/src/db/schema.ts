@@ -395,6 +395,8 @@ export const stories = sqliteTable("stories", {
   title: text("title"),
   // Style-pack key; null = legacy default (watercolor).
   style: text("style"),
+  // Text-form key (lib/skills/storyText.ts); null = legacy free-form.
+  form: text("form"),
   prompt: text("prompt").notNull(), // theme requested by the user
   ageMonths: integer("age_months").notNull(),
   pageCount: integer("page_count").notNull(),

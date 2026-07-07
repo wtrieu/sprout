@@ -35,6 +35,10 @@ on Claude for a quality lift:
   (skipped if you made one yourself): least-recently-used style and character,
   a frontier milestone theme, seasonal flavor. Disable with
   `SPROUT_DAILY_STORY=false`.
+- **Story craft forms** — story text is written against authored read-aloud
+  forms (rhythmic prose, refrain, cumulative list; rhyming lullabies when a
+  frontier model is configured), with age-banded word budgets and an
+  editor-judge revision pass. See `docs/local-llm-orchestration.md`.
 - **RAG eval** — `pnpm --filter web run eval:rag [n]` generates questions from
   the corpus, runs the production qwen3 pipeline, and has Claude judge citation
   faithfulness (report in `data/evals/`). Requires the API key.
