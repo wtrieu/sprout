@@ -15,6 +15,20 @@
       "when": 1783226189551,
       "tag": "0001_loving_slayback",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783388029997,
+      "tag": "0002_broken_living_lightning",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1783394722649,
+      "tag": "0003_foamy_black_cat",
+      "breakpoints": true
     }
   ]
 }

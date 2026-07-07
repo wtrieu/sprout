@@ -22,9 +22,9 @@ import { sql } from "drizzle-orm";
 import { db } from "../apps/web/src/db/client";
 import { children } from "../apps/web/src/db/schema";
 import { ageInMonths } from "../apps/web/src/lib/age";
-import { retrieve, buildChatPrompt } from "../apps/web/src/lib/rag";
-import { callOllamaText } from "../apps/web/src/lib/ollama";
+import { retrieve, toCitations } from "../apps/web/src/lib/rag";
 import { claudeAvailable } from "../apps/web/src/lib/claude";
+import { composeAnswer } from "../apps/web/src/lib/skills/ask";
 import {
   writeEvalQuestion,
   extractClaims,
@@ -100,9 +100,15 @@ const main = async () => {
       continue;
     }
 
-    const answer = await callOllamaText(buildChatPrompt(question, months, retrieved, childName), {
-      temperature: 0.3,
-      numCtx: 12288,
+    // The production composer, research-context-only (what chat runs for
+    // corpus questions — child-data blocks are excluded so the judge grades
+    // pure citation faithfulness).
+    const answer = await composeAnswer({
+      question,
+      months,
+      childName,
+      history: [],
+      ctx: { blocks: [], retrieved, citations: toCitations(retrieved) },
     });
 
     // Claim-decomposed judging: narrow yes/no checks instead of one holistic

@@ -18,6 +18,7 @@ import type { JobRow } from "./jobs";
 import { enqueue } from "./jobs";
 import { callOllamaJson } from "./ollama";
 import { callClaudeJson } from "./claude";
+import { journalContext, milestonesNotYetAchieved, personalizationLine } from "./skills/journal";
 import { embed, toBuffer, chunkText } from "./embeddings";
 import { formatAge } from "./age";
 
@@ -119,6 +120,7 @@ Rules:
 - Language for a ${formatAge(story.ageMonths)}-old: very short sentences, rhythm and repetition, warm and calm (it's bedtime — the story should wind DOWN, ending sleepy and safe).
 - 1-3 short sentences per page. No scary elements, no peril.
 - Each page needs an "illustration_prompt": a self-contained visual description of THAT page's scene for an illustrator. Describe the setting, what ${character.name} is doing, time of day, mood. Do NOT describe the character's appearance (the illustrator has a character sheet). Never include text/words in the scene.
+- Compose scenes the illustrator can nail: ${character.name} alone (or with at most ONE simple animal friend), seen full-body or from a distance. Never build a scene around hands doing something intricate (holding, gripping, pointing close-up), never crowds, never mirrors. Big simple shapes beat busy detail.
 
 EXAMPLE of the quality to match — two pages from a different story (a character named Momo, theme "jumping in puddles"):
 { "text": "Drip, drip, drop. The rain sang on the window. Momo pressed one small nose against the glass.", "illustration_prompt": "Cozy interior by a rain-streaked window, late afternoon grey-blue light, the character kneeling on a window seat looking out at gentle rain, warm lamp glow behind, soft peaceful mood." }
@@ -204,17 +206,22 @@ const runActivities = async (db: DB, _job: JobRow): Promise<void> => {
   const nextBucket = db.get<{ age: number } | undefined>(
     sql`SELECT MIN(age_months) as age FROM milestones WHERE age_months > ${months}`,
   );
-  const relevantMilestones = db
-    .select({ id: milestones.id, domain: milestones.domain, description: milestones.description })
-    .from(milestones)
-    .where(
-      sql`age_months IN (${bucket?.age ?? months}, ${nextBucket?.age ?? months})`,
-    )
-    .all();
+  // Skip goals the journal says are already achieved — practice the frontier.
+  const relevantMilestones = milestonesNotYetAchieved(
+    db,
+    db
+      .select({ id: milestones.id, domain: milestones.domain, description: milestones.description })
+      .from(milestones)
+      .where(
+        sql`age_months IN (${bucket?.age ?? months}, ${nextBucket?.age ?? months})`,
+      )
+      .all(),
+  );
+  const personal = personalizationLine(journalContext(db));
 
   const allowedSlugs = new Set(owned.map((m) => m.slug));
   const prompt = `You design simple developmental play activities for a parent and their ${months}-month-old child.
-
+${personal ? `${personal}\n` : ""}
 Create 5-6 activities for this week. Rules:
 - Use ONLY materials from the AVAILABLE list (reference by slug). Max 3-4 materials each; body/voice-only activities may use none.
 - Each activity should practice one or more of the DEVELOPMENT GOALS below; reference them by numeric id in milestone_ids.

@@ -2,6 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import stylePacksJson from "@/lib/stylePacks.json";
+
+const STYLE_OPTIONS: Array<{ key: string; name: string; description: string }> = Object.entries(
+  stylePacksJson.packs,
+).map(([key, p]) => ({ key, name: p.name, description: p.description }));
 
 type Character = { id: number; name: string; refImagePath: string | null };
 type Story = {
@@ -35,10 +40,12 @@ export default function StoriesPage() {
   const [prompt, setPrompt] = useState("");
   const [characterId, setCharacterId] = useState<number | null>(null);
   const [pageCount, setPageCount] = useState(8);
+  const [style, setStyle] = useState("surprise");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [arcFocus, setArcFocus] = useState("");
   const [arcCount, setArcCount] = useState(3);
+  const [arcStyle, setArcStyle] = useState("surprise");
   const [arcBusy, setArcBusy] = useState(false);
   const [arcError, setArcError] = useState<string | null>(null);
 
@@ -74,6 +81,7 @@ export default function StoriesPage() {
         characterId,
         storyCount: arcCount,
         focus: arcFocus.trim() || undefined,
+        style: arcStyle,
       }),
     });
     setArcBusy(false);
@@ -96,7 +104,7 @@ export default function StoriesPage() {
     const res = await fetch("/api/stories", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ characterId, prompt, pageCount }),
+      body: JSON.stringify({ characterId, prompt, pageCount, style }),
     });
     setBusy(false);
     if (res.ok) {
@@ -162,6 +170,19 @@ export default function StoriesPage() {
                 className="w-16 rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
               />
             </label>
+            <select
+              value={style}
+              onChange={(e) => setStyle(e.target.value)}
+              title={STYLE_OPTIONS.find((s) => s.key === style)?.description}
+              className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
+            >
+              <option value="surprise">🎨 Surprise me</option>
+              {STYLE_OPTIONS.map((s) => (
+                <option key={s.key} value={s.key}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
             <button
               type="submit"
               disabled={busy || !prompt.trim()}
@@ -203,6 +224,19 @@ export default function StoriesPage() {
                 className="w-14 rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
               />
             </label>
+            <select
+              value={arcStyle}
+              onChange={(e) => setArcStyle(e.target.value)}
+              title={STYLE_OPTIONS.find((s) => s.key === arcStyle)?.description}
+              className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
+            >
+              <option value="surprise">🎨 Surprise me</option>
+              {STYLE_OPTIONS.map((s) => (
+                <option key={s.key} value={s.key}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
             <button
               type="submit"
               disabled={arcBusy}

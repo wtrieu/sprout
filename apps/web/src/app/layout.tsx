@@ -18,6 +18,7 @@ export const viewport: Viewport = {
 const navItems = [
   { href: "/", label: "Home" },
   { href: "/chat", label: "Ask" },
+  { href: "/journal", label: "Journal" },
   { href: "/library", label: "Library" },
   { href: "/research", label: "Research" },
   { href: "/stories", label: "Stories" },

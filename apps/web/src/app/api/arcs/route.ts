@@ -12,6 +12,7 @@ import {
   outlineStory,
   buildArcStoryPrompt,
 } from "@/lib/skills/storyArc";
+import { resolveStyle, ensureStyleRef } from "@/lib/styles";
 
 export const GET = () => {
   const arcs = db.select().from(storyArcs).orderBy(desc(storyArcs.id)).all();
@@ -37,6 +38,8 @@ const PostSchema = z.object({
   characterId: z.number().int(),
   storyCount: z.number().int().min(2).max(5).default(3),
   focus: z.string().max(300).optional(),
+  // Style-pack key; absent or "surprise" → random. One style per series.
+  style: z.string().optional(),
 });
 
 export const POST = async (req: NextRequest) => {
@@ -108,6 +111,9 @@ export const POST = async (req: NextRequest) => {
     );
   }
 
+  const style = resolveStyle(body.data.style);
+  ensureStyleRef(db, character.id, style);
+
   const arc = db
     .insert(storyArcs)
     .values({
@@ -115,6 +121,7 @@ export const POST = async (req: NextRequest) => {
       characterId: character.id,
       title: throughline.arc_title,
       focus: focus ?? null,
+      style,
       ageMonths: months,
     })
     .returning()
@@ -129,6 +136,7 @@ export const POST = async (req: NextRequest) => {
         arcId: arc.id,
         arcIndex: i,
         title: s.title,
+        style,
         prompt: buildArcStoryPrompt({
           outline: s.outline,
           arcTitle: throughline.arc_title,

@@ -15,12 +15,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { sql } from "drizzle-orm";
 import { db } from "../apps/web/src/db/client";
-import { claimNext, completeJob, failJob, acquireLock, releaseLock } from "../apps/web/src/lib/jobs";
+import { claimNext, completeJob, failJob, acquireLock, releaseLock, enqueue } from "../apps/web/src/lib/jobs";
 import { executeLlmJob, reconcileStories } from "../apps/web/src/lib/executors";
-import { unloadOllamaModel } from "../apps/web/src/lib/ollama";
+import { unloadOllamaModel, resolveVlmModel } from "../apps/web/src/lib/ollama";
+import {
+  gradePageImage,
+  gradeRefImage,
+  QC_MAX_RENDER_ATTEMPTS,
+} from "../apps/web/src/lib/skills/imageQc";
 
 const OWNER = `run-jobs-${process.pid}`;
 const REPO_ROOT = path.resolve(process.cwd(), "../..");
+const IMAGES_DIR = process.env.IMAGES_DIR ?? path.join(REPO_ROOT, "data/images");
 
 const drainLlmLane = async (): Promise<number> => {
   let n = 0;
@@ -71,6 +77,80 @@ const runImageWorker = (): void => {
   }
 };
 
+/**
+ * Grade every ungraded render with the QC VLM; re-queue failures with a
+ * bumped seed (via render_attempts). Returns how many renders were re-queued.
+ * Runs AFTER the image worker exits — the ~6GB VLM never coexists with FLUX.
+ */
+const runImageQc = async (): Promise<number> => {
+  const vlm = await resolveVlmModel();
+  if (!vlm) {
+    console.log("image QC skipped — no vision model pulled (ollama pull qwen2.5vl:7b)");
+    return 0;
+  }
+  console.log(`image QC using ${vlm}`);
+  let requeued = 0;
+
+  const refs = db.all<{ id: number; characterId: number; styleKey: string; imagePath: string; renderAttempts: number }>(sql`
+    SELECT id, character_id as characterId, style_key as styleKey,
+           image_path as imagePath, render_attempts as renderAttempts
+    FROM character_style_refs WHERE image_path IS NOT NULL AND qc_status IS NULL
+  `);
+  for (const ref of refs) {
+    try {
+      const verdict = await gradeRefImage(IMAGES_DIR, ref.imagePath, vlm);
+      if (!verdict.pass && ref.renderAttempts < QC_MAX_RENDER_ATTEMPTS) {
+        db.run(sql`UPDATE character_style_refs SET render_attempts = render_attempts + 1, qc_note = ${verdict.note} WHERE id = ${ref.id}`);
+        enqueue(db, {
+          type: "char_reference",
+          lane: "imagegen",
+          payload: { characterId: ref.characterId, styleKey: ref.styleKey },
+          priority: 1,
+        });
+        requeued += 1;
+        console.log(`QC re-roll ref char ${ref.characterId}/${ref.styleKey}: ${verdict.note}`);
+      } else {
+        db.run(sql`UPDATE character_style_refs SET qc_status = ${verdict.pass ? "passed" : "failed"}, qc_note = ${verdict.note} WHERE id = ${ref.id}`);
+        if (!verdict.pass) console.log(`QC accepting flawed ref char ${ref.characterId}/${ref.styleKey} after ${ref.renderAttempts} re-rolls: ${verdict.note}`);
+      }
+    } catch (err) {
+      console.error(`QC error on ref ${ref.imagePath}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  const pages = db.all<{ id: number; storyId: number; pageIndex: number; imagePath: string; renderAttempts: number }>(sql`
+    SELECT id, story_id as storyId, page_index as pageIndex,
+           image_path as imagePath, render_attempts as renderAttempts
+    FROM story_pages WHERE image_status = 'done' AND image_path IS NOT NULL AND qc_status IS NULL
+  `);
+  for (const page of pages) {
+    try {
+      const verdict = await gradePageImage(IMAGES_DIR, page.imagePath, vlm);
+      if (!verdict.pass && page.renderAttempts < QC_MAX_RENDER_ATTEMPTS) {
+        db.run(sql`UPDATE story_pages SET render_attempts = render_attempts + 1, image_status = 'pending', qc_note = ${verdict.note} WHERE id = ${page.id}`);
+        enqueue(db, {
+          type: "story_image",
+          lane: "imagegen",
+          payload: { storyId: page.storyId, pageIndex: page.pageIndex },
+          priority: 100 + page.pageIndex,
+        });
+        requeued += 1;
+        console.log(`QC re-roll story ${page.storyId} p${page.pageIndex}: ${verdict.note}`);
+      } else {
+        db.run(sql`UPDATE story_pages SET qc_status = ${verdict.pass ? "passed" : "failed"}, qc_note = ${verdict.note} WHERE id = ${page.id}`);
+        if (!verdict.pass) console.log(`QC accepting flawed page story ${page.storyId} p${page.pageIndex} after ${page.renderAttempts} re-rolls: ${verdict.note}`);
+      }
+    } catch (err) {
+      console.error(`QC error on page ${page.imagePath}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  // Free the VLM before FLUX loads again for any re-rolls.
+  await unloadOllamaModel(vlm);
+  console.log(`image QC: ${refs.length} refs + ${pages.length} pages graded, ${requeued} re-queued`);
+  return requeued;
+};
+
 const main = async () => {
   if (!acquireLock(db, OWNER)) {
     console.log("another orchestrator run holds the lock — exiting");
@@ -84,7 +164,12 @@ const main = async () => {
     await unloadOllamaModel();
     spawnSync("ollama", ["stop", process.env.OLLAMA_MODEL ?? "qwen3:14b"], { stdio: "ignore" });
 
-    runImageWorker();
+    // Render → grade → re-roll failed seeds, bounded. Each phase holds only
+    // one model: FLUX exits before the QC VLM loads, and vice versa.
+    for (let cycle = 0; cycle < 1 + QC_MAX_RENDER_ATTEMPTS; cycle++) {
+      runImageWorker();
+      if ((await runImageQc()) === 0) break;
+    }
     reconcileStories(db);
   } finally {
     releaseLock(db, OWNER);

@@ -12,8 +12,16 @@ rendered with Flux2KleinEdit conditioned on that reference image — the model
 redraws the same character in each new scene. Reference jobs are processed
 first (priority + a two-pass drain) so pages always have a ref to work from.
 
+Art direction comes from style packs (apps/web/src/lib/stylePacks.json — the
+single source of truth shared with the web app). Each (character, style) pair
+gets its own reference sheet in character_style_refs; stories carry a style
+key. Page seeds fold in render_attempts so the QC loop in run-jobs.ts can
+re-roll a bad render.
+
 Env: SPROUT_DB (sqlite path), IMAGES_DIR, SPROUT_IMAGE_QUANTIZE (default 4),
-SPROUT_IMAGE_STEPS (default 4), SPROUT_IMAGE_SIZE (default 1024).
+SPROUT_IMAGE_STEPS (default 6, pages), SPROUT_IMAGE_REF_STEPS (default 10 —
+references are rendered once and condition everything downstream),
+SPROUT_IMAGE_SIZE (default 1024).
 """
 
 import gc
@@ -23,20 +31,34 @@ import sqlite3
 import sys
 import time
 import traceback
+import zlib
 from pathlib import Path
 
-DB_PATH = os.environ.get("SPROUT_DB", str(Path(__file__).resolve().parents[2] / "data/sprout.db"))
-IMAGES_DIR = Path(os.environ.get("IMAGES_DIR", str(Path(__file__).resolve().parents[2] / "data/images")))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DB_PATH = os.environ.get("SPROUT_DB", str(REPO_ROOT / "data/sprout.db"))
+IMAGES_DIR = Path(os.environ.get("IMAGES_DIR", str(REPO_ROOT / "data/images")))
 QUANTIZE = int(os.environ.get("SPROUT_IMAGE_QUANTIZE", "4"))
-STEPS = int(os.environ.get("SPROUT_IMAGE_STEPS", "4"))
+STEPS = int(os.environ.get("SPROUT_IMAGE_STEPS", "6"))
+REF_STEPS = int(os.environ.get("SPROUT_IMAGE_REF_STEPS", "10"))
 SIZE = int(os.environ.get("SPROUT_IMAGE_SIZE", "1024"))
 MAX_ATTEMPTS = 3
 
-STYLE_BLOCK = (
-    "Children's picture book illustration, soft watercolor and gouache style, "
-    "warm gentle lighting, bright cheerful colors, simple uncluttered composition, "
-    "rounded friendly shapes, cozy and calm bedtime mood. No text, no words, no letters."
-)
+STYLE_PACKS_PATH = REPO_ROOT / "apps/web/src/lib/stylePacks.json"
+STYLE_PACKS: dict = json.loads(STYLE_PACKS_PATH.read_text())["packs"]
+DEFAULT_STYLE = "watercolor"
+
+
+def style_block(style_key: str | None) -> str:
+    pack = STYLE_PACKS.get(style_key or DEFAULT_STYLE) or STYLE_PACKS[DEFAULT_STYLE]
+    return pack["block"]
+
+
+def style_seed_offset(style_key: str) -> int:
+    """Deterministic per-style seed spread so each style ref differs."""
+    return zlib.crc32(style_key.encode()) % 997
+
+
+RETRY_SEED_STRIDE = 7919  # prime; QC bumps render_attempts to re-roll a render
 
 
 def connect() -> sqlite3.Connection:
@@ -113,15 +135,15 @@ def get_model(kind: str):
     return _model
 
 
-def render_t2i(prompt: str, seed: int, out_path: Path) -> None:
+def render_t2i(prompt: str, seed: int, out_path: Path, steps: int = STEPS) -> None:
     model = get_model("t2i")
     t0 = time.time()
     image = model.generate_image(
-        seed=seed, prompt=prompt, num_inference_steps=STEPS, height=SIZE, width=SIZE
+        seed=seed, prompt=prompt, num_inference_steps=steps, height=SIZE, width=SIZE
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     image.save(path=str(out_path))
-    print(f"rendered {out_path.name} in {time.time() - t0:.0f}s", flush=True)
+    print(f"rendered {out_path.name} ({steps} steps) in {time.time() - t0:.0f}s", flush=True)
 
 
 def render_with_reference(prompt: str, seed: int, ref_image: Path, out_path: Path) -> None:
@@ -145,19 +167,44 @@ def render_with_reference(prompt: str, seed: int, ref_image: Path, out_path: Pat
 
 def run_char_reference(conn, payload: dict) -> None:
     char_id = int(payload["characterId"])
+    style_key = str(payload.get("styleKey") or DEFAULT_STYLE)
+    if style_key not in STYLE_PACKS:
+        style_key = DEFAULT_STYLE
     character = conn.execute(
         "SELECT id, name, appearance_desc, seed FROM characters WHERE id=?", (char_id,)
     ).fetchone()
     if character is None:
         raise RuntimeError(f"character {char_id} not found")
 
+    ref_row = conn.execute(
+        "SELECT id, render_attempts FROM character_style_refs WHERE character_id=? AND style_key=?",
+        (char_id, style_key),
+    ).fetchone()
+    attempts = int(ref_row["render_attempts"]) if ref_row else 0
+
     prompt = (
-        f"{STYLE_BLOCK} Character sheet portrait, full body, standing, facing viewer, "
-        f"plain soft cream background. The character: {character['appearance_desc']}."
+        f"{style_block(style_key)} Character sheet portrait, full body, standing, facing viewer, "
+        f"arms relaxed at their sides, both hands fully visible, plain soft cream background. "
+        f"The character: {character['appearance_desc']}."
     )
-    rel_path = f"characters/{char_id}.png"
-    render_t2i(prompt, int(character["seed"]), IMAGES_DIR / rel_path)
-    conn.execute("UPDATE characters SET ref_image_path=? WHERE id=?", (rel_path, char_id))
+    seed = int(character["seed"]) + style_seed_offset(style_key) + attempts * RETRY_SEED_STRIDE
+    rel_path = f"characters/{char_id}-{style_key}.png"
+    render_t2i(prompt, seed, IMAGES_DIR / rel_path, steps=REF_STEPS)
+
+    if ref_row:
+        conn.execute(
+            "UPDATE character_style_refs SET image_path=?, qc_status=NULL, qc_note=NULL WHERE id=?",
+            (rel_path, ref_row["id"]),
+        )
+    else:
+        conn.execute(
+            """INSERT INTO character_style_refs (character_id, style_key, image_path, created_at)
+               VALUES (?, ?, ?, unixepoch())""",
+            (char_id, style_key, rel_path),
+        )
+    # Keep the legacy default pointer for pre-style code paths.
+    if style_key == DEFAULT_STYLE:
+        conn.execute("UPDATE characters SET ref_image_path=? WHERE id=?", (rel_path, char_id))
     conn.commit()
 
 
@@ -165,7 +212,9 @@ def run_story_image(conn, payload: dict) -> None:
     story_id = int(payload["storyId"])
     page_index = int(payload["pageIndex"])
     page = conn.execute(
-        "SELECT id, illustration_prompt FROM story_pages WHERE story_id=? AND page_index=?",
+        """SELECT p.id, p.illustration_prompt, p.render_attempts, s.style
+           FROM story_pages p JOIN stories s ON s.id = p.story_id
+           WHERE p.story_id=? AND p.page_index=?""",
         (story_id, page_index),
     ).fetchone()
     if page is None:
@@ -178,28 +227,43 @@ def run_story_image(conn, payload: dict) -> None:
     if character is None:
         raise RuntimeError(f"story {story_id} has no character")
 
-    seed = int(character["seed"]) * 1000 + page_index
+    style_key = page["style"] if page["style"] in STYLE_PACKS else DEFAULT_STYLE
+    seed = (
+        int(character["seed"]) * 1000
+        + page_index
+        + int(page["render_attempts"]) * RETRY_SEED_STRIDE
+    )
     rel_path = f"stories/{story_id}/page-{page_index}.png"
     out = IMAGES_DIR / rel_path
 
-    ref = IMAGES_DIR / character["ref_image_path"] if character["ref_image_path"] else None
+    # Reference for THIS style; a mismatched-style ref would fight the prompt.
+    style_ref = conn.execute(
+        "SELECT image_path FROM character_style_refs WHERE character_id=? AND style_key=? AND image_path IS NOT NULL",
+        (character["id"], style_key),
+    ).fetchone()
+    ref_rel = style_ref["image_path"] if style_ref else (
+        character["ref_image_path"] if style_key == DEFAULT_STYLE else None
+    )
+    ref = IMAGES_DIR / ref_rel if ref_rel else None
+
     if ref is not None and ref.exists():
         prompt = (
             f"Redraw the character from the reference image in a new scene, keeping their "
-            f"appearance, outfit and art style exactly the same. {STYLE_BLOCK} "
+            f"appearance, outfit and art style exactly the same. {style_block(style_key)} "
             f"Scene: {page['illustration_prompt']}"
         )
         render_with_reference(prompt, seed, ref, out)
     else:
-        # No reference yet — fall back to appearance-prompt discipline.
+        # No style ref (its render failed) — appearance-prompt discipline keeps
+        # the style right even if the character drifts slightly across pages.
         prompt = (
-            f"{STYLE_BLOCK} The main character: {character['appearance_desc']}. "
+            f"{style_block(style_key)} The main character: {character['appearance_desc']}. "
             f"Scene: {page['illustration_prompt']}"
         )
         render_t2i(prompt, seed, out)
 
     conn.execute(
-        "UPDATE story_pages SET image_path=?, image_status='done' WHERE id=?",
+        "UPDATE story_pages SET image_path=?, image_status='done', qc_status=NULL, qc_note=NULL WHERE id=?",
         (rel_path, page["id"]),
     )
     conn.commit()

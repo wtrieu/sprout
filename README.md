@@ -3,7 +3,10 @@
 Self-hosted family companion on the Mac mini. Two halves, one age engine:
 
 - **Research copilot** — age-aware, citation-first RAG over authoritative pediatric
-  sources (CDC, WHO, PubMed, MedlinePlus). Low touch: a nightly crawler ingests and
+  sources (CDC, WHO, PubMed, MedlinePlus). Ask routes each question to what it
+  needs — corpus retrieval (hybrid dense+BM25 with a relevance floor), the
+  child's own growth math, the CDC milestone checklist, or the journal — and
+  follows conversation history. Low touch: a nightly crawler ingests and
   auto-classifies new material, a weekly digest email arrives Sunday morning, and
   newly discovered sources queue for one-click approval.
 - **Storybook & activities** — locally generated bedtime stories (qwen3 text +
@@ -24,6 +27,14 @@ on Claude for a quality lift:
   models a skill from the child's current milestone bucket.
 - **Research briefs** (`/research`) — deep dive on one topic: corpus sweep +
   live PubMed search, synthesized with citations.
+- **Journal** (`/journal`) — persistent facts about the child: quick notes,
+  current loves, milestone checklist, measurement history. Auto-fed nightly by
+  extracting stated facts from chat questions; personalizes stories,
+  activities, visit briefs, and the digest.
+- **Daily surprise story** — the nightly pipeline plans one story per day
+  (skipped if you made one yourself): least-recently-used style and character,
+  a frontier milestone theme, seasonal flavor. Disable with
+  `SPROUT_DAILY_STORY=false`.
 - **RAG eval** — `pnpm --filter web run eval:rag [n]` generates questions from
   the corpus, runs the production qwen3 pipeline, and has Claude judge citation
   faithfulness (report in `data/evals/`). Requires the API key.
@@ -63,6 +74,28 @@ brew install uv
 cd services/imagegen && uv sync
 uv run gen_reference.py "a cheerful toddler with..." /tmp/test.png   # downloads weights, ~10min first run
 ```
+
+## Illustration styles & visual QC
+
+Stories pick from 8 art-direction packs (`apps/web/src/lib/stylePacks.json` —
+shared with the image worker); each (character, style) pair gets its own
+reference sheet so ref-conditioned pages stay on-style. After every image
+batch the orchestrator grades renders with a local VLM (anatomy, garbled
+areas, stray text) and re-rolls failed seeds, bounded at 2 retries. Enable QC
+with:
+
+```bash
+ollama pull qwen2.5vl:7b        # ~6GB; QC is skipped gracefully if absent
+```
+
+If the configured VLM isn't pulled, QC falls back to `gemma3:12b` when
+present (also multimodal). Expect gross defects (stray text, garbled regions,
+wrong limb counts) to be caught; borderline soft anatomy can slip past small
+vision models.
+
+Reference sheets render at `SPROUT_IMAGE_REF_STEPS` (default 10) and pages at
+`SPROUT_IMAGE_STEPS` (default 6) — raise them if quality matters more than
+batch time.
 
 ## Jobs & automation
 

@@ -26,10 +26,11 @@ export const summarizeConcernThemes = async (
   recentQuestions: string[],
   concerns: string | undefined,
   months: number,
+  journalNotes: string[] = [],
 ): Promise<VisitTheme[]> => {
-  if (recentQuestions.length === 0 && !concerns) return [];
+  if (recentQuestions.length === 0 && !concerns && journalNotes.length === 0) return [];
   const { themes } = await callClaudeJson(
-    `A parent of a ${formatAge(months)}-old is preparing for a pediatrician visit. Below are questions they researched recently, plus anything they typed in for this visit. Group them into at most 6 themes worth raising with the doctor.
+    `A parent of a ${formatAge(months)}-old is preparing for a pediatrician visit. Below are questions they researched recently, journal notes about the child, plus anything they typed in for this visit. Group them into at most 6 themes worth raising with the doctor.
 
 Rules:
 - A theme must be backed by the input — never invent a worry the parent didn't express.
@@ -43,6 +44,9 @@ Output: {"themes":[{"theme":"Early-morning waking and nap transition","evidence"
 
 RECENT QUESTIONS (newest first):
 ${recentQuestions.length > 0 ? recentQuestions.map((q) => `- ${q.slice(0, 200)}`).join("\n") : "(none)"}
+
+JOURNAL NOTES (recent facts about the child):
+${journalNotes.length > 0 ? journalNotes.map((n) => `- ${n}`).join("\n") : "(none)"}
 
 TYPED CONCERNS FOR THIS VISIT:
 ${concerns ?? "(none)"}

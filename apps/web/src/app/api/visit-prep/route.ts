@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db/client";
-import { children, chatMessages, milestones, visitPreps } from "@/db/schema";
+import { children, chatMessages, journalEntries, milestones, visitPreps } from "@/db/schema";
+import { journalContext } from "@/lib/skills/journal";
 import { ageInMonths, ageInDays } from "@/lib/age";
 import { growthPercentile, type Sex } from "@/lib/growth";
 import { claudeAvailable } from "@/lib/claude";
@@ -86,6 +87,17 @@ export const POST = async (req: NextRequest) => {
       );
   }
 
+  // Trend lines from journaled measurements — the growth picture over time.
+  const journal = journalContext(db);
+  for (const m of journal.measurements.slice(-3)) {
+    const d = m.data as { weightKg?: number; lengthCm?: number };
+    if (d.weightKg || d.lengthCm) {
+      growthLines.push(
+        `Previously at ${m.ageMonths}mo: ${[d.weightKg ? `${d.weightKg} kg` : null, d.lengthCm ? `${d.lengthCm} cm` : null].filter(Boolean).join(", ")}`,
+      );
+    }
+  }
+
   // Milestone frontier: the checklist bucket at/below the current age plus the
   // next one up (same windowing as the weekly activities generator).
   const bucket = db.get<{ age: number } | undefined>(
@@ -117,7 +129,7 @@ export const POST = async (req: NextRequest) => {
   // Decomposed pipeline (see lib/skills/visitPrep.ts): each step is a small
   // structured call a local model handles reliably; the document is assembled
   // in code. Growth stays fully computed — the model never touches numbers.
-  const themes = await summarizeConcernThemes(recentQuestions, concerns, months);
+  const themes = await summarizeConcernThemes(recentQuestions, concerns, months, journal.recentNotes);
   const talkingPoints = await pickTalkingPoints(relevantMilestones, months);
   const questions = await draftDoctorQuestions({ months, themes, growthLines, concerns });
   const snapshot = await writeSnapshot({
@@ -142,6 +154,19 @@ export const POST = async (req: NextRequest) => {
     })
     .returning()
     .get();
+
+  // Log today's measurements so future briefs (and the journal) show trends.
+  if (weightKg || lengthCm || hcCm) {
+    db.insert(journalEntries)
+      .values({
+        childId: child.id,
+        kind: "measurement",
+        content: `Measured: ${[weightKg ? `${weightKg} kg` : null, lengthCm ? `${lengthCm} cm` : null, hcCm ? `HC ${hcCm} cm` : null].filter(Boolean).join(", ")}`,
+        data: { sex, weightKg, lengthCm, hcCm },
+        ageMonths: months,
+      })
+      .run();
+  }
 
   return NextResponse.json({ brief });
 };

@@ -4,8 +4,13 @@ import { db } from "@/db/client";
 import { children, chatSessions, chatMessages } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { ageInMonths } from "@/lib/age";
-import { retrieve, toCitations, buildChatPrompt } from "@/lib/rag";
-import { callOllamaText } from "@/lib/ollama";
+import {
+  routeIntents,
+  buildAskContext,
+  composeAnswer,
+  sessionHistory,
+  type Turn,
+} from "@/lib/skills/ask";
 import { isLocked } from "@/lib/jobs";
 
 const BodySchema = z.object({
@@ -35,6 +40,7 @@ export const POST = async (req: NextRequest) => {
   const months = ageInMonths(child.dob);
 
   let sessionId = body.data.sessionId;
+  let history: Turn[] = [];
   if (!sessionId) {
     const session = db
       .insert(chatSessions)
@@ -44,14 +50,21 @@ export const POST = async (req: NextRequest) => {
     sessionId = session.id;
   } else if (!db.select().from(chatSessions).where(eq(chatSessions.id, sessionId)).get()) {
     return NextResponse.json({ error: "unknown session" }, { status: 404 });
+  } else {
+    history = sessionHistory(db, sessionId);
   }
 
   db.insert(chatMessages)
     .values({ sessionId, role: "user", content: body.data.question })
     .run();
 
-  const retrieved = await retrieve(db, body.data.question, months, 8);
-  if (retrieved.length === 0) {
+  // Agentic path (lib/skills/ask.ts): classify what the question needs, build
+  // that context deterministically (growth math, milestones, journal, corpus),
+  // compose with conversation history so follow-ups work.
+  const routed = await routeIntents(body.data.question, history);
+  const ctx = await buildAskContext(db, body.data.question, routed, months, child.dob);
+
+  if (ctx.blocks.length === 0 && ctx.retrieved.length === 0) {
     const msg =
       "I don't have any sourced material covering that yet. The corpus grows as the nightly crawler runs — or add a source on the Sources page.";
     db.insert(chatMessages)
@@ -60,13 +73,15 @@ export const POST = async (req: NextRequest) => {
     return NextResponse.json({ sessionId, answer: msg, citations: [] });
   }
 
-  const prompt = buildChatPrompt(body.data.question, months, retrieved, child.name);
-  // 8 chunks of context easily exceeds Ollama's default 4096 num_ctx, which
-  // truncates silently from the front — the rules and question survive but
-  // early context chunks vanish. Size the window to the actual prompt.
-  const answer = await callOllamaText(prompt, { temperature: 0.3, numCtx: 12288 });
+  const answer = await composeAnswer({
+    question: body.data.question,
+    months,
+    childName: child.name,
+    history,
+    ctx,
+  });
   // Citations always come from retrieval metadata, never model output.
-  const citations = toCitations(retrieved);
+  const citations = ctx.citations;
 
   db.insert(chatMessages)
     .values({ sessionId, role: "assistant", content: answer, citations })

@@ -5,6 +5,7 @@ import { db } from "@/db/client";
 import { stories, characters, children } from "@/db/schema";
 import { enqueue } from "@/lib/jobs";
 import { ageInMonths } from "@/lib/age";
+import { resolveStyle, ensureStyleRef } from "@/lib/styles";
 
 export const GET = () => {
   const rows = db
@@ -13,6 +14,7 @@ export const GET = () => {
       title: stories.title,
       prompt: stories.prompt,
       status: stories.status,
+      style: stories.style,
       pageCount: stories.pageCount,
       createdAt: stories.createdAt,
       characterName: characters.name,
@@ -28,6 +30,8 @@ const PostSchema = z.object({
   characterId: z.number().int(),
   prompt: z.string().min(3).max(500),
   pageCount: z.number().int().min(4).max(12).default(8),
+  // Style-pack key; absent or "surprise" → random pack.
+  style: z.string().optional(),
 });
 
 export const POST = async (req: NextRequest) => {
@@ -46,18 +50,21 @@ export const POST = async (req: NextRequest) => {
     .get();
   if (!character) return NextResponse.json({ error: "unknown character" }, { status: 404 });
 
+  const style = resolveStyle(body.data.style);
   const story = db
     .insert(stories)
     .values({
       childId: child.id,
       characterId: character.id,
       prompt: body.data.prompt,
+      style,
       ageMonths: ageInMonths(child.dob),
       pageCount: body.data.pageCount,
     })
     .returning()
     .get();
 
+  ensureStyleRef(db, character.id, style);
   enqueue(db, { type: "story_text", lane: "llm", payload: { storyId: story.id }, priority: 10 });
   return NextResponse.json({ story });
 };

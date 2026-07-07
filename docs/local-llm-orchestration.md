@@ -30,6 +30,18 @@ frontier model's taste is baked in even when it's gone.
 | Research briefs | ① sub-query plan ② findings extraction per ≤4-source batch (source index attached at birth) ③④⑤ three sections written from findings only | dedupe/rank retrieval, `[n]` range validation, assembly |
 | RAG eval | ① one eval question per chunk ② claim extraction from answer ③ per-claim verification against context ④ hedging check | retrieval-hit, verdict roll-up (faithful = zero unsupported claims), report |
 | Corpus audit | re-grade / staleness / suggestion review in batches of ≤8-10 docs | batching, report; always report-only |
+| Agentic Ask | ① intent classification (research/growth/milestones/journal) ② final composition with conversation history | growth percentiles, milestone checklist, and journal blocks built deterministically; citations from retrieval only |
+| Editorial planner | ① one story outline from chosen ingredients | style/character/theme chosen in code with variety memory; seasonal table authored; idempotent per day |
+| Image QC | ① targeted yes/no defect questions per render (VLM) | verdict + retry policy in code; seeds re-rolled via render_attempts; bounded at 2 re-rolls |
+
+## Retrieval
+
+`retrieve()` is hybrid: dense cosine (nomic-embed) fused with in-memory BM25
+via reciprocal-rank fusion, then a calibrated cosine floor (0.48) drops
+matches the corpus plainly doesn't cover — an off-corpus question now gets an
+honest "no sources" instead of an answer synthesized from noise. Calibration
+data (this corpus): on-topic 0.55-0.69, adjacent 0.52-0.57, junk 0.42-0.44.
+Re-calibrate the floor if the embedding model changes.
 
 ## Quality levers (in `lib/ollama.ts` options)
 
