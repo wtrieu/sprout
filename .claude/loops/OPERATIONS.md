@@ -36,6 +36,9 @@ file wins.
   risk/rollback notes. Link related issues.
 - **If nothing actionable is found, end quietly.** Do not open empty PRs or
   "no findings today" issues. Silence is the success signal.
+- **Degrade gracefully.** If GitHub PR/issue tools are unavailable in your
+  session, push your branch (never `main`) and stop — describe the intended
+  PR/issue in your final message instead of improvising another channel.
 - **Time-box yourself.** Prefer finishing 1-2 solid PRs over starting five.
   Note anything you deliberately deferred in the PR/issue body so the next run
   can pick it up.
