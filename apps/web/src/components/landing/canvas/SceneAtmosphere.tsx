@@ -9,6 +9,7 @@ import { createSkyMaterial } from "../materials/skyMaterial";
 import { ParticleField } from "../particles/ParticleField";
 import { mergeGeometries } from "../lib/taperedTube";
 import { mulberry32, rangeFrom } from "../lib/rng";
+import { backdropState } from "./BackdropPlane";
 
 type BeatColors = {
   fog: THREE.Color;
@@ -82,9 +83,9 @@ export function SceneAtmosphere() {
   );
   const hillBands = useMemo(
     () => [
-      { geo: makeHillBand(11, 42, 4.4), mat: new THREE.MeshBasicMaterial() },
-      { geo: makeHillBand(23, 58, 6.2), mat: new THREE.MeshBasicMaterial() },
-      { geo: makeHillBand(37, 78, 8.8), mat: new THREE.MeshBasicMaterial() },
+      { geo: makeHillBand(11, 42, 4.4), mat: new THREE.MeshBasicMaterial({ transparent: true }) },
+      { geo: makeHillBand(23, 58, 6.2), mat: new THREE.MeshBasicMaterial({ transparent: true }) },
+      { geo: makeHillBand(37, 78, 8.8), mat: new THREE.MeshBasicMaterial({ transparent: true }) },
     ],
     [],
   );
@@ -139,6 +140,14 @@ export function SceneAtmosphere() {
       keyRef.current.position.set(tmpDir.x * 30, Math.max(6, tmpDir.y * 30), tmpDir.z * 30);
     }
 
+    // how much of the current view is covered by a painted backdrop —
+    // procedural clouds and hills bow out where a painting has taken over
+    const painted = THREE.MathUtils.lerp(
+      backdropState.loaded[i] ? 1 : 0,
+      backdropState.loaded[i + 1] ? 1 : 0,
+      f,
+    );
+
     const sky = skyMaterial.uniforms;
     (sky.uTop.value as THREE.Color).lerpColors(a.skyTop, b.skyTop, f);
     (sky.uBottom.value as THREE.Color).lerpColors(a.skyBottom, b.skyBottom, f);
@@ -148,7 +157,8 @@ export function SceneAtmosphere() {
     (sky.uSunDir.value as THREE.Vector3).lerpVectors(a.sunDir, b.sunDir, f);
     sky.uSunSize.value = THREE.MathUtils.lerp(beatA.sunSize, beatB.sunSize, f);
     sky.uHaloStrength.value = THREE.MathUtils.lerp(beatA.halo, beatB.halo, f);
-    sky.uCloudAmount.value = THREE.MathUtils.lerp(beatA.cloudAmount, beatB.cloudAmount, f);
+    sky.uCloudAmount.value =
+      THREE.MathUtils.lerp(beatA.cloudAmount, beatB.cloudAmount, f) * (1 - painted);
     sky.uTime.value = state.clock.elapsedTime;
     if (skyRef.current) skyRef.current.position.copy(state.camera.position);
 
@@ -156,10 +166,11 @@ export function SceneAtmosphere() {
 
     // hills take a silhouette tone between fog and sky-bottom, deeper per band
     if (hillsRef.current) {
-      hillsRef.current.visible = x > 1.55;
+      hillsRef.current.visible = x > 1.55 && painted < 0.98;
       tmpColor.lerpColors(a.fog, b.fog, f);
       const skyBottomNow = skyMaterial.uniforms.uBottom.value as THREE.Color;
       hillBands.forEach((band, bi) => {
+        band.mat.opacity = 1 - painted;
         band.mat.color
           .copy(tmpColor)
           .lerp(skyBottomNow, 0.14 + bi * 0.14)
@@ -172,8 +183,8 @@ export function SceneAtmosphere() {
     <>
       <ambientLight ref={ambientRef} intensity={0.4} />
       <directionalLight ref={keyRef} position={[6, 18, 8]} intensity={0.6} />
-      {/* sky dome follows the camera */}
-      <mesh ref={skyRef} material={skyMaterial} frustumCulled={false}>
+      {/* sky dome follows the camera; painted backdrops draw over it at renderOrder -1 */}
+      <mesh ref={skyRef} material={skyMaterial} renderOrder={-2} frustumCulled={false}>
         <sphereGeometry args={[110, 32, 20]} />
       </mesh>
       {/* rolling ground + hill silhouettes */}

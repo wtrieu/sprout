@@ -6,6 +6,7 @@ import { AdaptiveDpr, PerformanceMonitor } from "@react-three/drei";
 import { QualityContext, QUALITY_PRESETS, type Quality } from "../hooks/quality";
 import { CameraRig } from "./CameraRig";
 import { SceneAtmosphere } from "./SceneAtmosphere";
+import { BackdropPlane } from "./BackdropPlane";
 import { Effects } from "../post/Effects";
 
 /**
@@ -64,6 +65,7 @@ export function CanvasRoot({
               <Suspense fallback={null}>
                 <CameraRig />
                 <SceneAtmosphere />
+                <BackdropPlane />
                 {children}
                 {quality.post && <Effects />}
               </Suspense>
@@ -80,6 +82,7 @@ export function CanvasRoot({
                 <Suspense fallback={null}>
                   <CameraRig />
                   <SceneAtmosphere />
+                  <BackdropPlane />
                   {children}
                   {quality.post && <Effects />}
                 </Suspense>
