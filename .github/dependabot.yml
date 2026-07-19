@@ -1,0 +1,46 @@
+version: 2
+updates:
+  # pnpm workspace (root lockfile covers apps/web)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "America/Los_Angeles"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+
+  # Python image worker (uv-managed)
+  - package-ecosystem: "uv"
+    directory: "/services/imagegen"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "America/Los_Angeles"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+
+  # Keep workflow actions current
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "America/Los_Angeles"
+    labels:
+      - "dependencies"
