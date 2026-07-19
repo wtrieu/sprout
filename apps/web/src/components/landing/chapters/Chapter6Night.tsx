@@ -7,33 +7,46 @@ import { ParticleField } from "../particles/ParticleField";
 import { SEGMENTS } from "./chapterConfig";
 import { Lanterns } from "../vignettes/Lanterns";
 import { ShootingStars } from "../vignettes/ShootingStars";
+import { Fireworks } from "../vignettes/Fireworks";
 
-/** Points tracing the ❋ glyph — the brand as a constellation. */
+/**
+ * Points tracing a sprouting seed — the whole story drawn in stars:
+ * seed shell below, stem rising, two young leaves unfurling.
+ */
 function makeGlyphPositions(center: THREE.Vector3, size: number): Float32Array {
   const pts: number[] = [];
-  const spokes = 6;
-  const perSpoke = 13;
-  for (let s = 0; s < spokes; s++) {
-    const angle = (s / spokes) * Math.PI * 2 + Math.PI / 2;
-    for (let i = 1; i <= perSpoke; i++) {
-      const t = i / perSpoke;
-      // teardrop spoke: slight width at the middle
-      const w = Math.sin(t * Math.PI) * size * 0.06;
-      const jitterA = (Math.random() - 0.5) * w * 2;
-      const r = t * size;
-      pts.push(
-        center.x + Math.cos(angle) * r + Math.cos(angle + Math.PI / 2) * jitterA,
-        center.y + Math.sin(angle) * r + Math.sin(angle + Math.PI / 2) * jitterA,
-        center.z + (Math.random() - 0.5) * 0.15,
-      );
-    }
-  }
-  for (let i = 0; i < 8; i++) {
+  const push = (v: THREE.Vector3, jitter = 0.045) => {
     pts.push(
-      center.x + (Math.random() - 0.5) * size * 0.16,
-      center.y + (Math.random() - 0.5) * size * 0.16,
-      center.z + (Math.random() - 0.5) * 0.1,
+      center.x + v.x * size + (Math.random() - 0.5) * jitter * size,
+      center.y + v.y * size + (Math.random() - 0.5) * jitter * size,
+      center.z + (Math.random() - 0.5) * 0.15,
     );
+  };
+  const sample = (curve: THREE.Curve<THREE.Vector3>, n: number) => {
+    for (const p of curve.getPoints(n)) push(p);
+  };
+  const v = (x: number, y: number) => new THREE.Vector3(x, y, 0);
+
+  // the seed: a plump teardrop shell, cracked open at the top
+  for (let i = 0; i <= 14; i++) {
+    const a = (i / 14) * Math.PI * 1.72 + Math.PI * 0.63;
+    pts.push(
+      center.x + Math.cos(a) * 0.3 * size,
+      center.y + (Math.sin(a) * 0.38 - 0.85) * size,
+      center.z + (Math.random() - 0.5) * 0.12,
+    );
+  }
+  // the stem: one hopeful curve out of the crack
+  sample(new THREE.QuadraticBezierCurve3(v(0, -0.52), v(0.14, 0.05), v(0.02, 0.55)), 13);
+  // left leaf, the bigger one
+  sample(new THREE.QuadraticBezierCurve3(v(0.0, 0.3), v(-0.55, 0.42), v(-0.62, 0.86)), 9);
+  sample(new THREE.QuadraticBezierCurve3(v(-0.62, 0.86), v(-0.22, 0.78), v(0.02, 0.55)), 9);
+  // right leaf, the younger one
+  sample(new THREE.QuadraticBezierCurve3(v(0.02, 0.55), v(0.45, 0.62), v(0.5, 0.95)), 8);
+  sample(new THREE.QuadraticBezierCurve3(v(0.5, 0.95), v(0.18, 0.9), v(0.02, 0.72)), 8);
+  // a little starlight caught inside the seed
+  for (let i = 0; i < 6; i++) {
+    push(v((Math.random() - 0.5) * 0.3, -0.85 + (Math.random() - 0.5) * 0.35), 0.02);
   }
   return new Float32Array(pts);
 }
@@ -45,7 +58,7 @@ function makeGlyphPositions(center: THREE.Vector3, size: number): Float32Array {
  */
 export function Chapter6Night() {
   const glyphPositions = useMemo(
-    () => makeGlyphPositions(new THREE.Vector3(0, 17.2, -3.5), 2.1),
+    () => makeGlyphPositions(new THREE.Vector3(0, 19.4, -3.5), 1.85),
     [],
   );
 
@@ -53,6 +66,7 @@ export function Chapter6Night() {
     <ChapterGroup beat={6} span={2.2}>
       <Lanterns />
       <ShootingStars />
+      <Fireworks />
       {/* fireflies — slow amber wanderers with soft pulse */}
       <ParticleField
         count={230}

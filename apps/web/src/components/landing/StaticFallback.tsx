@@ -6,8 +6,8 @@ import { COPY } from "./landingCopy";
 
 /** Palette journey as CSS gradients — soil → rain → dawn → green → gold → night. */
 const BANDS: Record<string, string> = {
-  hero: "from-[#0c0a09] via-[#171009] to-[#171009]",
-  roots: "from-[#171009] via-[#241609] to-[#141d29]",
+  hero: "from-[#120e2e] via-[#33245c] to-[#1e1432]",
+  roots: "from-[#1e1432] via-[#3a2352] to-[#141d29]",
   rain: "from-[#141d29] via-[#1e2c3d] to-[#2b1f12]",
   sprout: "from-[#2b1f12] via-[#5c3a14] to-[#132116]",
   sapling: "from-[#132116] via-[#27401f] to-[#2e2110]",

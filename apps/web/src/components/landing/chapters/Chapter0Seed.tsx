@@ -1,56 +1,70 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { useFrame } from "@react-three/fiber";
-import { createSeedMaterial } from "../materials/seedMaterial";
 import { ChapterGroup } from "../canvas/ChapterGroup";
 import { ParticleField } from "../particles/ParticleField";
 import { SEGMENTS } from "./chapterConfig";
 import { Mycelium } from "../vignettes/Mycelium";
+import { WishSeed } from "../vignettes/WishSeed";
 
-/** Hero — a single glowing seed asleep in deep soil. */
+/**
+ * Hero — a wish drifting through the twilight underground. Luminous glass
+ * seed, pastel bokeh, spore-lights rising: the story's first breath.
+ */
 export function Chapter0Seed() {
-  const material = useMemo(() => createSeedMaterial(), []);
-  const seedRef = useRef<THREE.Mesh>(null);
-
-  useEffect(() => () => material.dispose(), [material]);
-
-  useFrame((state) => {
-    material.uniforms.uTime.value = state.clock.elapsedTime;
-    if (seedRef.current) {
-      seedRef.current.rotation.y = state.clock.elapsedTime * 0.08;
-    }
-  });
-
   return (
     <ChapterGroup beat={0} span={2.1}>
       <Mycelium />
-      <mesh
-        ref={seedRef}
-        material={material}
-        position={[0, -14.7, 0]}
-        rotation={[0.4, 0, 0.25]}
-        scale={[0.8, 1.05, 0.8]}
-      >
-        <icosahedronGeometry args={[0.85, 24]} />
-      </mesh>
-      {/* warm light the seed casts on the soil around it */}
-      <pointLight position={[0, -14.4, 0.6]} color="#f59e0b" intensity={5} distance={7} decay={2} />
-      {/* slow soil motes catching the seed light */}
+      <WishSeed position={[0, -14.05, 0]} />
+      {/* pastel bokeh — big soft out-of-focus lights, the KyoAni opening frame */}
       <ParticleField
-        count={750}
+        count={70}
+        center={[0, -13.6, 1]}
+        box={[20, 10, 9]}
+        color="#f0abfc"
+        color2="#fde68a"
+        size={30}
+        opacity={0.16}
+        additive
+        twinkle={0.35}
+        driftAmp={[0.5, 0.4, 0.3]}
+        driftFreq={0.12}
+        fadeFar={26}
+        opacityFn={(p) => 1 - THREE.MathUtils.smoothstep(p * SEGMENTS, 1.1, 1.9)}
+      />
+      {/* spore-lights drifting up like slow embers of a wish */}
+      <ParticleField
+        count={420}
         center={[0, -13.8, 0]}
-        box={[14, 8, 10]}
-        color="#c8863b"
-        color2="#6b4a26"
-        size={2.6}
-        opacity={0.55}
-        driftAmp={[0.25, 0.18, 0.2]}
-        driftFreq={0.35}
-        twinkle={0.25}
-        fadeFar={18}
-        opacityFn={(p) => 1 - THREE.MathUtils.smoothstep(p * SEGMENTS, 1.0, 1.8)}
+        box={[16, 9, 10]}
+        color="#a5f3fc"
+        color2="#f0abfc"
+        size={3}
+        opacity={0.7}
+        additive
+        twinkle={0.55}
+        fallSpeed={-0.32}
+        wrapY={[-18.5, -9.5]}
+        driftAmp={[0.35, 0.2, 0.3]}
+        driftFreq={0.3}
+        fadeFar={22}
+        opacityFn={(p) => 1 - THREE.MathUtils.smoothstep(p * SEGMENTS, 1.1, 1.9)}
+      />
+      {/* a few grander motes of gold dust */}
+      <ParticleField
+        count={130}
+        center={[0, -14, 2]}
+        box={[14, 8, 8]}
+        color="#fde68a"
+        color2="#fff7e0"
+        size={5}
+        opacity={0.5}
+        additive
+        twinkle={0.75}
+        driftAmp={[0.3, 0.25, 0.25]}
+        driftFreq={0.2}
+        fadeFar={22}
+        opacityFn={(p) => 1 - THREE.MathUtils.smoothstep(p * SEGMENTS, 1.2, 2.0)}
       />
     </ChapterGroup>
   );

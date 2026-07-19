@@ -3,14 +3,15 @@
 import { EffectComposer, Bloom, Vignette } from "@react-three/postprocessing";
 
 /**
- * Restrained post: bloom only catches emissives (seed core, god rays,
- * fireflies, the ❋), plus a gentle vignette. No DoF — it fights text legibility.
+ * KyoAni-soft post: a wide, gentle bloom that haloes every light source
+ * (wish-seed, lanterns, fireworks, doorways) without crushing the frame,
+ * plus a light vignette. No DoF — it fights text legibility.
  */
 export function Effects() {
   return (
     <EffectComposer multisampling={0}>
-      <Bloom mipmapBlur intensity={0.75} luminanceThreshold={0.78} luminanceSmoothing={0.2} />
-      <Vignette eskil={false} offset={0.18} darkness={0.62} />
+      <Bloom mipmapBlur intensity={0.62} luminanceThreshold={0.7} luminanceSmoothing={0.32} />
+      <Vignette eskil={false} offset={0.16} darkness={0.5} />
     </EffectComposer>
   );
 }

@@ -3,15 +3,21 @@
 import { ChapterGroup } from "../canvas/ChapterGroup";
 import { ParticleField } from "../particles/ParticleField";
 import { Butterflies } from "../vignettes/Butterflies";
+import { GrassField } from "../vignettes/GrassField";
+import { ForestBackdrop } from "../vignettes/ForestBackdrop";
+import { Campsite } from "../vignettes/Campsite";
 
 /**
- * Ch 4 — growing wild under a blue noon. The young tree is the TreeSystem
- * mid-growth; this chapter fills the air around it: pollen in the light,
- * dandelion seeds sailing up the breeze, butterflies looping the canopy.
+ * Ch 4 — a fairy-tale meadow under a soft anime noon: lush grass around the
+ * young tree, a storybook treeline behind, a family camping in the shade —
+ * pollen, dandelion seeds and butterflies filling the light between.
  */
 export function Chapter4Sapling() {
   return (
     <ChapterGroup beat={4} span={1.8}>
+      <GrassField />
+      <ForestBackdrop />
+      <Campsite />
       {/* pollen drifting in the sun shafts */}
       <ParticleField
         count={900}

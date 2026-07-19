@@ -43,8 +43,15 @@ export function Mycelium() {
       }
       bundles[i % 3].push(taperedTubeGeometry(pts, 0.028, 0.004, 0, 1, 14, 5));
     }
-    const materials = [0.25, 0.68, 1.05].map((phase) =>
-      createVineMaterial({ color: "#241a10", glow: "#e8b45a", phase, pulse: true }),
+    // three thread families, each pulsing its own colour of light —
+    // teal, rose and gold weaving through the twilight soil
+    const looms: Array<{ phase: number; glow: string }> = [
+      { phase: 0.25, glow: "#7de8d0" },
+      { phase: 0.68, glow: "#f0a6ca" },
+      { phase: 1.05, glow: "#ffd9a0" },
+    ];
+    const materials = looms.map((l) =>
+      createVineMaterial({ color: "#2a2244", glow: l.glow, phase: l.phase, pulse: true }),
     );
     const geometry = bundles.map((b) => {
       const merged = mergeGeometries(b);

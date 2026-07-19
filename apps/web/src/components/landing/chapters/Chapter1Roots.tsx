@@ -11,13 +11,13 @@ import { ParticleField } from "../particles/ParticleField";
 export function Chapter1Roots() {
   return (
     <ChapterGroup beat={1} span={1.8}>
-      <pointLight position={[0, -7.5, 2]} color="#fb923c" intensity={9} distance={14} decay={2} />
+      <pointLight position={[0, -7.5, 2]} color="#e8b45a" intensity={9} distance={14} decay={2} />
       <ParticleField
         count={340}
         center={[0, -8.5, 0]}
         box={[13, 13, 10]}
-        color="#fb923c"
-        color2="#7c3a12"
+        color="#ffd9a0"
+        color2="#b46ad4"
         size={2.4}
         opacity={0.5}
         additive

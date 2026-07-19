@@ -65,7 +65,7 @@ export function Preloader({ onDone }: { onDone?: () => void }) {
             strokeDashoffset="120"
           />
           {/* the seed */}
-          <ellipse data-seed cx="60" cy="146" rx="10" ry="12" fill="#3a2a1a" stroke="#f59e0b" strokeWidth="1.5" />
+          <ellipse data-seed cx="60" cy="146" rx="10" ry="12" fill="#2a2244" stroke="#c084fc" strokeWidth="1.5" />
           {/* the bloom */}
           <text
             data-glyph
