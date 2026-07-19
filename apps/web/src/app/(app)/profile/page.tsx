@@ -36,7 +36,7 @@ export default function ProfilePage() {
       setError(d.error ?? `Save failed (${res.status})`);
       return;
     }
-    router.push("/");
+    router.push("/home");
     router.refresh();
   };
 
