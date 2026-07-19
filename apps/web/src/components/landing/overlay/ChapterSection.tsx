@@ -87,8 +87,13 @@ export function ChapterSection({
     >
       <div
         data-content
-        className={`flex w-full max-w-2xl flex-col gap-5 px-6 ${ALIGN_CLASSES[copy.align]}`}
+        className={`relative flex w-full max-w-2xl flex-col gap-5 px-6 ${ALIGN_CLASSES[copy.align]}`}
       >
+        {/* soft scrim so copy stays legible over bright skies */}
+        <div
+          aria-hidden
+          className="absolute -inset-12 -z-10 rounded-[4rem] bg-neutral-950/30 blur-3xl"
+        />
         {copy.eyebrow ? (
           <p
             data-fade
@@ -129,18 +134,18 @@ export function ChapterSection({
             </p>
           </div>
         ) : null}
-        {copy.hint ? (
-          <div
-            data-fade
-            className="pointer-events-none absolute bottom-10 left-1/2 -translate-x-1/2 text-center"
-          >
-            <p className="text-xs uppercase tracking-[0.3em] text-neutral-500">{copy.hint}</p>
-            <div className="mx-auto mt-3 h-9 w-px overflow-hidden">
-              <div className="h-full w-full animate-pulse bg-gradient-to-b from-amber-400/0 via-amber-400 to-amber-400/0" />
-            </div>
-          </div>
-        ) : null}
       </div>
+      {copy.hint ? (
+        <div
+          data-fade
+          className="pointer-events-none absolute bottom-10 left-1/2 -translate-x-1/2 text-center"
+        >
+          <p className="text-xs uppercase tracking-[0.3em] text-neutral-500">{copy.hint}</p>
+          <div className="mx-auto mt-3 h-9 w-px overflow-hidden">
+            <div className="h-full w-full animate-pulse bg-gradient-to-b from-amber-400/0 via-amber-400 to-amber-400/0" />
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

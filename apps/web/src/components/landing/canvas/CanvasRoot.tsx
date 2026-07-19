@@ -49,7 +49,7 @@ export function CanvasRoot({
   return (
     <div className="fixed inset-0 z-0" aria-hidden>
       <Canvas
-        gl={{ antialias: false, powerPreference: "high-performance" }}
+        gl={{ antialias: true, powerPreference: "high-performance" }}
         dpr={quality.dpr}
         frameloop={manualLoop ? "never" : "always"}
         camera={{ fov: 45, near: 0.1, far: 160, position: [0, -15.5, 5.5] }}

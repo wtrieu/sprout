@@ -7,6 +7,7 @@ import { createSeedMaterial } from "../materials/seedMaterial";
 import { ChapterGroup } from "../canvas/ChapterGroup";
 import { ParticleField } from "../particles/ParticleField";
 import { SEGMENTS } from "./chapterConfig";
+import { Mycelium } from "../vignettes/Mycelium";
 
 /** Hero — a single glowing seed asleep in deep soil. */
 export function Chapter0Seed() {
@@ -23,7 +24,8 @@ export function Chapter0Seed() {
   });
 
   return (
-    <ChapterGroup beat={0} span={1.9}>
+    <ChapterGroup beat={0} span={2.1}>
+      <Mycelium />
       <mesh
         ref={seedRef}
         material={material}

@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import * as THREE from "three";
 import { ChapterGroup } from "../canvas/ChapterGroup";
 import { ParticleField } from "../particles/ParticleField";
 import { SEGMENTS } from "./chapterConfig";
+import { Lanterns } from "../vignettes/Lanterns";
+import { ShootingStars } from "../vignettes/ShootingStars";
 
 /** Points tracing the ❋ glyph — the brand as a constellation. */
 function makeGlyphPositions(center: THREE.Vector3, size: number): Float32Array {
@@ -36,58 +38,26 @@ function makeGlyphPositions(center: THREE.Vector3, size: number): Float32Array {
   return new Float32Array(pts);
 }
 
-/** Ch 6 + finale — under the canopy at night: fireflies, stars, the glowing ❋. */
+/**
+ * Ch 6 + finale — under the canopy at night. The tree's crown is overhead
+ * (TreeSystem); lanterns hang from its high branches, fireflies wander, a
+ * meteor slips by, and the ❋ blooms as a constellation for the CTA.
+ */
 export function Chapter6Night() {
   const glyphPositions = useMemo(
-    () => makeGlyphPositions(new THREE.Vector3(0, 19.6, -3), 2.1),
+    () => makeGlyphPositions(new THREE.Vector3(0, 17.2, -3.5), 2.1),
     [],
-  );
-
-  const { branches, branchMaterial } = useMemo(() => {
-    const branchMaterial = new THREE.MeshStandardMaterial({ color: "#0f0d16", roughness: 1 });
-    const branches: THREE.TubeGeometry[] = [];
-    // slim boughs arcing in from the frame's corners, leaving the sky open
-    for (let i = 0; i < 5; i++) {
-      const side = i % 2 === 0 ? 1 : -1;
-      const y = 20.5 + i * 1.1 + Math.random();
-      const points = [
-        new THREE.Vector3(side * (10 + Math.random() * 2), y - 2.5, -7 + Math.random() * 2),
-        new THREE.Vector3(side * 6, y - 0.8, -5 + Math.random()),
-        new THREE.Vector3(side * 3, y - 0.2 + Math.random() * 0.4, -4),
-        new THREE.Vector3(side * 0.5, y - 1 - Math.random(), -5.5),
-      ];
-      branches.push(
-        new THREE.TubeGeometry(
-          new THREE.CatmullRomCurve3(points),
-          28,
-          0.04 + Math.random() * 0.05,
-          5,
-          false,
-        ),
-      );
-    }
-    return { branches, branchMaterial };
-  }, []);
-
-  useEffect(
-    () => () => {
-      branches.forEach((b) => b.dispose());
-      branchMaterial.dispose();
-    },
-    [branches, branchMaterial],
   );
 
   return (
     <ChapterGroup beat={6} span={2.2}>
-      {/* branch silhouettes framing the sky */}
-      {branches.map((geo, i) => (
-        <mesh key={i} geometry={geo} material={branchMaterial} />
-      ))}
+      <Lanterns />
+      <ShootingStars />
       {/* fireflies — slow amber wanderers with soft pulse */}
       <ParticleField
         count={230}
-        center={[0, 16, -1]}
-        box={[18, 9, 13]}
+        center={[0, 11.5, 0]}
+        box={[18, 9, 14]}
         color="#fbbf24"
         color2="#f59e0b"
         size={5}
@@ -96,7 +66,7 @@ export function Chapter6Night() {
         twinkle={1}
         driftAmp={[0.9, 0.55, 0.7]}
         driftFreq={0.22}
-        fadeFar={40}
+        fadeFar={44}
         growBeat={6}
       />
       {/* the ❋ constellation, blooming for the finale */}
@@ -120,15 +90,15 @@ export function Chapter6Night() {
       {/* moonlit haze low over the canopy */}
       <ParticleField
         count={260}
-        center={[0, 13, -2]}
+        center={[0, 10, -2]}
         box={[22, 4, 14]}
         color="#93a6d4"
         color2="#3d4a77"
         size={9}
-        opacity={0.14}
+        opacity={0.13}
         driftAmp={[0.5, 0.15, 0.4]}
         driftFreq={0.15}
-        fadeFar={40}
+        fadeFar={44}
         growBeat={6}
       />
     </ChapterGroup>

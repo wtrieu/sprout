@@ -7,6 +7,7 @@ import { ChapterGroup } from "../canvas/ChapterGroup";
 import { ParticleField } from "../particles/ParticleField";
 import { createRippleMaterial } from "../materials/rippleMaterial";
 import { SEGMENTS } from "./chapterConfig";
+import { PaperBoat } from "../vignettes/PaperBoat";
 
 /** Ch 2 — first rain. Sources falling like water, ripples where they land. */
 export function Chapter2Rain() {
@@ -19,6 +20,7 @@ export function Chapter2Rain() {
 
   return (
     <ChapterGroup beat={2} span={1.8}>
+      <PaperBoat />
       {/* rain streaks */}
       <ParticleField
         count={2600}

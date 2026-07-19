@@ -15,6 +15,7 @@ import { Chapter3Sprout } from "./chapters/Chapter3Sprout";
 import { Chapter4Sapling } from "./chapters/Chapter4Sapling";
 import { Chapter5Bloom } from "./chapters/Chapter5Bloom";
 import { Chapter6Night } from "./chapters/Chapter6Night";
+import { TreeSystem } from "./tree/TreeSystem";
 import { QUALITY_PRESETS, type Tier } from "./hooks/quality";
 import { scrollState } from "./scroll/scrollState";
 import { SEGMENTS } from "./landingCopy";
@@ -48,6 +49,7 @@ export default function Experience({ tier }: { tier: Tier }) {
     <div className="relative">
       {pinnedBeat === null && <Preloader />}
       <CanvasRoot quality={QUALITY_PRESETS[tier]} manualLoop={pinnedBeat !== null}>
+        <TreeSystem />
         <Chapter0Seed />
         <Chapter1Roots />
         <Chapter2Rain />

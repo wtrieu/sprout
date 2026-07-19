@@ -9,6 +9,7 @@ import { createVineMaterial } from "../materials/vineMaterial";
 import { createGodRayMaterial } from "../materials/godRayMaterial";
 import { localProgress } from "./chapterConfig";
 import { scrollState } from "../scroll/scrollState";
+import { Butterflies } from "../vignettes/Butterflies";
 
 function makeLeafGeometry(): THREE.ShapeGeometry {
   const shape = new THREE.Shape();
@@ -155,6 +156,15 @@ export function Chapter3Sprout() {
           </mesh>
         ))}
       </group>
+      <ChapterGroup beat={3} span={1.05}>
+        <Butterflies
+          butterflies={[
+            { center: [0.8, 2.2, 1.5], radius: 1.5, colorA: "#fef3c7", colorB: "#fb923c" },
+            { center: [-1.2, 1.6, 0.5], radius: 1.2, colorA: "#ffe4e6", colorB: "#fb7185" },
+          ]}
+          scale={0.35}
+        />
+      </ChapterGroup>
       {/* dawn dust in the light */}
       <ParticleField
         count={500}

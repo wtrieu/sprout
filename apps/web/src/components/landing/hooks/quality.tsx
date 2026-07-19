@@ -15,7 +15,7 @@ export type Quality = {
 };
 
 export const QUALITY_PRESETS: Record<Tier, Quality> = {
-  high: { tier: "high", particleScale: 1, post: true, dpr: [1, 1.75] },
+  high: { tier: "high", particleScale: 1, post: true, dpr: [1, 2] },
   mid: { tier: "mid", particleScale: 0.6, post: true, dpr: [1, 1.5] },
   low: { tier: "low", particleScale: 0.35, post: false, dpr: [1, 1] },
 };
