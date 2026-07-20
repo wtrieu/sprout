@@ -1,12 +1,15 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import { scrollState } from "../../scroll/scrollState";
 import { SEGMENTS } from "../../chapters/chapterConfig";
 import { SCENES, type ParticleRecipe } from "../../chapters/layerManifest";
 import { ParticleField } from "../../particles/ParticleField";
+import { LayerCard } from "./LayerCard";
+import { disposePool, sweepPool } from "./useSceneTextures";
+import { useQuality } from "../../hooks/quality";
 
 /**
  * Visibility-culls a subtree when the journey is far from its beat —
@@ -36,21 +39,48 @@ function RecipeField({ recipe }: { recipe: ParticleRecipe }) {
   return <ParticleField {...props} positions={built} />;
 }
 
+/** Once a second: release card textures whose beat has left the window. */
+function PoolSweeper() {
+  const { tier } = useQuality();
+  const nextSweep = useRef(0);
+  useFrame((state) => {
+    if (state.clock.elapsedTime < nextSweep.current) return;
+    nextSweep.current = state.clock.elapsedTime + 1;
+    sweepPool(THREE.MathUtils.clamp(scrollState.progress, 0, 1) * SEGMENTS, tier);
+  });
+  useEffect(() => () => disposePool(), []);
+  return null;
+}
+
 /**
- * The paper theater: every beat's particle weather (and, as art lands,
- * painted card layers) rendered from the layer manifest. Skies live in
- * SkyLayer; this owns everything staged inside the world.
+ * The paper theater: every beat's painted card layers and particle weather,
+ * rendered from the layer manifest. Skies live in SkyLayer; this owns
+ * everything staged inside the world.
  */
 export function SceneLayers() {
   return (
     <>
-      {SCENES.map((scene, beat) =>
-        scene.particles.map((recipe) => (
-          <BeatGroup key={`${scene.beatId}/${recipe.id}`} beat={beat} span={recipe.span ?? 1.8}>
-            <RecipeField recipe={recipe} />
-          </BeatGroup>
-        )),
-      )}
+      <PoolSweeper />
+      {SCENES.map((scene, beat) => (
+        <group key={scene.beatId}>
+          {scene.layers
+            .filter((l) => l.kind === "card")
+            .map((layer, idx) => (
+              <LayerCard
+                key={layer.id}
+                scene={scene}
+                layer={layer}
+                beat={beat}
+                renderOrder={idx}
+              />
+            ))}
+          {scene.particles.map((recipe) => (
+            <BeatGroup key={recipe.id} beat={beat} span={recipe.span ?? 1.8}>
+              <RecipeField recipe={recipe} />
+            </BeatGroup>
+          ))}
+        </group>
+      ))}
     </>
   );
 }

@@ -94,6 +94,25 @@ export const SCENES: BeatScene[] = [
     textSafe: "center",
     layers: [
       { id: "sky", kind: "sky", legacySrc: "/landing/backdrops/hero.webp" },
+      {
+        // drifting luminous mist between the wish and the painted deep
+        id: "mist",
+        kind: "card",
+        distance: 34,
+        coverage: 1.4,
+        opacity: 0.85,
+        motion: { type: "drift", amp: [0.015, 0.006], speed: 0.05 },
+      },
+      {
+        // gossamer root-threads framing the seed, swaying like kelp
+        id: "threads",
+        kind: "card",
+        cutout: true,
+        distance: 10,
+        coverage: 1.1,
+        motion: { type: "sway", amp: 0.06, freq: 0.5 },
+        minTier: "mid",
+      },
     ],
     particles: [
       {
@@ -161,6 +180,24 @@ export const SCENES: BeatScene[] = [
     textSafe: "left",
     layers: [
       { id: "sky", kind: "sky", legacySrc: "/landing/backdrops/roots.webp" },
+      {
+        // amber-lit root wall glowing through the dark soil
+        id: "glow",
+        kind: "card",
+        distance: 30,
+        coverage: 1.35,
+        motion: { type: "drift", amp: [0.008, 0.004], speed: 0.04 },
+      },
+      {
+        // near root/rock arch silhouette framing the copy from the right
+        id: "arch",
+        kind: "card",
+        cutout: true,
+        distance: 8,
+        offset: [1.5, 0],
+        coverage: 1.15,
+        minTier: "mid",
+      },
     ],
     particles: [
       {
@@ -189,6 +226,25 @@ export const SCENES: BeatScene[] = [
     textSafe: "right",
     layers: [
       { id: "sky", kind: "sky", legacySrc: "/landing/backdrops/rain.webp" },
+      {
+        // rain-hazed hills between the storm sky and the meadow's edge
+        id: "hills",
+        kind: "card",
+        distance: 38,
+        coverage: 1.35,
+        motion: { type: "drift", amp: [0.01, 0.003], speed: 0.03 },
+      },
+      {
+        // wet meadow edge in the near foreground, left side
+        id: "grass",
+        kind: "card",
+        cutout: true,
+        distance: 9,
+        offset: [-1.2, -1],
+        coverage: 0.9,
+        motion: { type: "sway", amp: 0.05, freq: 0.9 },
+        minTier: "mid",
+      },
     ],
     particles: [
       {
@@ -258,6 +314,27 @@ export const SCENES: BeatScene[] = [
     textSafe: "left",
     layers: [
       { id: "sky", kind: "sky", legacySrc: "/landing/backdrops/dawn.webp" },
+      {
+        // painted god-ray wash breathing over the sunrise
+        id: "rays",
+        kind: "card",
+        additive: true,
+        distance: 26,
+        coverage: 1.4,
+        opacity: 0.7,
+        motion: { type: "drift", amp: [0.02, 0.004], speed: 0.06 },
+      },
+      {
+        // the sprout itself on its soil ridge — the signature close-up
+        id: "sprout",
+        kind: "card",
+        cutout: true,
+        distance: 7,
+        offset: [1.6, -0.8],
+        coverage: 0.7,
+        motion: { type: "sway", amp: 0.03, freq: 0.7 },
+        minTier: "mid",
+      },
     ],
     particles: [
       {
@@ -287,6 +364,25 @@ export const SCENES: BeatScene[] = [
     textSafe: "right",
     layers: [
       { id: "sky", kind: "sky", legacySrc: "/landing/backdrops/noon.webp" },
+      {
+        // storybook treeline across the middle distance
+        id: "treeline",
+        kind: "card",
+        distance: 40,
+        coverage: 1.35,
+        motion: { type: "drift", amp: [0.006, 0.002], speed: 0.03 },
+      },
+      {
+        // lush meadow grass sweeping the near left
+        id: "meadow",
+        kind: "card",
+        cutout: true,
+        distance: 10,
+        offset: [-1.5, -1.2],
+        coverage: 1,
+        motion: { type: "sway", amp: 0.07, freq: 0.8 },
+        minTier: "mid",
+      },
     ],
     particles: [
       {
@@ -334,6 +430,25 @@ export const SCENES: BeatScene[] = [
     textSafe: "left",
     layers: [
       { id: "sky", kind: "sky", legacySrc: "/landing/backdrops/golden.webp" },
+      {
+        // violet golden-hour hills below the blooming canopy
+        id: "hills",
+        kind: "card",
+        distance: 40,
+        coverage: 1.35,
+        motion: { type: "drift", amp: [0.006, 0.002], speed: 0.025 },
+      },
+      {
+        // blossom branch framing from the upper right, petals on the breeze
+        id: "branch",
+        kind: "card",
+        cutout: true,
+        distance: 6,
+        offset: [2, 1.2],
+        coverage: 0.8,
+        motion: { type: "sway", amp: 0.05, freq: 0.6 },
+        minTier: "mid",
+      },
     ],
     particles: [
       {
@@ -383,6 +498,25 @@ export const SCENES: BeatScene[] = [
     textSafe: "center",
     layers: [
       { id: "sky", kind: "sky", legacySrc: "/landing/backdrops/night.webp" },
+      {
+        // canopy silhouettes against the starfield
+        id: "forest",
+        kind: "card",
+        distance: 36,
+        coverage: 1.4,
+        motion: { type: "drift", amp: [0.004, 0.002], speed: 0.02 },
+      },
+      {
+        // a string of paper lanterns bobbing overhead
+        id: "lanterns",
+        kind: "card",
+        cutout: true,
+        distance: 9,
+        offset: [0, 1],
+        coverage: 1,
+        motion: { type: "sway", amp: 0.03, freq: 0.4 },
+        minTier: "mid",
+      },
     ],
     particles: [
       {
@@ -445,6 +579,26 @@ export const SCENES: BeatScene[] = [
     textSafe: "center",
     layers: [
       { id: "sky", kind: "sky", dir: "night", legacySrc: "/landing/backdrops/night.webp" },
+      {
+        // the night forest again, nearer — deeper inside the canopy now
+        id: "forest",
+        kind: "card",
+        dir: "night",
+        distance: 22,
+        coverage: 1.5,
+        motion: { type: "drift", amp: [0.004, 0.002], speed: 0.02 },
+      },
+      {
+        // canopy frame with a glowing nook where the ❋ comes to rest
+        id: "canopy",
+        kind: "card",
+        cutout: true,
+        distance: 8,
+        offset: [0, 1.4],
+        coverage: 1.2,
+        motion: { type: "sway", amp: 0.02, freq: 0.35 },
+        minTier: "mid",
+      },
     ],
     particles: [],
   },
