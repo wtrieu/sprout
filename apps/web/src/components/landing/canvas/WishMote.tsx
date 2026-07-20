@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import { scrollState } from "../scroll/scrollState";
 import { BEATS, SEGMENTS } from "../chapters/chapterConfig";
+import { moteTarget } from "./moteTarget";
 
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -82,6 +83,7 @@ export function WishMote() {
   useEffect(() => () => material.dispose(), [material]);
 
   const pos = useMemo(() => new THREE.Vector3(), []);
+  const landPos = useMemo(() => new THREE.Vector3(), []);
 
   useFrame((state, delta) => {
     const mesh = meshRef.current;
@@ -95,18 +97,35 @@ export function WishMote() {
     const t = THREE.MathUtils.clamp(smoothed.current, 0, 1);
     curve.getPoint(t, pos);
 
-    // firefly drift
-    pos.x += Math.sin(time * 0.7) * 0.2 + Math.sin(time * 1.7) * 0.05;
-    pos.y += Math.sin(time * 0.9 + 1.7) * 0.16;
-    pos.z += Math.sin(time * 0.5 + 3.1) * 0.12;
+    const x = t * SEGMENTS;
+
+    // the finale: the wish descends and settles into the ❋ on the CTA
+    const landing = THREE.MathUtils.smoothstep(x, 6.4, 6.92);
+    const drift = 1 - landing;
+
+    // firefly drift, stilled as it comes in to land
+    pos.x += (Math.sin(time * 0.7) * 0.2 + Math.sin(time * 1.7) * 0.05) * drift;
+    pos.y += Math.sin(time * 0.9 + 1.7) * 0.16 * drift;
+    pos.z += Math.sin(time * 0.5 + 3.1) * 0.12 * drift;
+
+    if (landing > 0 && moteTarget.el) {
+      // project the button's viewport center onto a ray from the camera and
+      // land a fixed distance along it
+      const rect = moteTarget.el.getBoundingClientRect();
+      const nx = ((rect.left + rect.width / 2) / window.innerWidth) * 2 - 1;
+      const ny = -(((rect.top + rect.height / 2) / window.innerHeight) * 2 - 1);
+      landPos.set(nx, ny, 0.5).unproject(state.camera).sub(state.camera.position).normalize();
+      landPos.multiplyScalar(7).add(state.camera.position);
+      pos.lerp(landPos, landing);
+    }
 
     mesh.position.copy(pos);
     mesh.quaternion.copy(state.camera.quaternion);
-    const pulse = 1 + 0.12 * Math.sin(time * 2.3);
-    mesh.scale.setScalar(0.6 * pulse);
+    const pulse = 1 + 0.12 * Math.sin(time * 2.3) * drift;
+    // it settles smaller — a wish becoming a doorway's keyhole
+    mesh.scale.setScalar(THREE.MathUtils.lerp(0.6, 0.34, landing) * pulse);
 
     // accent tint lerped between beats
-    const x = t * SEGMENTS;
     const i = Math.min(SEGMENTS - 1, Math.floor(x));
     const f = THREE.MathUtils.smoothstep(x - i, 0, 1);
     (material.uniforms.uColor.value as THREE.Color).lerpColors(accents[i], accents[i + 1], f);

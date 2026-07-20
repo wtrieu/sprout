@@ -3,19 +3,32 @@
 import { useEffect, useRef } from "react";
 import Link from "next/link";
 import gsap from "gsap";
+import { moteTarget } from "../canvas/moteTarget";
 
 /** CTA that leans toward the cursor and springs back on leave. */
 export function MagneticButton({
   href,
   children,
   className = "",
+  isMoteTarget = false,
 }: {
   href: string;
   children: React.ReactNode;
   className?: string;
+  /** the wish-mote flies here for the finale */
+  isMoteTarget?: boolean;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!isMoteTarget) return;
+    const el = wrapRef.current;
+    moteTarget.el = el;
+    return () => {
+      if (moteTarget.el === el) moteTarget.el = null;
+    };
+  }, [isMoteTarget]);
 
   useEffect(() => {
     const wrap = wrapRef.current;
