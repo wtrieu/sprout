@@ -117,9 +117,10 @@ export function BackdropPlane() {
         },
       );
     });
+    const textureSlots = textures.current;
     return () => {
       loaded.forEach((t) => t.dispose());
-      textures.current.fill(null);
+      textureSlots.fill(null);
       backdropState.loaded.fill(false);
       backdropState.horizon.fill(null);
     };
