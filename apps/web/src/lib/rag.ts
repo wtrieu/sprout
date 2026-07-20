@@ -1,8 +1,49 @@
-import { inArray, or, and, gte, lte, isNull, eq, sql } from "drizzle-orm";
+import { inArray, or, and, gte, lte, isNull, sql } from "drizzle-orm";
 import type { DB } from "../db/client";
 import { chunks, documents, type Citation } from "../db/schema";
-import { embedOne, cosineTopK } from "./embeddings";
-import { ageWindow, formatAge } from "./age";
+import { embedOne, cosine, fromBuffer } from "./embeddings";
+import { ageWindow } from "./age";
+
+// Calibrated on this corpus (nomic-embed-text): on-topic chunks score
+// 0.55-0.69, topically-adjacent 0.52-0.57, unrelated junk 0.42-0.44. The
+// floor drops the junk so an off-corpus question gets an honest "no sources"
+// instead of an answer synthesized from noise.
+const COSINE_FLOOR = 0.48;
+const RRF_K = 60;
+
+const STOPWORDS = new Set(
+  "the a an and or but for nor of to in on at by with from as is are was were be been being do does did have has had how what when where why who which my our your his her its their this that these those it he she they them we you i".split(" "),
+);
+
+const tokenize = (text: string): string[] =>
+  text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
+
+/** Classic BM25 over an in-memory candidate set (k1=1.2, b=0.75). */
+const bm25Scores = (query: string, docs: string[]): number[] => {
+  const qTerms = [...new Set(tokenize(query))];
+  const docTokens = docs.map(tokenize);
+  const avgLen = docTokens.reduce((s, d) => s + d.length, 0) / Math.max(1, docTokens.length);
+  const df = new Map<string, number>();
+  for (const term of qTerms) {
+    df.set(term, docTokens.filter((d) => d.includes(term)).length);
+  }
+  const n = docs.length;
+  return docTokens.map((tokens) => {
+    const counts = new Map<string, number>();
+    for (const t of tokens) counts.set(t, (counts.get(t) ?? 0) + 1);
+    let score = 0;
+    for (const term of qTerms) {
+      const tf = counts.get(term) ?? 0;
+      if (tf === 0) continue;
+      const idf = Math.log(1 + (n - df.get(term)! + 0.5) / (df.get(term)! + 0.5));
+      score += (idf * tf * 2.2) / (tf + 1.2 * (0.25 + 0.75 * (tokens.length / avgLen)));
+    }
+    return score;
+  });
+};
 
 export type RetrievedChunk = {
   text: string;
@@ -53,12 +94,40 @@ export const retrieve = async (
     .where(inArray(chunks.documentId, [...docMeta.keys()]))
     .all();
 
+  // Hybrid ranking: dense cosine catches paraphrase, BM25 catches exact terms
+  // ("cow milk" beats generic nutrition); reciprocal-rank fusion combines the
+  // two orderings without score-scale juggling. The cosine floor then drops
+  // anything the corpus plainly doesn't cover.
   const queryVec = await embedOne(query);
-  return cosineTopK(queryVec, candidateChunks, k).map((c) => {
+  const scored = candidateChunks
+    .filter((c) => c.embedding !== null)
+    .map((c) => ({ ...c, cos: cosine(queryVec, fromBuffer(c.embedding as Buffer)) }));
+  const bm = bm25Scores(query, scored.map((c) => c.text));
+
+  const byCos = [...scored.keys()].sort((a, b) => scored[b].cos - scored[a].cos);
+  const byBm = [...scored.keys()].sort((a, b) => bm[b] - bm[a]);
+  const rrf = new Array<number>(scored.length).fill(0);
+  byCos.forEach((idx, rank) => (rrf[idx] += 1 / (RRF_K + rank)));
+  byBm.forEach((idx, rank) => (rrf[idx] += 1 / (RRF_K + rank)));
+  const byRrf = [...scored.keys()].sort((a, b) => rrf[b] - rrf[a]);
+
+  // Semantic recall floor: the top-3 pure-cosine chunks always make the cut —
+  // equal-weight fusion alone can let several keyword-matching mediocre chunks
+  // displace the semantically best one (measured via eval:rag). BM25 shapes
+  // the remaining slots.
+  const chosen: number[] = [];
+  for (const idx of [...byCos.slice(0, 3), ...byRrf]) {
+    if (chosen.includes(idx) || scored[idx].cos < COSINE_FLOOR) continue;
+    chosen.push(idx);
+    if (chosen.length === k) break;
+  }
+
+  return chosen.map((idx) => {
+    const c = scored[idx];
     const meta = docMeta.get(c.documentId)!;
     return {
       text: c.text,
-      score: c.score,
+      score: c.cos,
       docId: c.documentId,
       title: meta.title,
       url: meta.url,
@@ -83,29 +152,3 @@ export const toCitations = (retrieved: RetrievedChunk[]): Citation[] => {
   return out;
 };
 
-export const buildChatPrompt = (
-  question: string,
-  ageMonths: number,
-  retrieved: RetrievedChunk[],
-  childName: string,
-): string => {
-  const context = retrieved
-    .map((r, i) => `[${i + 1}] (${r.title})\n${r.text}`)
-    .join("\n\n---\n\n");
-
-  return `You are a careful parenting research assistant for a parent whose child, ${childName}, is ${formatAge(ageMonths)} old.
-
-Answer the parent's question using ONLY the sourced context below. Rules:
-- Ground every claim in the context; reference sources inline as [1], [2] etc.
-- If the context does not cover the question, say so plainly — do not invent guidance.
-- Where sources disagree, present both views.
-- Keep the answer practical and specific to a ${formatAge(ageMonths)}-old.
-- You are not a doctor; for anything symptom- or safety-critical, advise checking with a pediatrician.
-
-SOURCED CONTEXT:
-${context}
-
-QUESTION: ${question}
-
-Answer:`;
-};

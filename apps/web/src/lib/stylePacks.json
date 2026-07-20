@@ -1,0 +1,45 @@
+{
+  "_comment": "Single source of truth for illustration art direction. Read by the web app (lib/styles.ts) AND services/imagegen/worker.py — keep keys stable; adding packs is safe, renaming keys orphans existing rows. 'block' is FLUX-tuned rendering language appended to every prompt in that style.",
+  "packs": {
+    "watercolor": {
+      "name": "Classic watercolor",
+      "description": "Soft washes and gouache — the original Sprout look",
+      "block": "Children's picture book illustration, soft watercolor and gouache style, visible paper texture and gentle pigment blooms, warm golden-hour lighting, bright cheerful colors, simple uncluttered composition, rounded friendly shapes, cozy and calm bedtime mood. No text, no words, no letters."
+    },
+    "paper-collage": {
+      "name": "Paper collage",
+      "description": "Cut-and-torn paper layers, bold and tactile",
+      "block": "Children's picture book illustration in cut-paper collage style, layered torn and scissor-cut paper shapes with visible fiber edges and subtle drop shadows between layers, bold saturated construction-paper colors, flat graphic composition with one clear focal point, playful and warm mood. No text, no words, no letters."
+    },
+    "crayon": {
+      "name": "Crayon sketch",
+      "description": "Waxy hand-drawn strokes, like a well-loved coloring book",
+      "block": "Children's picture book illustration drawn in wax crayon, visible waxy stroke texture with paper white showing through, wobbly charming hand-drawn outlines, bright primary colors with soft scribbled fills, generous white space around a simple scene, joyful and innocent mood. No text, no words, no letters."
+    },
+    "gouache-night": {
+      "name": "Starry night gouache",
+      "description": "Deep blues and glowing lamplight — extra sleepy",
+      "block": "Children's picture book illustration in matte gouache, nighttime palette of deep indigo and slate blue with pools of warm amber lamplight and soft glowing stars, velvety flat paint texture, quiet minimal composition with lots of calm dark space, hushed dreamy bedtime mood. No text, no words, no letters."
+    },
+    "linocut": {
+      "name": "Storybook linocut",
+      "description": "Bold printmaking lines, limited earthy palette",
+      "block": "Children's picture book illustration in linocut print style, bold carved black outlines with visible print texture, limited palette of three or four warm earthy ink colors on cream paper, strong simple shapes and rhythmic carved patterns, folk-tale warmth, gentle sturdy mood. No text, no words, no letters."
+    },
+    "felt-world": {
+      "name": "Felt world",
+      "description": "Soft fabric diorama, everything looks huggable",
+      "block": "Children's picture book illustration styled as a handcrafted felt and fabric diorama, soft wool felt textures with visible stitching, plush rounded forms, pastel candy colors under soft even studio light, shallow depth like a shoebox stage, tender huggable mood. No text, no words, no letters."
+    },
+    "pencil-wash": {
+      "name": "Pencil & wash",
+      "description": "Delicate sketch lines with soft color tints",
+      "block": "Children's picture book illustration in soft pencil line and light watercolor wash, delicate expressive graphite outlines with loose pale color tints that escape the lines, generous white paper background, airy minimal composition, quiet gentle classic-storybook mood. No text, no words, no letters."
+    },
+    "retro-flat": {
+      "name": "Retro flat",
+      "description": "Mid-century flat shapes and cheerful limited palette",
+      "block": "Children's picture book illustration in mid-century retro flat style, simple geometric shapes with flat colors and no outlines, limited palette of mustard, teal, coral and cream, subtle screen-print grain texture, balanced poster-like composition, optimistic sunny mood. No text, no words, no letters."
+    }
+  }
+}

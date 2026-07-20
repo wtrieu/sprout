@@ -8,6 +8,34 @@
       "when": 1783116444849,
       "tag": "0000_fresh_slipstream",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783226189551,
+      "tag": "0001_loving_slayback",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783388029997,
+      "tag": "0002_broken_living_lightning",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1783394722649,
+      "tag": "0003_foamy_black_cat",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1783435602920,
+      "tag": "0004_magenta_maximus",
+      "breakpoints": true
     }
   ]
 }

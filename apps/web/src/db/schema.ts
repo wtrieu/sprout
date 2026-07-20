@@ -245,6 +245,71 @@ export const digests = sqliteTable("digests", {
   resendId: text("resend_id"),
 });
 
+// Longitudinal journal — the only place facts about the child persist.
+// Written by the parent (quick notes, milestone toggles, measurements) and by
+// nightly extraction from chat; read by stories, activities, visit prep, digest.
+export const journalKinds = [
+  "note", // free-form parent note ("slept through the night!")
+  "observation", // auto-extracted from chat questions (provenance kept)
+  "milestone", // milestone marked achieved (milestoneId set)
+  "measurement", // data = { sex, weightKg?, lengthCm?, hcCm? }
+  "preference", // durable likes/dislikes ("obsessed with diggers")
+] as const;
+export type JournalKind = (typeof journalKinds)[number];
+
+export const journalEntries = sqliteTable(
+  "journal_entries",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    childId: integer("child_id")
+      .notNull()
+      .references(() => children.id),
+    kind: text("kind", { enum: journalKinds }).notNull(),
+    content: text("content").notNull(),
+    milestoneId: integer("milestone_id").references(() => milestones.id),
+    data: text("data", { mode: "json" }).$type<Record<string, unknown>>(),
+    ageMonths: integer("age_months").notNull(),
+    // Provenance for auto-extracted entries.
+    sourceMessageId: integer("source_message_id").references(() => chatMessages.id),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index("journal_entries_kind_idx").on(t.kind)],
+);
+
+// Pediatrician visit-prep briefs: growth + milestones + recent questions
+// synthesized into a one-page "ask the doctor" summary.
+export const visitPreps = sqliteTable("visit_preps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  childId: integer("child_id")
+    .notNull()
+    .references(() => children.id),
+  ageMonths: integer("age_months").notNull(),
+  // Snapshot of what went into the brief (measurements, concerns).
+  inputs: text("inputs", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+  contentMd: text("content_md").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// On-demand deep-dive research briefs synthesized from the corpus (+ live
+// PubMed search), stored alongside the library.
+export const researchBriefs = sqliteTable("research_briefs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  childId: integer("child_id")
+    .notNull()
+    .references(() => children.id),
+  topic: text("topic").notNull(),
+  ageMonths: integer("age_months").notNull(),
+  contentMd: text("content_md").notNull(),
+  citations: text("citations", { mode: "json" }).$type<Citation[]>().notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const crawlRuns = sqliteTable("crawl_runs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   sourceId: integer("source_id")
@@ -275,6 +340,48 @@ export const characters = sqliteTable("characters", {
     .$defaultFn(() => new Date()),
 });
 
+// One reference image per (character, style pack) — page renders are
+// ref-conditioned, so each art style needs its own character sheet.
+export const characterStyleRefs = sqliteTable(
+  "character_style_refs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    characterId: integer("character_id")
+      .notNull()
+      .references(() => characters.id, { onDelete: "cascade" }),
+    styleKey: text("style_key").notNull(),
+    imagePath: text("image_path"),
+    renderAttempts: integer("render_attempts").notNull().default(0),
+    qcStatus: text("qc_status", { enum: ["passed", "failed"] }),
+    qcNote: text("qc_note"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("character_style_refs_idx").on(t.characterId, t.styleKey)],
+);
+
+// A planned series of stories that gently target the child's current
+// developmental frontier (one milestone theme per story).
+export const storyArcs = sqliteTable("story_arcs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  childId: integer("child_id")
+    .notNull()
+    .references(() => children.id),
+  characterId: integer("character_id")
+    .notNull()
+    .references(() => characters.id),
+  title: text("title").notNull(),
+  // Optional parent steer, e.g. "new baby sibling arriving"
+  focus: text("focus"),
+  // Style-pack key (lib/stylePacks.json); one style across the whole series.
+  style: text("style"),
+  ageMonths: integer("age_months").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const stories = sqliteTable("stories", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   childId: integer("child_id")
@@ -283,7 +390,13 @@ export const stories = sqliteTable("stories", {
   characterId: integer("character_id")
     .notNull()
     .references(() => characters.id),
+  arcId: integer("arc_id").references(() => storyArcs.id),
+  arcIndex: integer("arc_index"),
   title: text("title"),
+  // Style-pack key; null = legacy default (watercolor).
+  style: text("style"),
+  // Text-form key (lib/skills/storyText.ts); null = legacy free-form.
+  form: text("form"),
   prompt: text("prompt").notNull(), // theme requested by the user
   ageMonths: integer("age_months").notNull(),
   pageCount: integer("page_count").notNull(),
@@ -311,6 +424,10 @@ export const storyPages = sqliteTable(
     imageStatus: text("image_status", { enum: ["pending", "done", "failed"] })
       .notNull()
       .default("pending"),
+    // Visual QC (VLM grade after each render): null = not yet graded.
+    renderAttempts: integer("render_attempts").notNull().default(0),
+    qcStatus: text("qc_status", { enum: ["passed", "failed"] }),
+    qcNote: text("qc_note"),
   },
   (t) => [uniqueIndex("story_pages_story_page_idx").on(t.storyId, t.pageIndex)],
 );

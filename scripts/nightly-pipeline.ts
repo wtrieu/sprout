@@ -1,11 +1,15 @@
 /**
  * Nightly: crawl all enabled sources (network only — no model in memory),
- * then hand off to the orchestrator to classify/embed what came in and render
- * any queued story images. Run via: pnpm --filter web run job:nightly
+ * plan tonight's surprise story (editorial planner), then hand off to the
+ * orchestrator to classify/embed/write/render everything queued.
+ * Run via: pnpm --filter web run job:nightly
  */
+import "./env";
 import { spawnSync } from "node:child_process";
 import { db } from "../apps/web/src/db/client";
 import { crawlAllSources } from "../apps/web/src/lib/crawl";
+import { planTonightsStory } from "../apps/web/src/lib/skills/editorial";
+import { extractJournalFromChat } from "../apps/web/src/lib/skills/journal";
 
 const main = async () => {
   console.log(`nightly pipeline starting ${new Date().toISOString()}`);
@@ -14,6 +18,19 @@ const main = async () => {
     console.log(
       `crawl ${s.slug}: ${s.inserted} new / ${s.seen} seen${s.error ? ` — ERROR: ${s.error}` : ""}`,
     );
+  }
+
+  try {
+    console.log(await extractJournalFromChat(db));
+  } catch (err) {
+    console.error(`journal extraction failed: ${err instanceof Error ? err.message : err}`);
+  }
+
+  try {
+    console.log(await planTonightsStory(db));
+  } catch (err) {
+    // The surprise story is a bonus — never let it block the pipeline.
+    console.error(`daily story planning failed: ${err instanceof Error ? err.message : err}`);
   }
 
   // Same process would also work, but exec keeps run-jobs the single code path.

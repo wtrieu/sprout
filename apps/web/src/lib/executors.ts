@@ -17,6 +17,9 @@ import { ageInMonths } from "./age";
 import type { JobRow } from "./jobs";
 import { enqueue } from "./jobs";
 import { callOllamaJson } from "./ollama";
+import { callClaudeJson } from "./claude";
+import { journalContext, milestonesNotYetAchieved, personalizationLine } from "./skills/journal";
+import { pickStoryForm, writeStoryPages } from "./skills/storyText";
 import { embed, toBuffer, chunkText } from "./embeddings";
 import { formatAge } from "./age";
 
@@ -87,19 +90,6 @@ const runEmbedDoc = async (db: DB, job: JobRow): Promise<void> => {
 // llm lane: story text generation (Phase 3)
 // ---------------------------------------------------------------------------
 
-const StoryTextSchema = z.object({
-  title: z.string().min(1).max(120),
-  pages: z
-    .array(
-      z.object({
-        text: z.string().min(1).max(400),
-        illustration_prompt: z.string().min(10).max(500),
-      }),
-    )
-    .min(4)
-    .max(14),
-});
-
 const runStoryText = async (db: DB, job: JobRow): Promise<void> => {
   const storyId = Number(job.payload.storyId);
   const story = db.select().from(stories).where(eq(stories.id, storyId)).get();
@@ -108,22 +98,18 @@ const runStoryText = async (db: DB, job: JobRow): Promise<void> => {
   if (!character) throw new Error(`character ${story.characterId} not found`);
   const child = db.select().from(children).where(eq(children.id, story.childId)).get();
 
-  const prompt = `You write bedtime stories for very young children.
-
-Write a ${story.pageCount}-page bedtime story for ${child?.name ?? "a toddler"}, who is ${formatAge(story.ageMonths)} old.
-Theme requested by the parent: ${story.prompt}
-Main character: ${character.name} — ${character.appearanceDesc}
-
-Rules:
-- Language for a ${formatAge(story.ageMonths)}-old: very short sentences, rhythm and repetition, warm and calm (it's bedtime — the story should wind DOWN, ending sleepy and safe).
-- 1-3 short sentences per page. No scary elements, no peril.
-- Each page needs an "illustration_prompt": a self-contained visual description of THAT page's scene for an illustrator. Describe the setting, what ${character.name} is doing, time of day, mood. Do NOT describe the character's appearance (the illustrator has a character sheet). Never include text/words in the scene.
-
-Return STRICT JSON:
-{ "title": string, "pages": [ { "text": string, "illustration_prompt": string } ] }
-Exactly ${story.pageCount} pages.`;
-
-  const result = await callOllamaJson(prompt, StoryTextSchema, { temperature: 0.8 });
+  // Craft engine (lib/skills/storyText.ts): pick a text form with variety
+  // memory, write to its authored spec, judge-and-revise the read-aloud craft.
+  const formKey = story.form ?? pickStoryForm(db);
+  const result = await writeStoryPages({
+    childName: child?.name ?? "a toddler",
+    months: story.ageMonths,
+    theme: story.prompt,
+    characterName: character.name,
+    characterDesc: character.appearanceDesc,
+    pageCount: story.pageCount,
+    formKey,
+  });
 
   db.delete(storyPages).where(eq(storyPages.storyId, storyId)).run(); // idempotent retry
   result.pages.forEach((page, i) => {
@@ -143,7 +129,7 @@ Exactly ${story.pageCount} pages.`;
     });
   });
   db.update(stories)
-    .set({ title: result.title, status: "rendering" })
+    .set({ title: result.title, form: formKey, status: "rendering" })
     .where(eq(stories.id, storyId))
     .run();
 };
@@ -196,17 +182,22 @@ const runActivities = async (db: DB, _job: JobRow): Promise<void> => {
   const nextBucket = db.get<{ age: number } | undefined>(
     sql`SELECT MIN(age_months) as age FROM milestones WHERE age_months > ${months}`,
   );
-  const relevantMilestones = db
-    .select({ id: milestones.id, domain: milestones.domain, description: milestones.description })
-    .from(milestones)
-    .where(
-      sql`age_months IN (${bucket?.age ?? months}, ${nextBucket?.age ?? months})`,
-    )
-    .all();
+  // Skip goals the journal says are already achieved — practice the frontier.
+  const relevantMilestones = milestonesNotYetAchieved(
+    db,
+    db
+      .select({ id: milestones.id, domain: milestones.domain, description: milestones.description })
+      .from(milestones)
+      .where(
+        sql`age_months IN (${bucket?.age ?? months}, ${nextBucket?.age ?? months})`,
+      )
+      .all(),
+  );
+  const personal = personalizationLine(journalContext(db));
 
   const allowedSlugs = new Set(owned.map((m) => m.slug));
   const prompt = `You design simple developmental play activities for a parent and their ${months}-month-old child.
-
+${personal ? `${personal}\n` : ""}
 Create 5-6 activities for this week. Rules:
 - Use ONLY materials from the AVAILABLE list (reference by slug). Max 3-4 materials each; body/voice-only activities may use none.
 - Each activity should practice one or more of the DEVELOPMENT GOALS below; reference them by numeric id in milestone_ids.
