@@ -93,7 +93,7 @@ export const SCENES: BeatScene[] = [
     dir: "hero",
     textSafe: "center",
     layers: [
-      { id: "sky", kind: "sky", legacySrc: "/landing/backdrops/hero.webp" },
+      { id: "sky", kind: "sky", video: true, legacySrc: "/landing/backdrops/hero.webp" },
       {
         // drifting luminous mist between the wish and the painted deep
         id: "mist",
@@ -429,7 +429,7 @@ export const SCENES: BeatScene[] = [
     dir: "golden",
     textSafe: "left",
     layers: [
-      { id: "sky", kind: "sky", legacySrc: "/landing/backdrops/golden.webp" },
+      { id: "sky", kind: "sky", video: true, legacySrc: "/landing/backdrops/golden.webp" },
       {
         // violet golden-hour hills below the blooming canopy
         id: "hills",
@@ -497,7 +497,7 @@ export const SCENES: BeatScene[] = [
     dir: "night",
     textSafe: "center",
     layers: [
-      { id: "sky", kind: "sky", legacySrc: "/landing/backdrops/night.webp" },
+      { id: "sky", kind: "sky", video: true, legacySrc: "/landing/backdrops/night.webp" },
       {
         // canopy silhouettes against the starfield
         id: "forest",
@@ -578,7 +578,7 @@ export const SCENES: BeatScene[] = [
     dir: "cta",
     textSafe: "center",
     layers: [
-      { id: "sky", kind: "sky", dir: "night", legacySrc: "/landing/backdrops/night.webp" },
+      { id: "sky", kind: "sky", dir: "night", video: true, legacySrc: "/landing/backdrops/night.webp" },
       {
         // the night forest again, nearer — deeper inside the canopy now
         id: "forest",

@@ -7,6 +7,7 @@ import { QualityContext, QUALITY_PRESETS, type Quality } from "../hooks/quality"
 import { CameraRig } from "./CameraRig";
 import { SceneAtmosphere } from "./SceneAtmosphere";
 import { SkyLayer } from "./scenes/SkyLayer";
+import { VideoLayer } from "./scenes/VideoLayer";
 import { Effects } from "../post/Effects";
 
 /**
@@ -66,6 +67,7 @@ export function CanvasRoot({
                 <CameraRig />
                 <SceneAtmosphere />
                 <SkyLayer />
+                <VideoLayer />
                 {children}
                 {quality.post && <Effects />}
               </Suspense>
@@ -83,6 +85,7 @@ export function CanvasRoot({
                   <CameraRig />
                   <SceneAtmosphere />
                   <SkyLayer />
+                  <VideoLayer />
                   {children}
                   {quality.post && <Effects />}
                 </Suspense>
