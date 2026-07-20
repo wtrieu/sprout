@@ -3,22 +3,30 @@
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
-import { scrollState } from "../scroll/scrollState";
-import { SEGMENTS } from "../chapters/chapterConfig";
-
-/** beat index → backdrop file id in /public/landing/backdrops/<id>.webp */
-const BACKDROP_IDS = ["hero", "roots", "rain", "dawn", "noon", "golden", "night", "night"];
+import { scrollState } from "../../scroll/scrollState";
+import { SEGMENTS } from "../../chapters/chapterConfig";
+import { SCENES, layerSources } from "../../chapters/layerManifest";
 
 /**
- * Which beats currently have a painted backdrop loaded, plus each painting's
+ * Which beats currently have a painted sky loaded, plus each painting's
  * sampled horizon color. SceneAtmosphere reads these each frame: it fades out
  * procedural hills/clouds where a painting has taken over, and pulls the
  * scene fog toward the painting's horizon so the 3D ground meets the painted
  * sky without a seam. Module-level so no React plumbing is on a hot path.
  */
 export const backdropState = {
-  loaded: new Array(BACKDROP_IDS.length).fill(false) as boolean[],
-  horizon: new Array(BACKDROP_IDS.length).fill(null) as (THREE.Color | null)[],
+  loaded: new Array(SCENES.length).fill(false) as boolean[],
+  horizon: new Array(SCENES.length).fill(null) as (THREE.Color | null)[],
+};
+
+/**
+ * Per-beat texture slots the sky planes read every frame. `video` overrides
+ * `still` while a VideoLayer has a loop playing for that beat (Phase 4);
+ * everything else in this file is agnostic to which one it is showing.
+ */
+export const skyState = {
+  still: new Array(SCENES.length).fill(null) as (THREE.Texture | null)[],
+  video: new Array(SCENES.length).fill(null) as (THREE.Texture | null)[],
 };
 
 /** Average color of the painting's horizon band (~55–70% down the image). */
@@ -46,26 +54,48 @@ function sampleHorizonColor(image: HTMLImageElement | ImageBitmap): THREE.Color 
   }
 }
 
+/** Load the first URL in `urls` that exists; resolve null when none do. */
+function loadFirstTexture(
+  loader: THREE.TextureLoader,
+  urls: string[],
+): Promise<THREE.Texture | null> {
+  return new Promise((resolve) => {
+    const tryAt = (i: number) => {
+      if (i >= urls.length) {
+        resolve(null);
+        return;
+      }
+      loader.load(
+        urls[i],
+        (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          resolve(tex);
+        },
+        undefined,
+        () => tryAt(i + 1),
+      );
+    };
+    tryAt(0);
+  });
+}
+
 const PLANE_DISTANCE = 80;
 
 /**
  * Painted-sky layer: full-frustum billboards that follow the camera, showing
- * the Midjourney backdrop for the current beat and crossfading into the next.
- * Backdrops are OPTIONAL — any beat whose file is missing simply keeps the
- * procedural sky (load errors are swallowed). Drop files in
- * apps/web/public/landing/backdrops/ (see docs/midjourney-prompts.md) and
+ * each beat's `sky` painting from the layer manifest and crossfading into the
+ * next beat's. Skies are OPTIONAL — any beat whose file is missing simply
+ * keeps the procedural sky (load errors are swallowed). Drop files in
+ * apps/web/public/landing/scenes/ (see docs/landing-art-pipeline.md) and
  * they appear on refresh; no code changes needed.
  */
-export function BackdropPlane() {
-  const textures = useRef<(THREE.Texture | null)[]>(
-    new Array(BACKDROP_IDS.length).fill(null),
-  );
+export function SkyLayer() {
   const meshARef = useRef<THREE.Mesh>(null);
   const meshBRef = useRef<THREE.Mesh>(null);
 
   // transparent (for the crossfade) but depth-tested AND depth-writing at its
-  // far distance: the opaque 3D scene has already written closer depth, so the
-  // painting only fills true sky — it can never cover the tree or ground.
+  // far distance: anything opaque has already written closer depth, so the
+  // painting only fills true sky.
   const materialA = useMemo(
     () =>
       new THREE.MeshBasicMaterial({
@@ -93,34 +123,36 @@ export function BackdropPlane() {
 
   useEffect(() => {
     const loader = new THREE.TextureLoader();
-    const byId = new Map<string, number[]>();
-    BACKDROP_IDS.forEach((id, beat) => {
-      byId.set(id, [...(byId.get(id) ?? []), beat]);
+    let disposed = false;
+    // beats sharing a URL (cta borrows night) share one texture
+    const byUrl = new Map<string, number[]>();
+    SCENES.forEach((scene, beat) => {
+      const sky = scene.layers.find((l) => l.kind === "sky");
+      if (!sky) return;
+      const key = layerSources(scene, sky).join("|");
+      byUrl.set(key, [...(byUrl.get(key) ?? []), beat]);
     });
     const loaded: THREE.Texture[] = [];
-    byId.forEach((beats, id) => {
-      loader.load(
-        `/landing/backdrops/${id}.webp`,
-        (tex) => {
-          tex.colorSpace = THREE.SRGBColorSpace;
-          loaded.push(tex);
-          const horizon = sampleHorizonColor(tex.image);
-          for (const b of beats) {
-            textures.current[b] = tex;
-            backdropState.loaded[b] = true;
-            backdropState.horizon[b] = horizon;
-          }
-        },
-        undefined,
-        () => {
-          // no painted backdrop for this beat (yet) — procedural sky remains
-        },
-      );
+    byUrl.forEach((beats, key) => {
+      void loadFirstTexture(loader, key.split("|")).then((tex) => {
+        if (!tex) return;
+        if (disposed) {
+          tex.dispose();
+          return;
+        }
+        loaded.push(tex);
+        const horizon = sampleHorizonColor(tex.image as HTMLImageElement | ImageBitmap);
+        for (const b of beats) {
+          skyState.still[b] = tex;
+          backdropState.loaded[b] = true;
+          backdropState.horizon[b] = horizon;
+        }
+      });
     });
-    const textureSlots = textures.current;
     return () => {
+      disposed = true;
       loaded.forEach((t) => t.dispose());
-      textureSlots.fill(null);
+      skyState.still.fill(null);
       backdropState.loaded.fill(false);
       backdropState.horizon.fill(null);
     };
@@ -134,8 +166,8 @@ export function BackdropPlane() {
     const x = THREE.MathUtils.clamp(scrollState.progress, 0, 1) * SEGMENTS;
     const i = Math.min(SEGMENTS - 1, Math.floor(x));
     const f = THREE.MathUtils.smoothstep(x - i, 0, 1);
-    const texA = textures.current[i];
-    const texB = textures.current[i + 1];
+    const texA = skyState.video[i] ?? skyState.still[i];
+    const texB = skyState.video[i + 1] ?? skyState.still[i + 1];
 
     camera.getWorldDirection(viewDir);
     right.crossVectors(viewDir, camera.up).normalize();
