@@ -16,6 +16,20 @@ const ALIGN_CLASSES: Record<ChapterCopy["align"], string> = {
   center: "items-center text-center mx-auto",
 };
 
+/**
+ * Directional scrim behind the copy: an art-directed gradient that deepens
+ * the painting toward the text side and lets it breathe everywhere else —
+ * cheaper than a giant blur, and it reads as vignette, not frosted glass.
+ * The mask feathers the scrim's top/bottom so no box edge ever shows.
+ */
+const SCRIM_FEATHER =
+  "[mask-image:linear-gradient(to_bottom,transparent,black_25%,black_75%,transparent)]";
+const SCRIM_CLASSES: Record<ChapterCopy["align"], string> = {
+  left: `bg-gradient-to-r from-neutral-950/45 via-neutral-950/20 to-transparent ${SCRIM_FEATHER}`,
+  right: `bg-gradient-to-l from-neutral-950/45 via-neutral-950/20 to-transparent ${SCRIM_FEATHER}`,
+  center: `bg-[radial-gradient(closest-side,rgba(10,10,10,0.5)_0%,rgba(10,10,10,0.22)_55%,transparent_100%)] ${SCRIM_FEATHER}`,
+};
+
 /** One 100vh beat of the story: eyebrow, headline, body, optional chips/CTA. */
 export function ChapterSection({
   copy,
@@ -83,16 +97,17 @@ export function ChapterSection({
       ref={ref}
       id={`chapter-${copy.id}`}
       data-beat={index}
-      className="relative flex h-screen items-center"
+      className="relative flex h-screen items-center overflow-x-clip"
     >
       <div
         data-content
         className={`relative flex w-full max-w-2xl flex-col gap-5 px-6 ${ALIGN_CLASSES[copy.align]}`}
       >
-        {/* soft scrim so copy stays legible over bright skies */}
+        {/* soft directional scrim so copy stays legible over bright skies —
+            reaches past the viewport edge so no seam ever shows */}
         <div
           aria-hidden
-          className="absolute -inset-12 -z-10 rounded-[4rem] bg-neutral-950/30 blur-3xl"
+          className={`absolute -inset-x-[12vw] -inset-y-24 -z-10 ${SCRIM_CLASSES[copy.align]}`}
         />
         {copy.eyebrow ? (
           <p
@@ -128,7 +143,9 @@ export function ChapterSection({
         ) : null}
         {isCta ? (
           <div data-fade className="mt-4">
-            <MagneticButton href="/home">Step inside ❋</MagneticButton>
+            <MagneticButton href="/home" isMoteTarget>
+              Step inside ❋
+            </MagneticButton>
             <p className="mt-6 text-sm text-neutral-500">
               Self-hosted. Private. Growing with your family.
             </p>

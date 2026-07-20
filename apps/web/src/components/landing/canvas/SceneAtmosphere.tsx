@@ -9,7 +9,7 @@ import { createSkyMaterial } from "../materials/skyMaterial";
 import { ParticleField } from "../particles/ParticleField";
 import { mergeGeometries } from "../lib/taperedTube";
 import { mulberry32, rangeFrom } from "../lib/rng";
-import { backdropState } from "./BackdropPlane";
+import { backdropState } from "./scenes/SkyLayer";
 
 type BeatColors = {
   fog: THREE.Color;

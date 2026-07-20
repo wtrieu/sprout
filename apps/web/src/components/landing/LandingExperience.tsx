@@ -37,7 +37,9 @@ export default function LandingExperience() {
       setMode("static");
       return;
     }
-    setTier(detectTier());
+    // dev affordance: /?tier=low|mid|high forces a quality tier
+    const forced = params.get("tier");
+    setTier(forced === "low" || forced === "mid" || forced === "high" ? forced : detectTier());
     setMode("full");
   }, []);
 

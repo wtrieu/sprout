@@ -17,6 +17,24 @@ const BANDS: Record<string, string> = {
 };
 
 /**
+ * The painted sky for each beat, stacked scenes-first over the legacy
+ * backdrops path: a missing file renders as a transparent CSS layer, so art
+ * drops upgrade this page too and the gradients remain the no-asset floor.
+ * (Hardcoded rather than derived from the layer manifest — importing the
+ * manifest would pull three.js into this deliberately 3D-free bundle.)
+ */
+const SKYS: Record<string, string[]> = {
+  hero: ["/landing/scenes/hero/sky.webp", "/landing/backdrops/hero.webp"],
+  roots: ["/landing/scenes/roots/sky.webp", "/landing/backdrops/roots.webp"],
+  rain: ["/landing/scenes/rain/sky.webp", "/landing/backdrops/rain.webp"],
+  sprout: ["/landing/scenes/dawn/sky.webp", "/landing/backdrops/dawn.webp"],
+  sapling: ["/landing/scenes/noon/sky.webp", "/landing/backdrops/noon.webp"],
+  bloom: ["/landing/scenes/golden/sky.webp", "/landing/backdrops/golden.webp"],
+  night: ["/landing/scenes/night/sky.webp", "/landing/backdrops/night.webp"],
+  cta: ["/landing/scenes/night/sky.webp", "/landing/backdrops/night.webp"],
+};
+
+/**
  * Full copy parity with zero WebGL: same story, gradient light instead of
  * shaders. Serves reduced-motion, no-WebGL2, and ?static=1.
  */
@@ -64,7 +82,15 @@ export function StaticFallback() {
             key={copy.id}
             className={`relative flex min-h-screen items-center bg-gradient-to-b ${BANDS[copy.id]}`}
           >
-            <div className={`mx-auto flex w-full max-w-2xl flex-col gap-5 px-6 py-24 ${align}`}>
+            <div
+              aria-hidden
+              className="absolute inset-0 bg-cover bg-center opacity-70"
+              style={{ backgroundImage: SKYS[copy.id].map((u) => `url(${u})`).join(", ") }}
+            />
+            <div aria-hidden className="absolute inset-0 bg-neutral-950/40" />
+            <div
+              className={`relative mx-auto flex w-full max-w-2xl flex-col gap-5 px-6 py-24 ${align}`}
+            >
               {copy.eyebrow ? (
                 <p
                   data-io

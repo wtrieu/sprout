@@ -1,15 +1,7 @@
 /**
- * Single source of truth for the camera journey, the film's color script
- * (palette + sun + clouds per beat) and Spline slots. One Beat per scroll
- * section (8 total, progress 0 → 1).
- *
- * ────────────────────────────────────────────────────────────────────
- *  SPLINE SLOTS — PASTE YOUR SPLINE SCENE URL HERE
- *  Author a scene at https://spline.design, click Export → "Code" →
- *  copy the `.splinecode` URL, and set it as `splineUrl` on the beat
- *  you want it to appear over. It lazy-loads only when a URL is set,
- *  rendered full-viewport behind the copy for that chapter.
- * ────────────────────────────────────────────────────────────────────
+ * Single source of truth for the camera journey and the film's color script
+ * (palette + sun + clouds per beat). One Beat per scroll section (8 total,
+ * progress 0 → 1). What each beat is *made of* lives in layerManifest.ts.
  */
 export type Beat = {
   id: string;
@@ -38,7 +30,6 @@ export type Beat = {
   cloudColor: string;
   cloudShadow: string;
   ground: string;
-  splineUrl: string | null;
 };
 
 export const BEATS: Beat[] = [
@@ -65,7 +56,6 @@ export const BEATS: Beat[] = [
     cloudColor: "#33245c",
     cloudShadow: "#171233",
     ground: "#14102a",
-    splineUrl: null,
   },
   {
     // Ch 1 — the root system glowing through plum-dark soil
@@ -90,7 +80,6 @@ export const BEATS: Beat[] = [
     cloudColor: "#3a2352",
     cloudShadow: "#1e1432",
     ground: "#191128",
-    splineUrl: null,
   },
   {
     // Ch 2 — first rain: storm-light, a puddle, a paper boat
@@ -115,7 +104,6 @@ export const BEATS: Beat[] = [
     cloudColor: "#8494ad",
     cloudShadow: "#222c42",
     ground: "#1d2733",
-    splineUrl: null,
   },
   {
     // Ch 3 — the sprout breaks through into a violet-amber dawn
@@ -140,7 +128,6 @@ export const BEATS: Beat[] = [
     cloudColor: "#ffd9a0",
     cloudShadow: "#6b4038",
     ground: "#33251a",
-    splineUrl: null,
   },
   {
     // Ch 4 — growing wild under a blue anime noon
@@ -165,7 +152,6 @@ export const BEATS: Beat[] = [
     cloudColor: "#ffffff",
     cloudShadow: "#8fa9cc",
     ground: "#33502c",
-    splineUrl: null,
   },
   {
     // Ch 5 — in bloom at violet golden hour, pink clouds
@@ -190,7 +176,6 @@ export const BEATS: Beat[] = [
     cloudColor: "#ffc9de",
     cloudShadow: "#7a4a6b",
     ground: "#4a3a1c",
-    splineUrl: null,
   },
   {
     // Ch 6 — under the canopy: moonlit indigo, lanterns, fireflies
@@ -215,7 +200,6 @@ export const BEATS: Beat[] = [
     cloudColor: "#54639a",
     cloudShadow: "#131a3d",
     ground: "#101426",
-    splineUrl: null,
   },
   {
     // Finale — the ❋ glows among the branches
@@ -240,7 +224,6 @@ export const BEATS: Beat[] = [
     cloudColor: "#54639a",
     cloudShadow: "#131a3d",
     ground: "#0e1222",
-    splineUrl: null,
   },
 ];
 
