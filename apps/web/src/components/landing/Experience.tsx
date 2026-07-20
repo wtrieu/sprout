@@ -8,14 +8,8 @@ import { ProgressDots } from "./overlay/ProgressDots";
 import { CursorGlow } from "./overlay/CursorGlow";
 import { SoundToggle } from "./overlay/SoundToggle";
 import { Preloader } from "./Preloader";
-import { Chapter0Seed } from "./chapters/Chapter0Seed";
-import { Chapter1Roots } from "./chapters/Chapter1Roots";
-import { Chapter2Rain } from "./chapters/Chapter2Rain";
-import { Chapter3Sprout } from "./chapters/Chapter3Sprout";
-import { Chapter4Sapling } from "./chapters/Chapter4Sapling";
-import { Chapter5Bloom } from "./chapters/Chapter5Bloom";
-import { Chapter6Night } from "./chapters/Chapter6Night";
-import { TreeSystem } from "./tree/TreeSystem";
+import { SceneLayers } from "./canvas/scenes/SceneLayers";
+import { WishMote } from "./canvas/WishMote";
 import { QUALITY_PRESETS, type Tier } from "./hooks/quality";
 import { scrollState } from "./scroll/scrollState";
 import { SEGMENTS } from "./landingCopy";
@@ -49,14 +43,8 @@ export default function Experience({ tier }: { tier: Tier }) {
     <div className="relative">
       {pinnedBeat === null && <Preloader />}
       <CanvasRoot quality={QUALITY_PRESETS[tier]} manualLoop={pinnedBeat !== null}>
-        <TreeSystem />
-        <Chapter0Seed />
-        <Chapter1Roots />
-        <Chapter2Rain />
-        <Chapter3Sprout />
-        <Chapter4Sapling />
-        <Chapter5Bloom />
-        <Chapter6Night />
+        <SceneLayers />
+        <WishMote />
       </CanvasRoot>
       <Overlay pinnedBeat={pinnedBeat} />
       {pinnedBeat === null && <ProgressDots />}
