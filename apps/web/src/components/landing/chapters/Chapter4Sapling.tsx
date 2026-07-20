@@ -16,8 +16,11 @@ export function Chapter4Sapling() {
   return (
     <ChapterGroup beat={4} span={1.8}>
       <GrassField />
-      <ForestBackdrop />
-      <Campsite />
+      {/* the set dressing appears once the dawn close-up has passed */}
+      <ChapterGroup beat={4} span={1.0}>
+        <ForestBackdrop />
+        <Campsite />
+      </ChapterGroup>
       {/* pollen drifting in the sun shafts */}
       <ParticleField
         count={900}

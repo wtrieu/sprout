@@ -10,13 +10,41 @@ import { SEGMENTS } from "../chapters/chapterConfig";
 const BACKDROP_IDS = ["hero", "roots", "rain", "dawn", "noon", "golden", "night", "night"];
 
 /**
- * Which beats currently have a painted backdrop loaded. SceneAtmosphere reads
- * this each frame to fade out its procedural hills/clouds where a painting
- * has taken over. Module-level so no React plumbing is needed on a hot path.
+ * Which beats currently have a painted backdrop loaded, plus each painting's
+ * sampled horizon color. SceneAtmosphere reads these each frame: it fades out
+ * procedural hills/clouds where a painting has taken over, and pulls the
+ * scene fog toward the painting's horizon so the 3D ground meets the painted
+ * sky without a seam. Module-level so no React plumbing is on a hot path.
  */
 export const backdropState = {
   loaded: new Array(BACKDROP_IDS.length).fill(false) as boolean[],
+  horizon: new Array(BACKDROP_IDS.length).fill(null) as (THREE.Color | null)[],
 };
+
+/** Average color of the painting's horizon band (~55–70% down the image). */
+function sampleHorizonColor(image: HTMLImageElement | ImageBitmap): THREE.Color | null {
+  try {
+    const c = document.createElement("canvas");
+    c.width = 32;
+    c.height = 32;
+    const ctx = c.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(image as CanvasImageSource, 0, 0, 32, 32);
+    const data = ctx.getImageData(0, 18, 32, 5).data;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    const n = data.length / 4;
+    for (let i = 0; i < data.length; i += 4) {
+      r += data[i];
+      g += data[i + 1];
+      b += data[i + 2];
+    }
+    return new THREE.Color(r / n / 255, g / n / 255, b / n / 255).convertSRGBToLinear();
+  } catch {
+    return null;
+  }
+}
 
 const PLANE_DISTANCE = 80;
 
@@ -46,6 +74,7 @@ export function BackdropPlane() {
         depthTest: true,
         depthWrite: true,
         toneMapped: false,
+        fog: false, // paintings carry their own atmosphere — scene fog would drown them
       }),
     [],
   );
@@ -57,6 +86,7 @@ export function BackdropPlane() {
         depthTest: true,
         depthWrite: true,
         toneMapped: false,
+        fog: false,
       }),
     [],
   );
@@ -74,9 +104,11 @@ export function BackdropPlane() {
         (tex) => {
           tex.colorSpace = THREE.SRGBColorSpace;
           loaded.push(tex);
+          const horizon = sampleHorizonColor(tex.image);
           for (const b of beats) {
             textures.current[b] = tex;
             backdropState.loaded[b] = true;
+            backdropState.horizon[b] = horizon;
           }
         },
         undefined,
@@ -89,6 +121,7 @@ export function BackdropPlane() {
       loaded.forEach((t) => t.dispose());
       textures.current.fill(null);
       backdropState.loaded.fill(false);
+      backdropState.horizon.fill(null);
     };
   }, []);
 

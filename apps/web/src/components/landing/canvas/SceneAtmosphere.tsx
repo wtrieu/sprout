@@ -95,6 +95,7 @@ export function SceneAtmosphere() {
   const skyRef = useRef<THREE.Mesh>(null);
   const hillsRef = useRef<THREE.Group>(null);
   const tmpColor = useMemo(() => new THREE.Color(), []);
+  const tmpColor2 = useMemo(() => new THREE.Color(), []);
   const tmpDir = useMemo(() => new THREE.Vector3(), []);
 
   useEffect(() => {
@@ -123,6 +124,16 @@ export function SceneAtmosphere() {
     fog.color.lerpColors(a.fog, b.fog, f);
     fog.near = THREE.MathUtils.lerp(beatA.fogNear, beatB.fogNear, f);
     fog.far = THREE.MathUtils.lerp(beatA.fogFar, beatB.fogFar, f);
+
+    // pull fog toward the painted backdrop's horizon color so the 3D ground
+    // dissolves into the painting instead of meeting it at a seam
+    const hzA = backdropState.horizon[i];
+    const hzB = backdropState.horizon[i + 1];
+    if (hzA || hzB) {
+      tmpColor2.lerpColors(hzA ?? fog.color, hzB ?? fog.color, f);
+      const paintedNow = THREE.MathUtils.lerp(hzA ? 1 : 0, hzB ? 1 : 0, f);
+      fog.color.lerp(tmpColor2, paintedNow * 0.85);
+    }
 
     if (ambientRef.current) {
       ambientRef.current.color.lerpColors(a.ambient, b.ambient, f);
