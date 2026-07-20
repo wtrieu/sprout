@@ -109,11 +109,12 @@ export function WishMote() {
     pos.z += Math.sin(time * 0.5 + 3.1) * 0.12 * drift;
 
     if (landing > 0 && moteTarget.el) {
-      // project the button's viewport center onto a ray from the camera and
-      // land a fixed distance along it
+      // project a point just above the button onto a ray from the camera and
+      // land a fixed distance along it — the canvas draws BEHIND the DOM, so
+      // the wish must hover over the doorway, not vanish behind the pill
       const rect = moteTarget.el.getBoundingClientRect();
       const nx = ((rect.left + rect.width / 2) / window.innerWidth) * 2 - 1;
-      const ny = -(((rect.top + rect.height / 2) / window.innerHeight) * 2 - 1);
+      const ny = -(((rect.top - 26) / window.innerHeight) * 2 - 1);
       landPos.set(nx, ny, 0.5).unproject(state.camera).sub(state.camera.position).normalize();
       landPos.multiplyScalar(7).add(state.camera.position);
       pos.lerp(landPos, landing);
