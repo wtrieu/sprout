@@ -1,14 +1,69 @@
 "use client";
 
 import Link from "next/link";
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 
-type Page = { pageIndex: number; text: string; imagePath: string | null };
+type PageMotion = {
+  scaleFrom: number;
+  scaleTo: number;
+  xFrom: number;
+  xTo: number;
+  yFrom: number;
+  yTo: number;
+  durationS: number;
+};
+type Page = {
+  pageIndex: number;
+  text: string;
+  imagePath: string | null;
+  motion: PageMotion | null;
+};
 type Story = { id: number; title: string | null };
+
+/** motion → CSS custom properties consumed by the story-kb keyframe. */
+const kbVars = (m: PageMotion): CSSProperties =>
+  ({
+    "--kb-s0": m.scaleFrom,
+    "--kb-s1": m.scaleTo,
+    "--kb-x0": `${m.xFrom}%`,
+    "--kb-x1": `${m.xTo}%`,
+    "--kb-y0": `${m.yFrom}%`,
+    "--kb-y1": `${m.yTo}%`,
+    "--kb-dur": `${m.durationS}s`,
+  }) as CSSProperties;
+
+const PageImage = ({ page }: { page: Page }) => {
+  if (!page.imagePath) return null;
+  if (page.motion) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={`/api/images/${page.imagePath}`}
+        alt=""
+        style={kbVars(page.motion)}
+        className="story-kb h-full w-full object-cover"
+      />
+    );
+  }
+  // Legacy pages (no motion metadata): static, uncropped.
+  return (
+    <div className="flex h-full w-full items-center justify-center">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`/api/images/${page.imagePath}`}
+        alt=""
+        className="max-h-full max-w-full object-contain"
+      />
+    </div>
+  );
+};
 
 /**
  * Fullscreen bedtime reader: swipe / arrow keys / tap edges to page.
  * Dark, dim, big type — designed for a phone held in a dark nursery.
+ * Illustrated pages drift with a slow Ken Burns pan/zoom and crossfade on
+ * page turns (both disabled by prefers-reduced-motion).
  */
 export default function ReadPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -16,6 +71,7 @@ export default function ReadPage({ params }: { params: Promise<{ id: string }> }
   const [pages, setPages] = useState<Page[]>([]);
   const [idx, setIdx] = useState(-1); // -1 = title page
   const [touchX, setTouchX] = useState<number | null>(null);
+  const prevIdxRef = useRef(-1);
 
   useEffect(() => {
     fetch(`/api/stories/${id}`)
@@ -26,11 +82,18 @@ export default function ReadPage({ params }: { params: Promise<{ id: string }> }
       });
   }, [id]);
 
+  const go = useCallback((updater: (i: number) => number) => {
+    setIdx((i) => {
+      const nextIdx = updater(i);
+      if (nextIdx !== i) prevIdxRef.current = i;
+      return nextIdx;
+    });
+  }, []);
   const next = useCallback(
-    () => setIdx((i) => Math.min(i + 1, pages.length - 1)),
-    [pages.length],
+    () => go((i) => Math.min(i + 1, pages.length - 1)),
+    [go, pages.length],
   );
-  const prev = useCallback(() => setIdx((i) => Math.max(i - 1, -1)), []);
+  const prev = useCallback(() => go((i) => Math.max(i - 1, -1)), [go]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -43,6 +106,7 @@ export default function ReadPage({ params }: { params: Promise<{ id: string }> }
 
   if (!story) return null;
   const page = idx >= 0 ? pages[idx] : null;
+  const prevPage = prevIdxRef.current >= 0 ? pages[prevIdxRef.current] : null;
 
   return (
     <div
@@ -78,17 +142,23 @@ export default function ReadPage({ params }: { params: Promise<{ id: string }> }
       ) : (
         <div className="flex flex-1 flex-col overflow-hidden">
           {page.imagePath && (
-            <div className="flex flex-1 items-center justify-center overflow-hidden px-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/api/images/${page.imagePath}`}
-                alt=""
-                className="max-h-full max-w-full rounded-2xl object-contain"
-              />
+            <div className="relative mx-4 flex-1 overflow-hidden rounded-2xl">
+              {/* Outgoing page sits beneath while the incoming one fades in. */}
+              {prevPage && prevPage.pageIndex !== page.pageIndex && (
+                <div className="absolute inset-0">
+                  <PageImage page={prevPage} />
+                </div>
+              )}
+              <div key={idx} className="story-page-in absolute inset-0">
+                <PageImage page={page} />
+              </div>
             </div>
           )}
           <div className="px-8 pb-12 pt-6">
-            <p className="mx-auto max-w-xl text-center font-serif text-2xl leading-relaxed">
+            <p
+              key={idx}
+              className="story-page-in mx-auto max-w-xl text-center font-serif text-2xl leading-relaxed"
+            >
               {page.text}
             </p>
           </div>

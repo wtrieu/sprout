@@ -2,65 +2,46 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import stylePacksJson from "@/lib/stylePacks.json";
 
-const STYLE_OPTIONS: Array<{ key: string; name: string; description: string }> = Object.entries(
-  stylePacksJson.packs,
-).map(([key, p]) => ({ key, name: p.name, description: p.description }));
-
-type Character = { id: number; name: string; refImagePath: string | null };
 type Story = {
   id: number;
   title: string | null;
   prompt: string;
   status: string;
   pageCount: number;
+  pagesDone: number;
   characterName: string;
 };
-type Arc = {
-  id: number;
-  title: string;
-  focus: string | null;
-  ageMonths: number;
-  stories: Array<{ id: number; arcIndex: number; title: string | null; status: string }>;
-};
 
-const STATUS_LABEL: Record<string, string> = {
+type AgeTarget = { mode: "auto" } | { mode: "manual"; months: number };
+
+const AGE_OPTIONS: Array<{ value: string; label: string; target: AgeTarget }> = [
+  { value: "auto", label: "Auto (child's age)", target: { mode: "auto" } },
+  { value: "12", label: "Baby (under 18 mo)", target: { mode: "manual", months: 12 } },
+  { value: "24", label: "Young toddler (18–29 mo)", target: { mode: "manual", months: 24 } },
+  { value: "36", label: "Preschooler (30 mo +)", target: { mode: "manual", months: 36 } },
+];
+
+const LEGACY_LABEL: Record<string, string> = {
   queued: "✍️ writing soon",
   text_done: "✍️ written",
   rendering: "🎨 illustrating",
-  ready: "✅ ready",
   failed: "⚠️ failed",
 };
 
 export default function StoriesPage() {
   const [storyList, setStoryList] = useState<Story[]>([]);
-  const [charList, setCharList] = useState<Character[]>([]);
-  const [arcList, setArcList] = useState<Arc[]>([]);
-  const [prompt, setPrompt] = useState("");
-  const [characterId, setCharacterId] = useState<number | null>(null);
-  const [pageCount, setPageCount] = useState(8);
-  const [style, setStyle] = useState("surprise");
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [arcFocus, setArcFocus] = useState("");
-  const [arcCount, setArcCount] = useState(3);
-  const [arcStyle, setArcStyle] = useState("surprise");
-  const [arcBusy, setArcBusy] = useState(false);
-  const [arcError, setArcError] = useState<string | null>(null);
+  const [ageValue, setAgeValue] = useState("auto");
+  const [showOlder, setShowOlder] = useState(false);
 
   const load = useCallback(async () => {
-    const [s, c, a] = await Promise.all([
+    const [s, cfg] = await Promise.all([
       fetch("/api/stories").then((r) => r.json()),
-      fetch("/api/characters").then((r) => r.json()),
-      fetch("/api/arcs").then((r) => r.json()),
+      fetch("/api/settings").then((r) => r.json()),
     ]);
     setStoryList(s.stories);
-    setCharList(c.characters);
-    setArcList(a.arcs ?? []);
-    if (c.characters.length > 0) {
-      setCharacterId((prev) => prev ?? c.characters[0].id);
-    }
+    const target: AgeTarget | undefined = cfg.settings?.storyAgeTarget;
+    if (target) setAgeValue(target.mode === "auto" ? "auto" : String(target.months));
   }, []);
 
   useEffect(() => {
@@ -69,232 +50,178 @@ export default function StoriesPage() {
     return () => clearInterval(t);
   }, [load]);
 
-  const createArc = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!characterId) return;
-    setArcBusy(true);
-    setArcError(null);
-    const res = await fetch("/api/arcs", {
-      method: "POST",
+  const setAgeTarget = async (value: string) => {
+    setAgeValue(value);
+    const option = AGE_OPTIONS.find((o) => o.value === value);
+    if (!option) return;
+    await fetch("/api/settings", {
+      method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        characterId,
-        storyCount: arcCount,
-        focus: arcFocus.trim() || undefined,
-        style: arcStyle,
-      }),
+      body: JSON.stringify({ key: "storyAgeTarget", value: option.target }),
     });
-    setArcBusy(false);
-    if (res.ok) {
-      setArcFocus("");
-      setNotice(
-        "Arc planned! The stories are queued — text is written first, then illustrations render in the next batch.",
-      );
-      load();
-    } else {
-      const data = await res.json().catch(() => ({}));
-      setArcError(data.error ?? "Arc planning failed.");
-    }
   };
 
-  const create = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!characterId) return;
-    setBusy(true);
-    const res = await fetch("/api/stories", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ characterId, prompt, pageCount, style }),
-    });
-    setBusy(false);
-    if (res.ok) {
-      setPrompt("");
-      setNotice(
-        "Story queued! Text is written first, then illustrations render in the next batch — start one from Sources → “Crawl now”, or it happens overnight.",
-      );
-      load();
-    }
+  const remove = async (story: Story) => {
+    if (!confirm(`Delete "${story.title ?? story.prompt}"? This can't be undone.`)) return;
+    await fetch(`/api/stories/${story.id}`, { method: "DELETE" });
+    load();
   };
+
+  const drafts = storyList.filter((s) => s.status === "draft");
+  const waiting = storyList.filter((s) => s.status === "approved");
+  const shelf = storyList.filter((s) => s.status === "ready");
+  const older = storyList.filter(
+    (s) => !["draft", "approved", "ready"].includes(s.status),
+  );
+
+  const deleteButton = (story: Story) => (
+    <button
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        remove(story);
+      }}
+      title="Delete story"
+      className="shrink-0 rounded-md px-2 py-1 text-neutral-600 transition hover:bg-red-950/60 hover:text-red-400"
+    >
+      🗑
+    </button>
+  );
 
   return (
     <div className="space-y-8">
-      <div className="flex items-baseline justify-between">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h1 className="text-2xl font-semibold">Stories</h1>
-        <Link href="/characters" className="text-sm text-amber-400 hover:underline">
-          Characters →
-        </Link>
+        <label className="flex items-center gap-2 text-sm text-neutral-400">
+          Reading level
+          <select
+            value={ageValue}
+            onChange={(e) => setAgeTarget(e.target.value)}
+            className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
+          >
+            {AGE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
-      {charList.length === 0 ? (
-        <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-5">
-          <p className="text-neutral-400">
-            Create a recurring character first — they&apos;ll star in every story.
+      <section className="space-y-2">
+        <h2 className="text-sm font-medium text-neutral-400">Tonight&apos;s candidates</h2>
+        {drafts.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-neutral-800 px-4 py-3 text-sm text-neutral-500">
+            No candidates waiting. Two fresh stories arrive each morning — review them here,
+            keep the good ones.
           </p>
-          <Link
-            href="/characters"
-            className="mt-3 inline-block rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-amber-400"
-          >
-            Create a character
-          </Link>
-        </div>
-      ) : (
-        <form onSubmit={create} className="space-y-3 rounded-xl border border-neutral-800 bg-neutral-900 p-5">
-          <h2 className="font-medium">New bedtime story</h2>
-          <input
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            required
-            placeholder="Tonight's theme — e.g. splashing in puddles, visiting grandma, the big red balloon"
-            className="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-amber-500"
-          />
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <select
-              value={characterId ?? ""}
-              onChange={(e) => setCharacterId(Number(e.target.value))}
-              className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
+        ) : (
+          drafts.map((s) => (
+            <Link
+              key={s.id}
+              href={`/stories/${s.id}`}
+              className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-neutral-900 px-4 py-3 transition hover:border-amber-500/70"
             >
-              {charList.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            <label className="flex items-center gap-2 text-neutral-400">
-              Pages
-              <input
-                type="number"
-                min={4}
-                max={12}
-                value={pageCount}
-                onChange={(e) => setPageCount(Number(e.target.value))}
-                className="w-16 rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
-              />
-            </label>
-            <select
-              value={style}
-              onChange={(e) => setStyle(e.target.value)}
-              title={STYLE_OPTIONS.find((s) => s.key === style)?.description}
-              className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
-            >
-              <option value="surprise">🎨 Surprise me</option>
-              {STYLE_OPTIONS.map((s) => (
-                <option key={s.key} value={s.key}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="submit"
-              disabled={busy || !prompt.trim()}
-              className="rounded-md bg-amber-500 px-4 py-1.5 font-medium text-neutral-950 hover:bg-amber-400 disabled:opacity-50"
-            >
-              {busy ? "Queuing…" : "Write it"}
-            </button>
-          </div>
-          {notice && <p className="text-xs text-amber-300/80">{notice}</p>}
-        </form>
-      )}
-
-      {charList.length > 0 && (
-        <form
-          onSubmit={createArc}
-          className="space-y-3 rounded-xl border border-neutral-800 bg-neutral-900 p-5"
-        >
-          <h2 className="font-medium">Story arc</h2>
-          <p className="text-xs text-neutral-500">
-            A connected mini-series where each story gently models a skill from
-            the current developmental stage — sharing, naming feelings, trying
-            new things.
-          </p>
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <input
-              value={arcFocus}
-              onChange={(e) => setArcFocus(e.target.value)}
-              placeholder="Optional focus — e.g. new sibling arriving, starting daycare"
-              className="min-w-0 flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-1.5 outline-none focus:border-amber-500"
-            />
-            <label className="flex items-center gap-2 text-neutral-400">
-              Stories
-              <input
-                type="number"
-                min={2}
-                max={5}
-                value={arcCount}
-                onChange={(e) => setArcCount(Number(e.target.value))}
-                className="w-14 rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
-              />
-            </label>
-            <select
-              value={arcStyle}
-              onChange={(e) => setArcStyle(e.target.value)}
-              title={STYLE_OPTIONS.find((s) => s.key === arcStyle)?.description}
-              className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
-            >
-              <option value="surprise">🎨 Surprise me</option>
-              {STYLE_OPTIONS.map((s) => (
-                <option key={s.key} value={s.key}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="submit"
-              disabled={arcBusy}
-              className="rounded-md bg-amber-500 px-4 py-1.5 font-medium text-neutral-950 hover:bg-amber-400 disabled:opacity-50"
-            >
-              {arcBusy ? "Planning…" : "Plan arc"}
-            </button>
-          </div>
-          {arcError && <p className="text-xs text-red-400">{arcError}</p>}
-        </form>
-      )}
-
-      {arcList.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="text-sm font-medium text-neutral-400">Arcs</h2>
-          {arcList.map((arc) => (
-            <div key={arc.id} className="rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3">
-              <div className="font-medium">{arc.title}</div>
-              <div className="text-xs text-neutral-500">
-                planned at {arc.ageMonths} months
-                {arc.focus ? ` · focus: ${arc.focus}` : ""}
+              <div className="min-w-0">
+                <div className="truncate font-medium">{s.title ?? s.prompt}</div>
+                <div className="text-xs text-neutral-500">
+                  {s.characterName} · {s.pageCount} pages
+                </div>
               </div>
-              <div className="mt-2 space-y-1">
-                {arc.stories.map((s) => (
-                  <Link
-                    key={s.id}
-                    href={`/stories/${s.id}`}
-                    className="flex items-center justify-between text-sm text-neutral-300 hover:text-amber-400"
-                  >
-                    <span>
-                      {s.arcIndex + 1}. {s.title ?? "…"}
-                    </span>
-                    <span className="text-xs">{STATUS_LABEL[s.status] ?? s.status}</span>
-                  </Link>
-                ))}
+              <div className="flex items-center gap-1">
+                <span className="text-sm text-amber-400">Review →</span>
+                {deleteButton(s)}
               </div>
-            </div>
+            </Link>
+          ))
+        )}
+      </section>
+
+      {waiting.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-medium text-neutral-400">Waiting for art</h2>
+          {waiting.map((s) => (
+            <Link
+              key={s.id}
+              href={`/stories/${s.id}`}
+              className="flex items-center justify-between gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 transition hover:border-amber-500/50"
+            >
+              <div className="min-w-0">
+                <div className="truncate font-medium">{s.title ?? s.prompt}</div>
+                <div className="text-xs text-neutral-500">
+                  {s.characterName} · {s.pagesDone}/{s.pageCount} pages illustrated
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-sm">🎨</span>
+                {deleteButton(s)}
+              </div>
+            </Link>
           ))}
-        </div>
+        </section>
       )}
 
-      <div className="space-y-2">
-        {storyList.map((s) => (
-          <Link
-            key={s.id}
-            href={`/stories/${s.id}`}
-            className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 transition hover:border-amber-500/50"
-          >
-            <div>
-              <div className="font-medium">{s.title ?? s.prompt}</div>
-              <div className="text-xs text-neutral-500">
-                {s.characterName} · {s.pageCount} pages
+      <section className="space-y-2">
+        <h2 className="text-sm font-medium text-neutral-400">Bookshelf</h2>
+        {shelf.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-neutral-800 px-4 py-3 text-sm text-neutral-500">
+            Finished books land here, ready for bedtime.
+          </p>
+        ) : (
+          shelf.map((s) => (
+            <Link
+              key={s.id}
+              href={`/stories/${s.id}`}
+              className="flex items-center justify-between gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 transition hover:border-amber-500/50"
+            >
+              <div className="min-w-0">
+                <div className="truncate font-medium">{s.title ?? s.prompt}</div>
+                <div className="text-xs text-neutral-500">
+                  {s.characterName} · {s.pageCount} pages
+                </div>
               </div>
-            </div>
-            <span className="text-sm">{STATUS_LABEL[s.status] ?? s.status}</span>
-          </Link>
-        ))}
-      </div>
+              <div className="flex items-center gap-1">
+                <span className="text-sm">✅</span>
+                {deleteButton(s)}
+              </div>
+            </Link>
+          ))
+        )}
+      </section>
+
+      {older.length > 0 && (
+        <section className="space-y-2">
+          <button
+            onClick={() => setShowOlder((v) => !v)}
+            className="text-sm font-medium text-neutral-500 hover:text-neutral-300"
+          >
+            {showOlder ? "▾" : "▸"} Older &amp; unfinished ({older.length})
+          </button>
+          {showOlder &&
+            older.map((s) => (
+              <Link
+                key={s.id}
+                href={`/stories/${s.id}`}
+                className="flex items-center justify-between gap-2 rounded-lg border border-neutral-800/60 bg-neutral-900/60 px-4 py-3 transition hover:border-amber-500/50"
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-medium text-neutral-400">
+                    {s.title ?? s.prompt}
+                  </div>
+                  <div className="text-xs text-neutral-600">
+                    {s.characterName} · {s.pageCount} pages
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-neutral-500">
+                    {LEGACY_LABEL[s.status] ?? s.status}
+                  </span>
+                  {deleteButton(s)}
+                </div>
+              </Link>
+            ))}
+        </section>
+      )}
     </div>
   );
 }

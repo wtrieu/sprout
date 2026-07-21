@@ -1,21 +1,18 @@
 /**
- * Story craft engine. What separates real children's books from generic
+ * Story craft standards. What separates real children's books from generic
  * generated prose is STRUCTURE — refrains, meter, the rule of three, page-turn
- * pulls, deceleration into sleep. A small model won't invent that; it imitates
- * it well when handed a form. So: four authored text forms (spec + exemplar),
- * age-banded word budgets enforced in code, plan→write decomposition, and a
- * judge-revise pass that catches forced rhymes and read-aloud clunkers.
+ * pulls, deceleration into sleep. Four authored text forms (spec + exemplar),
+ * age-banded word budgets, and mechanical craft checks enforced in code. The
+ * writer is the nightly headless Claude run (scripts/nightly-story-candidates.ts);
+ * these specs are the contract its drafts are validated against.
  */
-import { z } from "zod";
 import { desc } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import { stories } from "../../db/schema";
-import { formatAge } from "../age";
-import { callClaudeJson, claudeAvailable } from "../claude";
 
 // --- age bands: what "written for a toddler" means at each stage --------------
 
-type AgeBand = { maxWordsPerPage: number; language: string };
+export type AgeBand = { maxWordsPerPage: number; language: string };
 
 export const ageBand = (months: number): AgeBand => {
   if (months < 18)
@@ -104,13 +101,13 @@ night/light · deep/sleep · moon/soon · star/are · sky/by · head/bed · tigh
 export const formKeys = Object.keys(storyForms);
 
 /**
- * Variety memory: prefer a form the recent stories haven't used. Verse is
- * gated on a frontier model — tested on qwen3:14b, most couplets came out as
- * forced or broken rhymes even with a rhyme bank and a revise pass; the model
- * can't hear phonetics, and no prompt fixes that.
+ * Variety memory: prefer a form the recent stories haven't used. All four
+ * forms are eligible — the writer is always a frontier Claude model now (the
+ * lullaby-rhyme gate existed for qwen3, which can't hear phonetics).
  */
-export const pickStoryForm = (db: DB): string => {
-  const eligible = claudeAvailable() ? formKeys : formKeys.filter((f) => f !== "lullaby-rhyme");
+export const pickStoryForm = (db: DB, exclude: string[] = []): string => {
+  const pool0 = formKeys.filter((f) => !exclude.includes(f));
+  const eligible = pool0.length > 0 ? pool0 : formKeys;
   const recent = db
     .select({ form: stories.form })
     .from(stories)
@@ -124,26 +121,7 @@ export const pickStoryForm = (db: DB): string => {
   return pool[Math.floor(Math.random() * pool.length)];
 };
 
-// --- generation ------------------------------------------------------------------
-
-const PagesSchema = z.object({
-  title: z.string().min(1).max(120),
-  pages: z
-    .array(
-      z.object({
-        text: z.string().min(1).max(400),
-        illustration_prompt: z.string().min(10).max(500),
-      }),
-    )
-    .min(4)
-    .max(14),
-});
-export type StoryPages = z.infer<typeof PagesSchema>;
-
-const JudgeSchema = z.object({
-  read_aloud_ok: z.boolean(),
-  issues: z.array(z.string()).max(6),
-});
+// --- mechanical craft checks -----------------------------------------------------
 
 const wordCount = (s: string): number => s.split(/\s+/).filter(Boolean).length;
 
@@ -163,7 +141,11 @@ const isBankPair = (a: string, b: string): boolean =>
   RHYME_PAIRS.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
 
 /** Code-side craft checks — the ones a machine can verify. */
-const validatePages = (result: StoryPages, formKey: string, band: AgeBand): string[] => {
+export const validatePages = (
+  result: { pages: { text: string }[] },
+  formKey: string,
+  band: AgeBand,
+): string[] => {
   const problems: string[] = [];
   result.pages.forEach((p, i) => {
     const w = wordCount(p.text);
@@ -210,93 +192,3 @@ const validatePages = (result: StoryPages, formKey: string, band: AgeBand): stri
   return problems;
 };
 
-export type StoryTextInput = {
-  childName: string;
-  months: number;
-  theme: string; // the story prompt/outline
-  characterName: string;
-  characterDesc: string;
-  pageCount: number;
-  formKey: string;
-};
-
-const writePrompt = (input: StoryTextInput, form: StoryForm, band: AgeBand): string => `You write bedtime picture books in the tradition of the great read-aloud classics. Write a ${input.pageCount}-page book for ${input.childName}, ${formatAge(input.months)} old.
-
-Story seed from the parent: ${input.theme}
-Main character: ${input.characterName} — ${input.characterDesc}
-
-THE FORM — this book is a ${form.name} book:
-${form.spec}
-
-${form.exemplar}
-(Shape and craft only — never reuse the example's characters, refrain, objects, or wording.)
-
-READING LEVEL:
-${band.language}
-Hard limit: at most ${band.maxWordsPerPage} words of story text per page.
-
-CRAFT RULES:
-- The educational theme in the seed lives in what ${input.characterName} DOES — never name it, never state a moral.
-- One "join in" beat somewhere in the middle: a sound to make together or something to find in the picture. Never on the last two pages.
-- The last two pages decelerate: shorter, softer, quieter, ending asleep and safe. No exclamation marks there.
-- No peril, nothing scary, nothing sad. It's the last thing the child hears before sleep.
-- Each page needs an "illustration_prompt": a self-contained visual description of THAT page's scene (setting, what ${input.characterName} is doing, time of day, mood). Do NOT describe the character's appearance (the illustrator has a character sheet). Never include text/words in the scene. Compose simply: ${input.characterName} alone or with ONE animal friend, full-body or distant views, nothing hand-intricate, no crowds, no mirrors.
-
-Return STRICT JSON:
-{ "title": string, "pages": [ { "text": string, "illustration_prompt": string } ] }
-Exactly ${input.pageCount} pages.`;
-
-/**
- * Generate a story's pages: write → code checks → judge (read-aloud craft the
- * code can't verify) → one revision pass if anything flagged.
- */
-export const writeStoryPages = async (input: StoryTextInput): Promise<StoryPages> => {
-  const form = storyForms[input.formKey] ?? storyForms["rhythmic-prose"];
-  const band = ageBand(input.months);
-  const schema = PagesSchema.refine((p) => p.pages.length === input.pageCount, {
-    message: `must contain exactly ${input.pageCount} pages`,
-  });
-
-  let result = await callClaudeJson(writePrompt(input, form, band), schema, {
-    temperature: 0.8,
-  });
-
-  // Craft QC: mechanical checks in code, taste checks by a thinking judge.
-  const problems = validatePages(result, input.formKey, band);
-  const judged = await callClaudeJson(
-    `You are a children's book editor reading this ${form.name} book ALOUD, as a parent would at bedtime. Judge only the story text (ignore illustration prompts).
-
-Flag (in "issues", one short phrase each):
-- forced rhymes: inverted word order, filler words padding the meter, rhymes that clunk
-- lines that trip the tongue when read aloud
-- abstract or lecturing language a toddler can't picture ("it's important to share")
-- a stated moral
-- an ending that isn't quiet and sleepy
-If it reads well, return read_aloud_ok=true and an empty issues list — most decent drafts pass.
-
-THE BOOK:
-${result.pages.map((p, i) => `Page ${i + 1}: ${p.text}`).join("\n")}
-
-Return STRICT JSON: { "read_aloud_ok": boolean, "issues": string[] }`,
-    JudgeSchema,
-    { temperature: 0.1, think: true },
-  );
-
-  const allIssues = [...problems, ...(judged.read_aloud_ok ? [] : judged.issues)];
-  if (allIssues.length > 0) {
-    result = await callClaudeJson(
-      `${writePrompt(input, form, band)}
-
-You already wrote a draft, but an editor flagged problems. Fix ONLY these, keeping everything that works:
-${allIssues.map((p) => `- ${p}`).join("\n")}
-
-DRAFT:
-${JSON.stringify({ title: result.title, pages: result.pages })}
-
-Return the corrected STRICT JSON in the same shape. Exactly ${input.pageCount} pages.`,
-      schema,
-      { temperature: 0.6 },
-    );
-  }
-  return result;
-};

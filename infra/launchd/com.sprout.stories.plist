@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Story candidates: a local headless `claude -p` run writes 2 draft bedtime
+  stories for morning review. 5:00am — after the 2:30 nightly pipeline has
+  finished its SQLite write bursts. PATH must include ~/.local/bin (the
+  claude CLI); the CLI's Max-subscription OAuth token lives in the login
+  keychain, which is unlocked in the user's GUI session where LaunchAgents
+  run. The script strips ANTHROPIC_API_KEY so runs can never bill the API.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sprout.stories</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/pnpm</string>
+    <string>--filter</string>
+    <string>web</string>
+    <string>run</string>
+    <string>job:stories</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/waylantrieu/repos/sprout</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/waylantrieu/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>DATABASE_URL</key>
+    <string>/Users/waylantrieu/repos/sprout/data/sprout.db</string>
+    <key>IMAGES_DIR</key>
+    <string>/Users/waylantrieu/repos/sprout/data/images</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>5</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/sprout-stories.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/sprout-stories.err.log</string>
+</dict>
+</plist>

@@ -36,6 +36,13 @@
       "when": 1783435602920,
       "tag": "0004_magenta_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1784611723442,
+      "tag": "0005_graceful_living_mummy",
+      "breakpoints": true
     }
   ]
 }

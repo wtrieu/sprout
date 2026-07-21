@@ -1,12 +1,9 @@
 import { z } from "zod";
-import { eq, asc, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { DB } from "../db/client";
 import {
   documents,
   chunks,
-  stories,
-  storyPages,
-  characters,
   children,
   materials,
   userMaterials,
@@ -15,13 +12,9 @@ import {
 } from "../db/schema";
 import { ageInMonths } from "./age";
 import type { JobRow } from "./jobs";
-import { enqueue } from "./jobs";
 import { callOllamaJson } from "./ollama";
-import { callClaudeJson } from "./claude";
 import { journalContext, milestonesNotYetAchieved, personalizationLine } from "./skills/journal";
-import { pickStoryForm, writeStoryPages } from "./skills/storyText";
 import { embed, toBuffer, chunkText } from "./embeddings";
-import { formatAge } from "./age";
 
 // ---------------------------------------------------------------------------
 // llm lane: relevance classification
@@ -84,54 +77,6 @@ const runEmbedDoc = async (db: DB, job: JobRow): Promise<void> => {
       .values({ documentId: docId, chunkIndex: i, text, embedding: toBuffer(vectors[i]) })
       .run();
   });
-};
-
-// ---------------------------------------------------------------------------
-// llm lane: story text generation (Phase 3)
-// ---------------------------------------------------------------------------
-
-const runStoryText = async (db: DB, job: JobRow): Promise<void> => {
-  const storyId = Number(job.payload.storyId);
-  const story = db.select().from(stories).where(eq(stories.id, storyId)).get();
-  if (!story) throw new Error(`story ${storyId} not found`);
-  const character = db.select().from(characters).where(eq(characters.id, story.characterId)).get();
-  if (!character) throw new Error(`character ${story.characterId} not found`);
-  const child = db.select().from(children).where(eq(children.id, story.childId)).get();
-
-  // Craft engine (lib/skills/storyText.ts): pick a text form with variety
-  // memory, write to its authored spec, judge-and-revise the read-aloud craft.
-  const formKey = story.form ?? pickStoryForm(db);
-  const result = await writeStoryPages({
-    childName: child?.name ?? "a toddler",
-    months: story.ageMonths,
-    theme: story.prompt,
-    characterName: character.name,
-    characterDesc: character.appearanceDesc,
-    pageCount: story.pageCount,
-    formKey,
-  });
-
-  db.delete(storyPages).where(eq(storyPages.storyId, storyId)).run(); // idempotent retry
-  result.pages.forEach((page, i) => {
-    db.insert(storyPages)
-      .values({
-        storyId,
-        pageIndex: i,
-        text: page.text,
-        illustrationPrompt: page.illustration_prompt,
-      })
-      .run();
-    enqueue(db, {
-      type: "story_image",
-      lane: "imagegen",
-      payload: { storyId, pageIndex: i },
-      priority: 100 + i,
-    });
-  });
-  db.update(stories)
-    .set({ title: result.title, form: formKey, status: "rendering" })
-    .where(eq(stories.id, storyId))
-    .run();
 };
 
 // ---------------------------------------------------------------------------
@@ -243,30 +188,9 @@ export const executeLlmJob = async (db: DB, job: JobRow): Promise<void> => {
       return runRelevance(db, job);
     case "embed_doc":
       return runEmbedDoc(db, job);
-    case "story_text":
-      return runStoryText(db, job);
     case "activities":
       return runActivities(db, job);
     default:
       throw new Error(`no llm executor for job type ${job.type}`);
-  }
-};
-
-/** After an image batch, flip stories to ready/failed based on page status. */
-export const reconcileStories = (db: DB): void => {
-  const rendering = db.select().from(stories).where(eq(stories.status, "rendering")).all();
-  for (const story of rendering) {
-    const pages = db
-      .select({ imageStatus: storyPages.imageStatus })
-      .from(storyPages)
-      .where(eq(storyPages.storyId, story.id))
-      .orderBy(asc(storyPages.pageIndex))
-      .all();
-    if (pages.length === 0) continue;
-    if (pages.every((p) => p.imageStatus === "done")) {
-      db.update(stories).set({ status: "ready" }).where(eq(stories.id, story.id)).run();
-    } else if (pages.some((p) => p.imageStatus === "failed")) {
-      db.update(stories).set({ status: "failed" }).where(eq(stories.id, story.id)).run();
-    }
   }
 };

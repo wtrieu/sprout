@@ -20,7 +20,9 @@
     "job:run": "tsx ../../scripts/run-jobs.ts",
     "job:nightly": "tsx ../../scripts/nightly-pipeline.ts",
     "job:digest": "tsx ../../scripts/weekly-digest.ts",
-    "job:activities": "tsx ../../scripts/weekly-activities.ts"
+    "job:activities": "tsx ../../scripts/weekly-activities.ts",
+    "job:stories": "tsx ../../scripts/nightly-story-candidates.ts",
+    "story:import": "tsx ../../scripts/import-story-candidate.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
@@ -37,6 +39,7 @@
     "pdf-lib": "^1.17.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "sharp": "^0.34.1",
     "tailwind-merge": "^3.6.0",
     "three": "^0.185.1",
     "zod": "^3.24.1"

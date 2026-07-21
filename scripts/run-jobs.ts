@@ -2,7 +2,7 @@
  * THE orchestrator. The only process that executes queued jobs, in strictly
  * sequential lanes so the 14B chat model and FLUX never coexist in 24GB:
  *
- *   1. drain llm lane (relevance, embeddings, story text) via Ollama
+ *   1. drain llm lane (relevance, embeddings, activities) via Ollama
  *   2. unload Ollama (keep_alive:0 + `ollama stop`)
  *   3. spawn services/imagegen/worker.py in drain-and-exit mode
  *
@@ -16,13 +16,9 @@ import path from "node:path";
 import { sql } from "drizzle-orm";
 import { db } from "../apps/web/src/db/client";
 import { claimNext, completeJob, failJob, acquireLock, releaseLock, enqueue } from "../apps/web/src/lib/jobs";
-import { executeLlmJob, reconcileStories } from "../apps/web/src/lib/executors";
+import { executeLlmJob } from "../apps/web/src/lib/executors";
 import { unloadOllamaModel, resolveVlmModel } from "../apps/web/src/lib/ollama";
-import {
-  gradePageImage,
-  gradeRefImage,
-  QC_MAX_RENDER_ATTEMPTS,
-} from "../apps/web/src/lib/skills/imageQc";
+import { gradeRefImage, QC_MAX_RENDER_ATTEMPTS } from "../apps/web/src/lib/skills/imageQc";
 
 const OWNER = `run-jobs-${process.pid}`;
 const REPO_ROOT = path.resolve(process.cwd(), "../..");
@@ -118,36 +114,9 @@ const runImageQc = async (): Promise<number> => {
     }
   }
 
-  const pages = db.all<{ id: number; storyId: number; pageIndex: number; imagePath: string; renderAttempts: number }>(sql`
-    SELECT id, story_id as storyId, page_index as pageIndex,
-           image_path as imagePath, render_attempts as renderAttempts
-    FROM story_pages WHERE image_status = 'done' AND image_path IS NOT NULL AND qc_status IS NULL
-  `);
-  for (const page of pages) {
-    try {
-      const verdict = await gradePageImage(IMAGES_DIR, page.imagePath, vlm);
-      if (!verdict.pass && page.renderAttempts < QC_MAX_RENDER_ATTEMPTS) {
-        db.run(sql`UPDATE story_pages SET render_attempts = render_attempts + 1, image_status = 'pending', qc_note = ${verdict.note} WHERE id = ${page.id}`);
-        enqueue(db, {
-          type: "story_image",
-          lane: "imagegen",
-          payload: { storyId: page.storyId, pageIndex: page.pageIndex },
-          priority: 100 + page.pageIndex,
-        });
-        requeued += 1;
-        console.log(`QC re-roll story ${page.storyId} p${page.pageIndex}: ${verdict.note}`);
-      } else {
-        db.run(sql`UPDATE story_pages SET qc_status = ${verdict.pass ? "passed" : "failed"}, qc_note = ${verdict.note} WHERE id = ${page.id}`);
-        if (!verdict.pass) console.log(`QC accepting flawed page story ${page.storyId} p${page.pageIndex} after ${page.renderAttempts} re-rolls: ${verdict.note}`);
-      }
-    } catch (err) {
-      console.error(`QC error on page ${page.imagePath}: ${err instanceof Error ? err.message : err}`);
-    }
-  }
-
   // Free the VLM before FLUX loads again for any re-rolls.
   await unloadOllamaModel(vlm);
-  console.log(`image QC: ${refs.length} refs + ${pages.length} pages graded, ${requeued} re-queued`);
+  console.log(`image QC: ${refs.length} refs graded, ${requeued} re-queued`);
   return requeued;
 };
 
@@ -170,7 +139,6 @@ const main = async () => {
       runImageWorker();
       if ((await runImageQc()) === 0) break;
     }
-    reconcileStories(db);
   } finally {
     releaseLock(db, OWNER);
   }

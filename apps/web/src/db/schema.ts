@@ -29,8 +29,6 @@ export const jobTypes = [
   "crawl_source",
   "relevance",
   "embed_doc",
-  "story_text",
-  "story_image",
   "char_reference",
   "digest",
   "activities",
@@ -387,9 +385,9 @@ export const stories = sqliteTable("stories", {
   childId: integer("child_id")
     .notNull()
     .references(() => children.id),
-  characterId: integer("character_id")
-    .notNull()
-    .references(() => characters.id),
+  // Legacy FLUX-era stories reference a characters row; curated stories carry
+  // their character inline (characterName/characterDesc) instead.
+  characterId: integer("character_id").references(() => characters.id),
   arcId: integer("arc_id").references(() => storyArcs.id),
   arcIndex: integer("arc_index"),
   title: text("title"),
@@ -400,11 +398,18 @@ export const stories = sqliteTable("stories", {
   prompt: text("prompt").notNull(), // theme requested by the user
   ageMonths: integer("age_months").notNull(),
   pageCount: integer("page_count").notNull(),
+  characterName: text("character_name"),
+  // Canonical appearance block, pasted verbatim into every page's art prompt.
+  characterDesc: text("character_desc"),
+  // Guidance shown above the prompt pack (--cref workflow, aspect ratio).
+  artNotes: text("art_notes"),
+  // draft → approved → ready is the curated flow;
+  // queued/text_done/rendering/failed are legacy FLUX-pipeline states.
   status: text("status", {
-    enum: ["queued", "text_done", "rendering", "ready", "failed"],
+    enum: ["draft", "approved", "queued", "text_done", "rendering", "ready", "failed"],
   })
     .notNull()
-    .default("queued"),
+    .default("draft"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -428,9 +433,35 @@ export const storyPages = sqliteTable(
     renderAttempts: integer("render_attempts").notNull().default(0),
     qcStatus: text("qc_status", { enum: ["passed", "failed"] }),
     qcNote: text("qc_note"),
+    // Ken Burns parameters assigned at finalize; null = static (legacy pages).
+    motion: text("motion", { mode: "json" }).$type<PageMotion>(),
   },
   (t) => [uniqueIndex("story_pages_story_page_idx").on(t.storyId, t.pageIndex)],
 );
+
+/** Slow pan/zoom for the reader. Scales are ratios; offsets are % of the frame. */
+export type PageMotion = {
+  scaleFrom: number;
+  scaleTo: number;
+  xFrom: number;
+  xTo: number;
+  yFrom: number;
+  yTo: number;
+  durationS: number;
+};
+
+// ---------------------------------------------------------------------------
+// Settings — single-row-per-key app configuration (Zod-whitelisted in
+// lib/settings.ts; values are opaque JSON here).
+// ---------------------------------------------------------------------------
+
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value", { mode: "json" }).$type<unknown>().notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
 
 export const materials = sqliteTable("materials", {
   id: integer("id").primaryKey({ autoIncrement: true }),
