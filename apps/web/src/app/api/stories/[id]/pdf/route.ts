@@ -44,9 +44,16 @@ export const GET = async (
     const p = pdf.addPage([W, H]);
     const imgFile = page.imagePath ? path.join(IMAGES_DIR, page.imagePath) : null;
     if (imgFile && fs.existsSync(imgFile)) {
-      const png = await pdf.embedPng(fs.readFileSync(imgFile));
-      const size = Math.min(H - 80, W / 2 - 60);
-      p.drawImage(png, { x: 40, y: (H - size) / 2, width: size, height: size });
+      const bytes = fs.readFileSync(imgFile);
+      // Legacy FLUX renders are PNG; curated uploads are normalized to JPEG.
+      const img = imgFile.toLowerCase().endsWith(".png")
+        ? await pdf.embedPng(bytes)
+        : await pdf.embedJpg(bytes);
+      const box = Math.min(H - 80, W / 2 - 60);
+      const scale = Math.min(box / img.width, box / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+      p.drawImage(img, { x: 40 + (box - w) / 2, y: (H - h) / 2, width: w, height: h });
     }
     // Simple word-wrap for the right column.
     const textX = W / 2 + 20;

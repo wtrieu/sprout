@@ -87,3 +87,39 @@ html.lenis, html.lenis body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* --- story reader: Ken Burns + crossfade ---------------------------------- */
+
+/* One shared keyframe, parameterized per page via CSS custom properties set
+   inline from storyPages.motion. Pages without motion stay static. */
+@keyframes story-kb {
+  from {
+    transform: scale(var(--kb-s0, 1)) translate(var(--kb-x0, 0%), var(--kb-y0, 0%));
+  }
+  to {
+    transform: scale(var(--kb-s1, 1)) translate(var(--kb-x1, 0%), var(--kb-y1, 0%));
+  }
+}
+
+.story-kb {
+  animation: story-kb var(--kb-dur, 24s) ease-in-out forwards;
+  will-change: transform;
+}
+
+@keyframes story-page-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.story-page-in {
+  animation: story-page-in 600ms ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .story-kb {
+    animation: none;
+  }
+  .story-page-in {
+    animation-duration: 0.01ms;
+  }
+}

@@ -26,25 +26,27 @@ frontier model's taste is baked in even when it's gone.
 | Pipeline | Steps (each = one small call) | Code-side |
 |---|---|---|
 | Visit prep | ① chat history + concerns → themes ② milestone checklist → talking-point *selection* ③ themes + growth → doctor questions ④ snapshot paragraph | WHO percentiles computed, never generated; markdown assembly; notes skeleton |
-| Story arcs | ① frontier-skill *selection* ② through-line invention ③ one outline per story, sequential, with previous outlines as context | prompt composition, story/job rows |
 | Research briefs | ① sub-query plan ② findings extraction per ≤4-source batch (source index attached at birth) ③④⑤ three sections written from findings only | dedupe/rank retrieval, `[n]` range validation, assembly |
 | RAG eval | ① one eval question per chunk ② claim extraction from answer ③ per-claim verification against context ④ hedging check | retrieval-hit, verdict roll-up (faithful = zero unsupported claims), report |
 | Corpus audit | re-grade / staleness / suggestion review in batches of ≤8-10 docs | batching, report; always report-only |
 | Agentic Ask | ① intent classification (research/growth/milestones/journal) ② final composition with conversation history | growth percentiles, milestone checklist, and journal blocks built deterministically; citations from retrieval only |
-| Editorial planner | ① one story outline from chosen ingredients | style/character/theme chosen in code with variety memory; seasonal table authored; idempotent per day |
 | Image QC | ① targeted yes/no defect questions per render (VLM) | verdict + retry policy in code; seeds re-rolled via render_attempts; bounded at 2 re-rolls |
-| Story text | ① write to an authored FORM spec + exemplar ② editor-judge (think) ③ one revision if flagged | form picked with variety memory; age-banded word budgets, refrain recurrence, and rhyme-bank membership checked in code |
 
-## Story forms
+## Story candidates (not local)
 
-Great children's books are structure, not vocabulary — so story text is
-generated against authored forms (`lib/skills/storyText.ts`): rhythmic-prose
-(cadence + sound play), refrain (repeating chorus, one slot varied per page),
-cumulative (growing list), and lullaby-rhyme (couplets from an authored rhyme
-bank). Verified on qwen3: the first three produce genuine board-book patterns;
-**lullaby-rhyme is gated behind `ANTHROPIC_API_KEY`** — a 14B can't hear
-phonetics, and most couplets came out forced or broken even with the bank and
-a revise pass.
+Stories left the local-LLM path entirely: local generation (qwen3 text + FLUX
+pages) never reached bedtime quality, so `scripts/nightly-story-candidates.ts`
+now runs a headless `claude -p` (Max-subscription OAuth; `ANTHROPIC_API_KEY`
+is stripped from the child env so runs can never bill the API) that drafts
+two candidates a day for human review, with illustrations hand-made in
+Midjourney and uploaded through the app. The same decomposition philosophy
+still applies: ingredients (form, art pack, milestone theme, season) are
+picked in code with variety memory, prompts are composed in code
+(`lib/skills/storyArt.ts`), and every draft passes the mechanical craft checks
+in `lib/skills/storyText.ts` (age-banded word budgets, refrain recurrence,
+rhyme-bank membership) before it may enter the DB
+(`lib/stories/importCandidate.ts`). The authored story forms — rhythmic-prose,
+refrain, cumulative, lullaby-rhyme — remain the writing contract.
 
 ## Retrieval
 
@@ -93,6 +95,3 @@ numbers against it.
 - The eval and audit become self-graded. Their framing (audit ≠ classify,
   verify-one-claim ≠ write-the-answer) preserves signal, but absolute scores
   drift optimistic. Treat disagreement counts as leads.
-- Story prose will be simpler. The exemplar in `runStoryText` and the per-story
-  outline planning carry most of the quality; if it flags, add a second
-  exemplar page rather than more rules.
