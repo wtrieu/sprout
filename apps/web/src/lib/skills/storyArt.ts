@@ -50,6 +50,30 @@ export const artPacks: Record<string, ArtPack> = {
       "beautiful anime background art, Kyoto Animation style children's book scene, soft diffused lighting, painterly detail, gentle color grading, dreamy pastoral warmth",
     negative: "photo, manga panels, screentone, adult characters",
   },
+  linocut: {
+    name: "Linocut print",
+    styleDna:
+      "children's picture book illustration, hand-carved linocut print style, bold organic block lines, two-tone ink with one warm accent color, visible print texture, folk-art charm",
+    negative: "photo, 3d render, fine detail, gradients",
+  },
+  "felt-wool": {
+    name: "Felt & wool",
+    styleDna:
+      "children's picture book illustration, needle-felted wool diorama style, soft fuzzy felt textures, handcrafted miniature scene, warm tactile colors, gentle studio lighting",
+    negative: "photo of real animals, 3d render, plastic, glossy",
+  },
+  "pencil-wash": {
+    name: "Pencil & wash",
+    styleDna:
+      "children's picture book illustration, delicate graphite pencil linework with loose watercolor wash, muted tender palette, lots of soft white space, quiet classic storybook feeling like Winnie the Pooh",
+    negative: "photo, 3d render, heavy saturation, hard outlines",
+  },
+  "retro-flat": {
+    name: "Retro flat",
+    styleDna:
+      "children's picture book illustration, mid-century retro flat style, simple geometric shapes, limited warm palette of 4 colors, subtle print grain, playful vintage golden-books charm",
+    negative: "photo, 3d render, gradients, realistic shading",
+  },
 };
 
 export const artPackKeys = Object.keys(artPacks);
@@ -64,7 +88,7 @@ export const pickArtPack = (db: DB, exclude: string[] = []): string => {
     .select({ style: stories.style })
     .from(stories)
     .orderBy(desc(stories.id))
-    .limit(4)
+    .limit(6)
     .all()
     .map((r) => r.style)
     .filter((s): s is string => !!s);

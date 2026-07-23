@@ -5,6 +5,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { stories, storyPages } from "@/db/schema";
+import { normalizePageText } from "@/lib/stories/text";
 
 const IMAGES_DIR = path.resolve(process.cwd(), process.env.IMAGES_DIR ?? "../../data/images");
 
@@ -59,7 +60,7 @@ export const GET = async (
     const textX = W / 2 + 20;
     const maxWidth = W / 2 - 60;
     const fontSize = 22;
-    const words = page.text.split(/\s+/);
+    const words = normalizePageText(page.text).split(/\s+/);
     const lines: string[] = [];
     let line = "";
     for (const w of words) {

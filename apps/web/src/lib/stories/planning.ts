@@ -28,6 +28,50 @@ const SEASONAL_FLAVOR = [
 export const seasonalFlavor = (date: Date = new Date()): string =>
   SEASONAL_FLAVOR[date.getMonth()];
 
+/**
+ * Setting bank: WHERE tonight's story lives. Chosen in code with variety
+ * memory — left to the model, every July book drifts to the same beach with
+ * the same fireflies (the seasonal line planted them). Keys are stored on
+ * stories.setting for the LRU; the value is the scene brief fed to the writer.
+ */
+export const settingBank: Record<string, string> = {
+  meadow: "a wide grassy meadow with tall wildflowers and humming insects",
+  "deep-forest": "a mossy old forest with giant roots, ferns, and dappled light",
+  pond: "a quiet lily pond with reeds, dragonflies, and slow ripples",
+  garden: "a backyard vegetable garden with rows of plants and a watering can",
+  farm: "a small farm with a red barn, haystacks, and sleepy animals",
+  "rainy-street": "a cozy street on a rainy evening — umbrellas, puddles, warm windows",
+  "snowy-hill": "a soft snowy hillside with animal tracks and pine trees",
+  mountain: "a gentle mountain trail with big rocks, wind, and far-off peaks",
+  riverbank: "a burbling river bank with smooth stones and overhanging willows",
+  treehouse: "a little treehouse high in a leafy oak, with a rope ladder",
+  "night-sky-hill": "a bare hilltop under a huge starry sky",
+  orchard: "an apple orchard with ladders, baskets, and windfall fruit",
+  "city-window": "a city apartment windowsill at dusk, lights coming on below",
+  burrow: "a snug underground burrow with root ceilings and lantern light",
+  beach: "a sandy shore with tide pools, shells, and gentle waves",
+  "winter-den": "a warm den in winter — blankets, firelight, frost on the entrance",
+};
+
+export const settingKeys = Object.keys(settingBank);
+
+/** LRU pick over the last 6 stories' settings, minus this run's picks. */
+export const pickSetting = (db: DB, exclude: string[] = []): string => {
+  const pool0 = settingKeys.filter((k) => !exclude.includes(k));
+  const eligible = pool0.length > 0 ? pool0 : settingKeys;
+  const recent = db
+    .select({ setting: stories.setting })
+    .from(stories)
+    .orderBy(desc(stories.id))
+    .limit(6)
+    .all()
+    .map((r) => r.setting)
+    .filter((s): s is string => !!s);
+  const unused = eligible.filter((k) => !recent.includes(k));
+  const pool = unused.length > 0 ? unused : eligible;
+  return pool[Math.floor(Math.random() * pool.length)];
+};
+
 /** Least-recently-used pick: prefer options absent from `recent`. */
 export const pickFresh = <T extends string>(options: T[], recent: T[]): T => {
   const unused = options.filter((o) => !recent.includes(o));

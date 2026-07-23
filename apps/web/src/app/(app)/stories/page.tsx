@@ -11,6 +11,7 @@ type Story = {
   pageCount: number;
   pagesDone: number;
   characterName: string;
+  favorite: boolean;
 };
 
 type AgeTarget = { mode: "auto" } | { mode: "manual"; months: number };
@@ -32,6 +33,7 @@ const LEGACY_LABEL: Record<string, string> = {
 export default function StoriesPage() {
   const [storyList, setStoryList] = useState<Story[]>([]);
   const [ageValue, setAgeValue] = useState("auto");
+  const [perDay, setPerDay] = useState(4);
   const [showOlder, setShowOlder] = useState(false);
 
   const load = useCallback(async () => {
@@ -42,6 +44,9 @@ export default function StoriesPage() {
     setStoryList(s.stories);
     const target: AgeTarget | undefined = cfg.settings?.storyAgeTarget;
     if (target) setAgeValue(target.mode === "auto" ? "auto" : String(target.months));
+    if (typeof cfg.settings?.storyCandidatesPerDay === "number") {
+      setPerDay(cfg.settings.storyCandidatesPerDay);
+    }
   }, []);
 
   useEffect(() => {
@@ -61,15 +66,38 @@ export default function StoriesPage() {
     });
   };
 
+  const setCandidatesPerDay = async (n: number) => {
+    setPerDay(n);
+    await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key: "storyCandidatesPerDay", value: n }),
+    });
+  };
+
   const remove = async (story: Story) => {
     if (!confirm(`Delete "${story.title ?? story.prompt}"? This can't be undone.`)) return;
     await fetch(`/api/stories/${story.id}`, { method: "DELETE" });
     load();
   };
 
+  const toggleFavorite = async (story: Story) => {
+    // Optimistic flip; poll reconciles.
+    setStoryList((list) =>
+      list.map((s) => (s.id === story.id ? { ...s, favorite: !s.favorite } : s)),
+    );
+    await fetch(`/api/stories/${story.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ favorite: !story.favorite }),
+    });
+  };
+
   const drafts = storyList.filter((s) => s.status === "draft");
   const waiting = storyList.filter((s) => s.status === "approved");
-  const shelf = storyList.filter((s) => s.status === "ready");
+  const shelf = storyList
+    .filter((s) => s.status === "ready")
+    .sort((a, b) => Number(b.favorite) - Number(a.favorite) || b.id - a.id);
   const older = storyList.filter(
     (s) => !["draft", "approved", "ready"].includes(s.status),
   );
@@ -92,20 +120,36 @@ export default function StoriesPage() {
     <div className="space-y-8">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h1 className="text-2xl font-semibold">Stories</h1>
-        <label className="flex items-center gap-2 text-sm text-neutral-400">
-          Reading level
-          <select
-            value={ageValue}
-            onChange={(e) => setAgeTarget(e.target.value)}
-            className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
-          >
-            {AGE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-neutral-400">
+            Reading level
+            <select
+              value={ageValue}
+              onChange={(e) => setAgeTarget(e.target.value)}
+              className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
+            >
+              {AGE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm text-neutral-400">
+            Candidates/day
+            <select
+              value={perDay}
+              onChange={(e) => setCandidatesPerDay(Number(e.target.value))}
+              className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1.5"
+            >
+              {[1, 2, 3, 4, 5, 6].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       <section className="space-y-2">
@@ -181,7 +225,19 @@ export default function StoriesPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1">
-                <span className="text-sm">✅</span>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleFavorite(s);
+                  }}
+                  title={s.favorite ? "Unfavorite" : "Favorite"}
+                  className={`shrink-0 rounded-md px-2 py-1 transition hover:bg-neutral-800 ${
+                    s.favorite ? "text-amber-400" : "text-neutral-600 hover:text-amber-400"
+                  }`}
+                >
+                  {s.favorite ? "★" : "☆"}
+                </button>
                 {deleteButton(s)}
               </div>
             </Link>

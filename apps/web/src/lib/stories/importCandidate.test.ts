@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import * as schema from "../../db/schema";
 import type { DB } from "../../db/client";
 import { importCandidate } from "./importCandidate";
+import { normalizePageText } from "./text";
 
 const migrationsFolder = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -103,6 +104,62 @@ describe("importCandidate", () => {
       expect(page.illustrationPrompt).toContain("--no text");
       expect(page.illustrationPrompt).toContain("watercolor");
     }
+  });
+
+  it("stores couplet separators as newlines, never raw slashes", () => {
+    const couplets = {
+      ...goodCandidate,
+      pages: goodCandidate.pages.map(() => ({
+        text: "The pond is still, the reeds are deep, / the little fish have gone to sleep. /",
+        scene: "still pond at night, reeds silhouetted, badger cub watching the water",
+      })),
+    };
+    const result = importCandidate(db, couplets, { ...opts(), formKey: "lullaby-rhyme" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const page = db
+      .select()
+      .from(schema.storyPages)
+      .where(eq(schema.storyPages.storyId, result.storyId))
+      .all()[0];
+    expect(page.text).not.toContain("/");
+    expect(page.text).toContain("\n");
+    expect(page.text.endsWith("\n")).toBe(false);
+  });
+
+  it("checks goodnight-catalog and question-answer form structure", () => {
+    const noGoodnights = importCandidate(db, goodCandidate, {
+      ...opts(),
+      formKey: "goodnight-catalog",
+    });
+    expect(noGoodnights.ok).toBe(false);
+    if (!noGoodnights.ok) expect(noGoodnights.problems[0]).toMatch(/GOODNIGHT CATALOG/);
+
+    const noQuestions = importCandidate(db, goodCandidate, {
+      ...opts(),
+      formKey: "question-answer",
+    });
+    expect(noQuestions.ok).toBe(false);
+    if (!noQuestions.ok) expect(noQuestions.problems[0]).toMatch(/QUESTION & ANSWER/);
+  });
+
+  it("records the setting key for variety memory", () => {
+    const result = importCandidate(db, goodCandidate, { ...opts(), settingKey: "burrow" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const story = db
+      .select()
+      .from(schema.stories)
+      .where(eq(schema.stories.id, result.storyId))
+      .get()!;
+    expect(story.setting).toBe("burrow");
+    expect(story.favorite).toBe(false);
+  });
+
+  it("normalizePageText handles mid-line and trailing separators", () => {
+    expect(normalizePageText("a line, / another line.")).toBe("a line,\nanother line.");
+    expect(normalizePageText("ends with slash /")).toBe("ends with slash");
+    expect(normalizePageText("no slashes here")).toBe("no slashes here");
   });
 
   it("enforces lullaby-rhyme couplets against the rhyme bank", () => {

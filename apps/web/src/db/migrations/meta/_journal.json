@@ -43,6 +43,13 @@
       "when": 1784611723442,
       "tag": "0005_graceful_living_mummy",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1784779569175,
+      "tag": "0006_slippery_expediter",
+      "breakpoints": true
     }
   ]
 }

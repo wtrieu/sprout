@@ -15,6 +15,8 @@ export const settingSchemas = {
     z.object({ mode: z.literal("auto") }),
     z.object({ mode: z.literal("manual"), months: z.number().int().min(6).max(72) }),
   ]),
+  /** How many story candidates the nightly run drafts. */
+  storyCandidatesPerDay: z.number().int().min(1).max(6),
 } as const;
 
 export type SettingKey = keyof typeof settingSchemas;
@@ -24,6 +26,7 @@ export const settingKeys = Object.keys(settingSchemas) as SettingKey[];
 
 const DEFAULTS: { [K in SettingKey]: SettingValue<K> } = {
   storyAgeTarget: { mode: "auto" },
+  storyCandidatesPerDay: 4, // testing phase — dial down from the Stories page later
 };
 
 export const getSetting = <K extends SettingKey>(db: DB, key: K): SettingValue<K> => {

@@ -10,6 +10,9 @@ import type { DB } from "../../db/client";
 import { stories, storyPages } from "../../db/schema";
 import { ageBand, validatePages } from "../skills/storyText";
 import { composeArtNotes, composePagePrompt } from "../skills/storyArt";
+import { normalizePageText } from "./text";
+
+export { normalizePageText };
 
 export const CandidateSchema = z.object({
   title: z.string().min(3).max(120),
@@ -36,7 +39,10 @@ export type ImportOptions = {
   artPackKey: string;
   /** The theme/outline that seeded the story (stored on stories.prompt). */
   theme: string;
+  /** Setting-bank key (stories.setting) for variety memory; optional. */
+  settingKey?: string;
 };
+
 
 export type ImportResult =
   | { ok: true; storyId: number; title: string }
@@ -50,7 +56,10 @@ export const importCandidate = (db: DB, raw: unknown, opts: ImportOptions): Impo
       problems: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
     };
   }
-  const candidate = parsed.data;
+  const candidate = {
+    ...parsed.data,
+    pages: parsed.data.pages.map((p) => ({ ...p, text: normalizePageText(p.text) })),
+  };
 
   const craftProblems = validatePages(candidate, opts.formKey, ageBand(opts.ageMonths));
   if (craftProblems.length > 0) return { ok: false, problems: craftProblems };
@@ -69,6 +78,7 @@ export const importCandidate = (db: DB, raw: unknown, opts: ImportOptions): Impo
         characterName: candidate.characterName,
         characterDesc: candidate.characterDesc,
         artNotes: composeArtNotes(opts.artPackKey, candidate.characterName),
+        setting: opts.settingKey ?? null,
         status: "draft",
       })
       .returning()
