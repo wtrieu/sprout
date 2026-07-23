@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import { normalizePageText } from "@/lib/stories/text";
 
 type PageMotion = {
   scaleFrom: number;
@@ -157,9 +158,9 @@ export default function ReadPage({ params }: { params: Promise<{ id: string }> }
           <div className="px-8 pb-12 pt-6">
             <p
               key={idx}
-              className="story-page-in mx-auto max-w-xl text-center font-serif text-2xl leading-relaxed"
+              className="story-page-in mx-auto max-w-xl whitespace-pre-line text-center font-serif text-2xl leading-relaxed"
             >
-              {page.text}
+              {normalizePageText(page.text)}
             </p>
           </div>
         </div>

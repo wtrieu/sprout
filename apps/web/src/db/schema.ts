@@ -403,6 +403,9 @@ export const stories = sqliteTable("stories", {
   characterDesc: text("character_desc"),
   // Guidance shown above the prompt pack (--cref workflow, aspect ratio).
   artNotes: text("art_notes"),
+  // Setting-bank key chosen in code with variety memory (null = legacy).
+  setting: text("setting"),
+  favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
   // draft → approved → ready is the curated flow;
   // queued/text_done/rendering/failed are legacy FLUX-pipeline states.
   status: text("status", {

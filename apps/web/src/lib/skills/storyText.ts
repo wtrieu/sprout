@@ -96,6 +96,46 @@ night/light · deep/sleep · moon/soon · star/are · sky/by · head/bed · tigh
 - "The pond is still, the reeds are deep, / the little fish have gone to sleep." (deep/sleep)
 - "A silver moon, a silver light, / the water whispers soft goodnight." (light/goodnight)`,
   },
+  "goodnight-catalog": {
+    name: "Goodnight catalog",
+    spec: `The Goodnight Moon shape: first SURVEY the room/place, then say goodnight to everything in it, one by one.
+- Pages 1-3: name what is in the scene, plainly and warmly ("There is a…", "And a…"). Concrete, pictureable things the child could point to.
+- Remaining pages: "Goodnight, [thing]" beats — 2-3 goodnights per page, revisiting the SAME things in the same order they were introduced. No new objects after the survey.
+- Include one slightly odd or funny item in the catalog (a mush, a mitten, an old boot) — it's the page kids giggle at.
+- The final goodnights leave the scene itself: goodnight sounds, goodnight air, goodnight [character]. Whispered, tiny, done.`,
+    exemplar: `EXAMPLE pages from a different book (duckling named Pip in a boathouse):
+- "In the little boathouse there was a rope. And a bell. And a bucket full of shells."
+- "There was a crooked oar. And a striped wool sock, drying on the door."
+- "Goodnight, rope. Goodnight, bell. Goodnight, bucket full of shells."
+- "Goodnight, water. Goodnight, air. Goodnight, sounds everywhere. Goodnight, Pip."`,
+  },
+  "question-answer": {
+    name: "Question & answer",
+    spec: `The Brown Bear shape: a repeating question asked to one character, whose answer introduces the NEXT character — a friendly chain.
+- Design ONE question frame of 5-10 words ("[Name], [Name], what do you see/hear…?") and repeat it exactly, only the name changing.
+- Each page: the question to the current friend, then their answer pointing to the next friend ("I see a … looking at me").
+- 4-6 friends in the chain, each simple and drawable alone.
+- The last friend's answer points back to bed: they see the main character yawning / the moon rising, and everyone settles. The final page answers the question with sleep.`,
+    exemplar: `EXAMPLE frame from a different book (duckling named Pip at the pond):
+- "Pip, Pip, what do you hear? I hear a frog singing near."
+- "Frog, Frog, what do you hear? I hear a cricket ticking clear."
+- (final) "Moon, Moon, what do you see? I see one sleepy duckling… fast asleep by the reeds."`,
+  },
+  "journey-home": {
+    name: "Journey home",
+    spec: `The out-and-back expedition (Bear Hunt's engine, tuned for bedtime): a little journey through 3 terrains, each with its own repeated MOVEMENT SOUND, then home the same way, faster and softer.
+- One travel frame repeated per terrain: "Over/through/across the [terrain] — [sound, sound, sound]."
+- Each terrain gets one page out: the frame plus one small wonder noticed there.
+- The turn: something gentle signals bedtime (first star, a yawn, the wind going quiet) — NOT a scare. Nothing chases anyone.
+- Coming home: the same terrains in reverse in 1-2 pages, sounds softening ("swish… swish…").
+- Last page: home, warm, tucked in — the journey's sounds become a lullaby.`,
+    exemplar: `EXAMPLE pages from a different book (duckling named Pip):
+- "Over the pebbly bank — clickety, clickety, clickety. Pip found a snail with a swirly shell."
+- "Through the tall reeds — swish, swish, swish. Pip found a feather, soft as a cloud."
+- "Then the first star blinked on. Time to go home, Pip."
+- "Back through the reeds — swish… swish… Back over the pebbles — click… click…"
+- "Home in the warm nest. Clickety, swish, hush. Goodnight, Pip."`,
+  },
 };
 
 export const formKeys = Object.keys(storyForms);
@@ -186,6 +226,22 @@ export const validatePages = (
     if (!recurring) {
       problems.push(
         "this is a REFRAIN book but no repeated chorus phrase appears across the pages — every page must carry the refrain with one slot changed",
+      );
+    }
+  }
+  if (formKey === "goodnight-catalog") {
+    const goodnightPages = result.pages.filter((p) => /good\s?night/i.test(p.text)).length;
+    if (goodnightPages < Math.floor(result.pages.length / 2)) {
+      problems.push(
+        `this is a GOODNIGHT CATALOG book but only ${goodnightPages} pages say goodnight — after the opening survey, every page should say goodnight to things by name`,
+      );
+    }
+  }
+  if (formKey === "question-answer") {
+    const questionPages = result.pages.filter((p) => p.text.includes("?")).length;
+    if (questionPages < result.pages.length - 2) {
+      problems.push(
+        `this is a QUESTION & ANSWER book but only ${questionPages} pages ask the question — the repeated question frame must appear on nearly every page`,
       );
     }
   }

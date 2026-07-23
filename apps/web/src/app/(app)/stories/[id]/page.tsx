@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useCallback, useEffect, useRef, useState } from "react";
+import { normalizePageText } from "@/lib/stories/text";
 
 type Page = {
   pageIndex: number;
@@ -19,6 +20,7 @@ type Story = {
   form: string | null;
   artNotes: string | null;
   characterName: string | null;
+  favorite: boolean;
 };
 
 const CopyButton = ({ text }: { text: string }) => {
@@ -172,9 +174,25 @@ export default function StoryDetailPage({ params }: { params: Promise<{ id: stri
             {story.characterName ? ` · starring ${story.characterName}` : ""}
           </p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           {isReady && (
             <>
+              <button
+                onClick={async () => {
+                  setStory((s) => (s ? { ...s, favorite: !s.favorite } : s));
+                  await fetch(`/api/stories/${story.id}`, {
+                    method: "PATCH",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ favorite: !story.favorite }),
+                  });
+                }}
+                title={story.favorite ? "Unfavorite" : "Favorite"}
+                className={`rounded-md border border-neutral-700 px-3 py-2 text-sm transition hover:border-amber-500/50 ${
+                  story.favorite ? "text-amber-400" : "text-neutral-400"
+                }`}
+              >
+                {story.favorite ? "★" : "☆"}
+              </button>
               <Link
                 href={`/stories/${story.id}/read`}
                 className="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-amber-400"
@@ -186,6 +204,13 @@ export default function StoryDetailPage({ params }: { params: Promise<{ id: stri
                 className="rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-amber-500/50"
               >
                 PDF
+              </a>
+              <a
+                href={`/api/stories/${story.id}/offline`}
+                title="Download a self-contained copy that works with no connection"
+                className="rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-amber-500/50"
+              >
+                Offline ⬇
               </a>
             </>
           )}
@@ -217,8 +242,8 @@ export default function StoryDetailPage({ params }: { params: Promise<{ id: stri
                   <div className="text-xs font-medium text-neutral-500">
                     Page {p.pageIndex + 1}
                   </div>
-                  <p className="mt-1 font-serif text-lg leading-relaxed text-amber-50/90">
-                    {p.text}
+                  <p className="mt-1 whitespace-pre-line font-serif text-lg leading-relaxed text-amber-50/90">
+                    {normalizePageText(p.text)}
                   </p>
                 </div>
                 {isApproved && (

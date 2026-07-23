@@ -15,15 +15,18 @@ import { sql } from "drizzle-orm";
 import { db } from "../apps/web/src/db/client";
 import { children } from "../apps/web/src/db/schema";
 import { ageInMonths, formatAge } from "../apps/web/src/lib/age";
-import { resolveStoryAgeMonths } from "../apps/web/src/lib/settings";
+import { getSetting, resolveStoryAgeMonths } from "../apps/web/src/lib/settings";
 import { ageBand, pickStoryForm, storyForms } from "../apps/web/src/lib/skills/storyText";
 import { artPacks, pickArtPack } from "../apps/web/src/lib/skills/storyArt";
 import { importCandidate } from "../apps/web/src/lib/stories/importCandidate";
-import { pickMilestoneTheme, seasonalFlavor } from "../apps/web/src/lib/stories/planning";
+import {
+  pickMilestoneTheme,
+  pickSetting,
+  seasonalFlavor,
+  settingBank,
+} from "../apps/web/src/lib/stories/planning";
 import { journalContext, personalizationLine } from "../apps/web/src/lib/skills/journal";
 
-const CANDIDATES_PER_DAY = 2;
-const MAX_PENDING_DRAFTS = 4;
 const PAGE_COUNT = 8;
 const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -97,6 +100,7 @@ type Ingredients = {
   targetMonths: number;
   formKey: string;
   theme: string;
+  settingBrief: string;
   season: string;
   personal: string;
   avoidCharacters: string[];
@@ -108,11 +112,12 @@ const buildPrompt = (ing: Ingredients): string => {
   return `You write bedtime picture books in the tradition of the great read-aloud classics. Write a ${PAGE_COUNT}-page book for ${ing.childName}, ${formatAge(ing.targetMonths)} old.
 
 Story theme to gently model: ${ing.theme}
-Season right now: ${ing.season} — let it color the setting naturally, don't force it.
+THE SETTING — the whole book lives here: ${ing.settingBrief}. Every page's scene stays in or right beside this place. Do not relocate the story somewhere else.
+Season right now: ${ing.season} — at most a light garnish (one detail here or there); the SETTING leads, and if a seasonal image doesn't belong in this setting, leave it out.
 ${ing.personal ? `${ing.personal}\n` : ""}
-INVENT the main character: a simple, warm animal character.${
+INVENT the main character: a simple, warm animal character who believably lives in this setting.${
     ing.avoidCharacters.length > 0
-      ? ` Recent books already starred ${ing.avoidCharacters.join(", ")} — pick a different species and name.`
+      ? ` Recent books already starred these characters — pick a clearly different SPECIES and a different name: ${ing.avoidCharacters.join("; ")}.`
       : ""
   }
 - "characterName": the character's short friendly name.
@@ -152,6 +157,10 @@ const main = async () => {
     return;
   }
 
+  // Volume is a setting (Stories page → candidates/day); pending cap scales.
+  const candidatesPerDay = getSetting(db, "storyCandidatesPerDay");
+  const maxPendingDrafts = Math.max(4, candidatesPerDay * 2);
+
   // Idempotency: don't pile drafts on top of unreviewed drafts.
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
@@ -161,11 +170,11 @@ const main = async () => {
     )?.n ?? 0;
   const pending =
     db.get<{ n: number }>(sql`SELECT COUNT(*) as n FROM stories WHERE status = 'draft'`)?.n ?? 0;
-  if (madeToday >= CANDIDATES_PER_DAY) {
+  if (madeToday >= candidatesPerDay) {
     console.log(`already ${madeToday} candidate(s) today — skipping`);
     return;
   }
-  if (pending >= MAX_PENDING_DRAFTS) {
+  if (pending >= maxPendingDrafts) {
     console.log(`${pending} drafts already waiting for review — skipping`);
     return;
   }
@@ -174,24 +183,32 @@ const main = async () => {
   const actualMonths = ageInMonths(child.dob);
   const season = seasonalFlavor();
   const personal = personalizationLine(journalContext(db));
-  const avoidCharacters = db
-    .all<{ name: string }>(
-      sql`SELECT DISTINCT character_name as name FROM stories WHERE character_name IS NOT NULL ORDER BY id DESC LIMIT 6`,
-    )
-    .map((r) => r.name);
+  // Name + a snippet of the appearance block, so the writer avoids repeating
+  // the species too ("Bo — a small brown bear cub…"), not just the name.
+  // Queried per candidate (inside the loop) so the same run's fresh imports
+  // count too — otherwise two of tonight's books can star the same character.
+  const recentCharacters = () =>
+    db
+      .all<{ name: string; desc: string | null }>(
+        sql`SELECT character_name as name, character_desc as desc FROM stories WHERE character_name IS NOT NULL ORDER BY id DESC LIMIT 6`,
+      )
+      .map((r) => (r.desc ? `${r.name} (${r.desc.split(/\s+/).slice(0, 6).join(" ")}…)` : r.name));
 
-  const toMake = Math.min(CANDIDATES_PER_DAY - madeToday, MAX_PENDING_DRAFTS - pending);
+  const toMake = Math.min(candidatesPerDay - madeToday, maxPendingDrafts - pending);
   const usedForms: string[] = [];
   const usedPacks: string[] = [];
+  const usedSettings: string[] = [];
   let created = 0;
 
   for (let i = 0; i < toMake; i++) {
     const formKey = pickStoryForm(db, usedForms);
     const artPackKey = pickArtPack(db, usedPacks);
-    // Track at pick time (not on success) so the day's two candidates differ
-    // even if the first attempt errors out.
+    const settingKey = pickSetting(db, usedSettings);
+    // Track at pick time (not on success) so the day's candidates differ
+    // even if an earlier attempt errors out.
     usedForms.push(formKey);
     usedPacks.push(artPackKey);
+    usedSettings.push(settingKey);
     // Developmental theme follows the child's real age; reading level follows
     // the (possibly manual) target setting.
     const theme = pickMilestoneTheme(db, actualMonths);
@@ -204,13 +221,14 @@ const main = async () => {
       targetMonths,
       formKey,
       theme: themeText,
+      settingBrief: settingBank[settingKey],
       season,
       personal,
-      avoidCharacters,
+      avoidCharacters: recentCharacters(),
     };
     const prompt = buildPrompt(ingredients);
     console.log(
-      `candidate ${i + 1}/${toMake}: form=${formKey} art=${artPacks[artPackKey].name} theme="${themeText.slice(0, 70)}"`,
+      `candidate ${i + 1}/${toMake}: form=${formKey} art=${artPacks[artPackKey].name} setting=${settingKey} theme="${themeText.slice(0, 60)}"`,
     );
 
     try {
@@ -221,6 +239,7 @@ const main = async () => {
         formKey,
         artPackKey,
         theme: themeText,
+        settingKey,
       });
 
       if (!result.ok) {
@@ -241,6 +260,7 @@ Return the corrected JSON object only, same shape, exactly ${PAGE_COUNT} pages.`
           formKey,
           artPackKey,
           theme: themeText,
+          settingKey,
         });
       }
 

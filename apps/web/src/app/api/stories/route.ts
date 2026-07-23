@@ -12,6 +12,8 @@ export const GET = () => {
       status: stories.status,
       style: stories.style,
       form: stories.form,
+      setting: stories.setting,
+      favorite: stories.favorite,
       ageMonths: stories.ageMonths,
       pageCount: stories.pageCount,
       createdAt: stories.createdAt,

@@ -46,7 +46,11 @@ picked in code with variety memory, prompts are composed in code
 in `lib/skills/storyText.ts` (age-banded word budgets, refrain recurrence,
 rhyme-bank membership) before it may enter the DB
 (`lib/stories/importCandidate.ts`). The authored story forms — rhythmic-prose,
-refrain, cumulative, lullaby-rhyme — remain the writing contract.
+refrain, cumulative, lullaby-rhyme, goodnight-catalog, question-answer,
+journey-home — remain the writing contract, each borrowed from a classic
+picture-book structure. Setting is likewise a code-picked ingredient
+(`lib/stories/planning.ts` settingBank) so the model can't drift back to the
+same beach every July.
 
 ## Retrieval
 
