@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev --turbopack --port 3100",
     "build": "next build",
-    "start": "next start --port 3100",
+    "start": "next start --port 3100 --hostname 127.0.0.1",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
