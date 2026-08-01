@@ -25,7 +25,7 @@ import {
   seasonalFlavor,
   settingBank,
 } from "../apps/web/src/lib/stories/planning";
-import { journalContext, personalizationLine } from "../apps/web/src/lib/skills/journal";
+import { journalContext } from "../apps/web/src/lib/skills/journal";
 
 const PAGE_COUNT = 8;
 const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -101,7 +101,9 @@ type Ingredients = {
   formKey: string;
   theme: string;
   settingBrief: string;
+  /** Seasonal atmosphere line, or "" to omit it for this candidate. */
   season: string;
+  /** A single loved thing to weave in, or "" to omit it for this candidate. */
   personal: string;
   avoidCharacters: string[];
 };
@@ -113,8 +115,7 @@ const buildPrompt = (ing: Ingredients): string => {
 
 Story theme to gently model: ${ing.theme}
 THE SETTING — the whole book lives here: ${ing.settingBrief}. Every page's scene stays in or right beside this place. Do not relocate the story somewhere else.
-Season right now: ${ing.season} — at most a light garnish (one detail here or there); the SETTING leads, and if a seasonal image doesn't belong in this setting, leave it out.
-${ing.personal ? `${ing.personal}\n` : ""}
+${ing.season ? `Season right now: ${ing.season} — let it tint the light and mood only; the SETTING supplies the objects, not the season.\n` : ""}${ing.personal ? `${ing.personal}\n` : ""}
 INVENT the main character: a simple, warm animal character who believably lives in this setting.${
     ing.avoidCharacters.length > 0
       ? ` Recent books already starred these characters — pick a clearly different SPECIES and a different name: ${ing.avoidCharacters.join("; ")}.`
@@ -182,7 +183,12 @@ const main = async () => {
   const targetMonths = resolveStoryAgeMonths(db);
   const actualMonths = ageInMonths(child.dob);
   const season = seasonalFlavor();
-  const personal = personalizationLine(journalContext(db));
+  // Garnishes are OCCASIONAL and per-candidate, not baked into every prompt —
+  // otherwise the single journal preference ("croissants") and the season's
+  // nouns showed up in every book. Season tints ~1 in 3; a loved thing tints
+  // ~1 in 4, and which loved thing is chosen at random when several exist.
+  const preferences = journalContext(db).preferences;
+  const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
   // Name + a snippet of the appearance block, so the writer avoids repeating
   // the species too ("Bo — a small brown bear cub…"), not just the name.
   // Queried per candidate (inside the loop) so the same run's fresh imports
@@ -222,8 +228,11 @@ const main = async () => {
       formKey,
       theme: themeText,
       settingBrief: settingBank[settingKey],
-      season,
-      personal,
+      season: Math.random() < 0.34 ? season : "",
+      personal:
+        preferences.length > 0 && Math.random() < 0.25
+          ? `The child loves ${pick(preferences)} — you MAY tuck it in once if it fits this setting naturally, otherwise skip it entirely.`
+          : "",
       avoidCharacters: recentCharacters(),
     };
     const prompt = buildPrompt(ingredients);

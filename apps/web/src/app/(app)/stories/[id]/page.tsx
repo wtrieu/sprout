@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Star, Trash2 } from "lucide-react";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { normalizePageText } from "@/lib/stories/text";
 
@@ -186,12 +187,13 @@ export default function StoryDetailPage({ params }: { params: Promise<{ id: stri
                     body: JSON.stringify({ favorite: !story.favorite }),
                   });
                 }}
-                title={story.favorite ? "Unfavorite" : "Favorite"}
-                className={`rounded-md border border-neutral-700 px-3 py-2 text-sm transition hover:border-amber-500/50 ${
+                aria-label={story.favorite ? "Remove from favorites" : "Add to favorites"}
+                aria-pressed={story.favorite}
+                className={`flex h-10 items-center justify-center rounded-md border border-neutral-700 px-3 transition hover:border-amber-500/50 active:scale-95 ${
                   story.favorite ? "text-amber-400" : "text-neutral-400"
                 }`}
               >
-                {story.favorite ? "★" : "☆"}
+                <Star className="h-5 w-5" fill={story.favorite ? "currentColor" : "none"} />
               </button>
               <Link
                 href={`/stories/${story.id}/read`}
@@ -217,8 +219,9 @@ export default function StoryDetailPage({ params }: { params: Promise<{ id: stri
           <button
             onClick={reject}
             disabled={busy}
-            className="rounded-md border border-neutral-800 px-3 py-2 text-sm text-neutral-500 transition hover:border-red-900 hover:text-red-400 disabled:opacity-50"
+            className="flex h-10 items-center gap-1.5 rounded-md border border-neutral-800 px-3 text-sm text-neutral-500 transition hover:border-red-900 hover:text-red-400 active:scale-95 disabled:opacity-50"
           >
+            <Trash2 className="h-4 w-4" />
             Delete
           </button>
         </div>

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { Star, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 type Story = {
   id: number;
@@ -29,6 +30,70 @@ const LEGACY_LABEL: Record<string, string> = {
   rendering: "🎨 illustrating",
   failed: "⚠️ failed",
 };
+
+/**
+ * A tappable story row. The whole row navigates via a stretched Link overlay;
+ * the action buttons are SIBLINGS of that link (not nested inside an <a>, which
+ * is invalid HTML and the source of the flaky mobile taps). Buttons are 44px
+ * touch targets with active feedback.
+ */
+function StoryRow({
+  story,
+  subtitle,
+  hint,
+  borderClass,
+  titleClass,
+  showFavorite,
+  onDelete,
+  onToggleFavorite,
+}: {
+  story: Story;
+  subtitle: ReactNode;
+  hint?: ReactNode;
+  borderClass: string;
+  titleClass?: string;
+  showFavorite?: boolean;
+  onDelete: (s: Story) => void;
+  onToggleFavorite?: (s: Story) => void;
+}) {
+  return (
+    <div
+      className={`relative flex items-center gap-1 rounded-lg border bg-neutral-900 pl-4 pr-1.5 transition ${borderClass}`}
+    >
+      <Link
+        href={`/stories/${story.id}`}
+        aria-label={story.title ?? story.prompt}
+        className="absolute inset-0 rounded-lg"
+      />
+      <div className="pointer-events-none relative min-w-0 flex-1 py-3">
+        <div className={`truncate font-medium ${titleClass ?? ""}`}>{story.title ?? story.prompt}</div>
+        <div className="text-xs text-neutral-500">{subtitle}</div>
+      </div>
+      {hint && <span className="pointer-events-none relative shrink-0 pr-1 text-sm">{hint}</span>}
+      {showFavorite && onToggleFavorite && (
+        <button
+          type="button"
+          onClick={() => onToggleFavorite(story)}
+          aria-label={story.favorite ? "Remove from favorites" : "Add to favorites"}
+          aria-pressed={story.favorite}
+          className={`relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition active:scale-90 ${
+            story.favorite ? "text-amber-400" : "text-neutral-500 hover:text-amber-400"
+          }`}
+        >
+          <Star className="h-5 w-5" fill={story.favorite ? "currentColor" : "none"} />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => onDelete(story)}
+        aria-label="Delete story"
+        className="relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-red-950/60 hover:text-red-400 active:scale-90"
+      >
+        <Trash2 className="h-5 w-5" />
+      </button>
+    </div>
+  );
+}
 
 export default function StoriesPage() {
   const [storyList, setStoryList] = useState<Story[]>([]);
@@ -102,20 +167,6 @@ export default function StoriesPage() {
     (s) => !["draft", "approved", "ready"].includes(s.status),
   );
 
-  const deleteButton = (story: Story) => (
-    <button
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        remove(story);
-      }}
-      title="Delete story"
-      className="shrink-0 rounded-md px-2 py-1 text-neutral-600 transition hover:bg-red-950/60 hover:text-red-400"
-    >
-      🗑
-    </button>
-  );
-
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -161,22 +212,14 @@ export default function StoriesPage() {
           </p>
         ) : (
           drafts.map((s) => (
-            <Link
+            <StoryRow
               key={s.id}
-              href={`/stories/${s.id}`}
-              className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-neutral-900 px-4 py-3 transition hover:border-amber-500/70"
-            >
-              <div className="min-w-0">
-                <div className="truncate font-medium">{s.title ?? s.prompt}</div>
-                <div className="text-xs text-neutral-500">
-                  {s.characterName} · {s.pageCount} pages
-                </div>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-sm text-amber-400">Review →</span>
-                {deleteButton(s)}
-              </div>
-            </Link>
+              story={s}
+              subtitle={`${s.characterName} · ${s.pageCount} pages`}
+              hint={<span className="text-amber-400">Review →</span>}
+              borderClass="border-amber-500/30 hover:border-amber-500/70"
+              onDelete={remove}
+            />
           ))
         )}
       </section>
@@ -185,22 +228,14 @@ export default function StoriesPage() {
         <section className="space-y-2">
           <h2 className="text-sm font-medium text-neutral-400">Waiting for art</h2>
           {waiting.map((s) => (
-            <Link
+            <StoryRow
               key={s.id}
-              href={`/stories/${s.id}`}
-              className="flex items-center justify-between gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 transition hover:border-amber-500/50"
-            >
-              <div className="min-w-0">
-                <div className="truncate font-medium">{s.title ?? s.prompt}</div>
-                <div className="text-xs text-neutral-500">
-                  {s.characterName} · {s.pagesDone}/{s.pageCount} pages illustrated
-                </div>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-sm">🎨</span>
-                {deleteButton(s)}
-              </div>
-            </Link>
+              story={s}
+              subtitle={`${s.characterName} · ${s.pagesDone}/${s.pageCount} pages illustrated`}
+              hint={<span>🎨</span>}
+              borderClass="border-neutral-800 hover:border-amber-500/50"
+              onDelete={remove}
+            />
           ))}
         </section>
       )}
@@ -213,34 +248,15 @@ export default function StoriesPage() {
           </p>
         ) : (
           shelf.map((s) => (
-            <Link
+            <StoryRow
               key={s.id}
-              href={`/stories/${s.id}`}
-              className="flex items-center justify-between gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 transition hover:border-amber-500/50"
-            >
-              <div className="min-w-0">
-                <div className="truncate font-medium">{s.title ?? s.prompt}</div>
-                <div className="text-xs text-neutral-500">
-                  {s.characterName} · {s.pageCount} pages
-                </div>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    toggleFavorite(s);
-                  }}
-                  title={s.favorite ? "Unfavorite" : "Favorite"}
-                  className={`shrink-0 rounded-md px-2 py-1 transition hover:bg-neutral-800 ${
-                    s.favorite ? "text-amber-400" : "text-neutral-600 hover:text-amber-400"
-                  }`}
-                >
-                  {s.favorite ? "★" : "☆"}
-                </button>
-                {deleteButton(s)}
-              </div>
-            </Link>
+              story={s}
+              subtitle={`${s.characterName} · ${s.pageCount} pages`}
+              borderClass="border-neutral-800 hover:border-amber-500/50"
+              showFavorite
+              onToggleFavorite={toggleFavorite}
+              onDelete={remove}
+            />
           ))
         )}
       </section>
@@ -255,26 +271,19 @@ export default function StoriesPage() {
           </button>
           {showOlder &&
             older.map((s) => (
-              <Link
+              <StoryRow
                 key={s.id}
-                href={`/stories/${s.id}`}
-                className="flex items-center justify-between gap-2 rounded-lg border border-neutral-800/60 bg-neutral-900/60 px-4 py-3 transition hover:border-amber-500/50"
-              >
-                <div className="min-w-0">
-                  <div className="truncate font-medium text-neutral-400">
-                    {s.title ?? s.prompt}
-                  </div>
-                  <div className="text-xs text-neutral-600">
-                    {s.characterName} · {s.pageCount} pages
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
+                story={s}
+                subtitle={`${s.characterName} · ${s.pageCount} pages`}
+                titleClass="text-neutral-400"
+                hint={
                   <span className="text-xs text-neutral-500">
                     {LEGACY_LABEL[s.status] ?? s.status}
                   </span>
-                  {deleteButton(s)}
-                </div>
-              </Link>
+                }
+                borderClass="border-neutral-800/60 hover:border-amber-500/50"
+                onDelete={remove}
+              />
             ))}
         </section>
       )}

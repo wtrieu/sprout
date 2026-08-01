@@ -9,20 +9,23 @@ import { desc, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import { milestones, stories } from "../../db/schema";
 
-// Month (0-11) → seasonal flavor the story can weave in. Northern hemisphere.
+// Month (0-11) → seasonal ATMOSPHERE. Deliberately light on concrete nouns:
+// naming specific objects (fireflies, beach, ice cream) made every summer book
+// grab the same ones. These tint light, temperature, and mood — the setting
+// supplies the objects. Northern hemisphere.
 const SEASONAL_FLAVOR = [
-  "deep winter — snow, frosty windows, warm blankets, hot cocoa steam",
-  "late winter — melting icicles, first mild days, puddles starting",
-  "early spring — buds, birdsong, rain showers, muddy boots",
-  "spring — blossoms, baby animals, gardens waking up, kites",
-  "late spring — long evenings, dandelions, picnic blankets",
-  "early summer — sprinklers, strawberries, bare feet in grass",
-  "midsummer — beach days, ice cream, fireflies, late golden light",
-  "late summer — cicadas, garden harvest, warm nights",
-  "early autumn — first crunchy leaves, apples, lighter jackets",
-  "autumn — pumpkins, leaf piles, geese flying south, cozy sweaters",
-  "late autumn — bare branches, early dusk, candles in windows",
-  "early winter — first snow, twinkling lights, mittens and scarves",
+  "deep winter cold — pale light, hushed and still, everything bundled warm",
+  "late winter — thin bright light, the first soft thaw in the air",
+  "early spring — cool fresh air, new green, a wakening feeling",
+  "spring — mild and bright, gentle growth everywhere",
+  "late spring — long soft evenings, warm and green",
+  "early summer — warm days, bright and easy, light lasting late",
+  "high summer — deep warmth, heavy golden light, slow and drowsy",
+  "late summer — warm and ripe, a first hint of the turn",
+  "early autumn — crisp cooling air, low amber light",
+  "autumn — cool and golden, a cozy inward feeling",
+  "late autumn — bare, dim, early dusk, everything drawing in",
+  "early winter — first cold, quiet and clear, warm light indoors",
 ];
 
 export const seasonalFlavor = (date: Date = new Date()): string =>
