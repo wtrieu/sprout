@@ -1,7 +1,7 @@
 # Loop Operations — shared rules for all scheduled agents
 
 These rules apply to every scheduled loop session (security, code-quality, docs,
-tech-debt, backlog, eng-review). Read this file first, then your loop's own
+tech-debt, backlog, eng-review, ideation). Read this file first, then your loop's own
 playbook in this directory. Where a loop playbook and this file conflict, this
 file wins.
 

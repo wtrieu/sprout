@@ -22,8 +22,8 @@ opening any PR.
 
 ## Scheduled loops
 
-Scheduled maintenance sessions (security, code-quality, docs, tech-debt,
-backlog, eng-review) are driven by playbooks in `.claude/loops/`. Their shared
+Scheduled sessions (security, code-quality, docs, tech-debt, backlog,
+eng-review, ideation) are driven by playbooks in `.claude/loops/`. Their shared
 rules live in `.claude/loops/OPERATIONS.md` — most importantly: **never merge,
 never push to `main`; all changes go through PRs a human reviews**. Those
 rules apply to any session doing automated maintenance here.
