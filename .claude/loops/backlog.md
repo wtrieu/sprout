@@ -8,8 +8,12 @@ label** — only a human applies it, and only labeled issues get implemented.
 
 ## Phase 1 — Triage (every run)
 
-For each open issue that has no `triaged` label and no implementation plan
-comment from a previous run:
+Skip issues labeled `idea` — the ideation loop owns their lifecycle (pitch,
+feedback, tech plan) until a human applies `claude-approved`, at which point
+Phase 2 below implements them like any other approved issue.
+
+For each other open issue that has no `triaged` label and no implementation
+plan comment from a previous run:
 
 1. Read it, reproduce/verify if it's a bug report.
 2. Apply labels: kind (`bug`/`enhancement`/`documentation`), and a priority

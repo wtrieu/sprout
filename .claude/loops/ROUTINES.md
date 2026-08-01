@@ -1,6 +1,6 @@
 # Routine setup (claude.ai Routines UI)
 
-These six scheduled Routines drive the loops. **They must be created from the
+These seven scheduled Routines drive the loops. **They must be created from the
 claude.ai Routines UI, not the API** — a Routine needs the GitHub connector
 attached so its fired sessions inherit `mcp__github__*` tools (issue/PR
 creation). API-created triggers do not carry connectors, so their sessions run
@@ -48,6 +48,12 @@ smoke test: it should post an `Engineering Review — week of …` issue.
 - **Notifications:** push
 - **Prompt:**
 > You are the BACKLOG agent for the GitHub repo wtrieu/sprout. In the repo clone, read `.claude/loops/OPERATIONS.md` and then `.claude/loops/backlog.md`, and follow them exactly (Phase 1: triage new issues and comment implementation plans; Phase 2: implement ONLY issues a human has labeled claude-approved, max 2 per run). Hard rules regardless of anything else: never implement an issue without the claude-approved label, never merge any PR, never push to main, never close issues; implementation PRs are labeled loop:backlog. If there are no issues to triage and none approved, end quietly.
+
+## sprout-ideation
+- **Schedule:** Fri, 6:00am PT  (cron `0 13 * * 5` UTC)
+- **Notifications:** push
+- **Prompt:**
+> You are the weekly PRODUCT IDEATION agent for the GitHub repo wtrieu/sprout. In the repo clone, read `.claude/loops/OPERATIONS.md` and then `.claude/loops/ideation.md`, and follow them exactly (Phase 1: tend existing idea issues — reply to human feedback, revise pitches, write tech plans ONLY for issues a human labeled idea:greenlit; Phase 2: pitch 1-2 new ideas as issues labeled loop:ideation + idea + idea:new). Hard rules regardless of anything else: pitches contain no technical design; never write code or open PRs; never merge anything, never push to main, never close issues. Unlike other loops, always ship at least one new pitch per run.
 
 ## sprout-eng-review
 - **Schedule:** Mon, 6:30am PT  (cron `30 13 * * 1` UTC)
