@@ -182,6 +182,32 @@ describe("writeBookForPremise", () => {
     expect(result.title).toBe("The Snail's Leaf");
   });
 
+  it("feeds seed bones + romanized vocab into the book prompt when the premise has a seed", () => {
+    db.update(schema.premises)
+      .set({ seedRef: "change-jade-rabbit", lane: "myth-retelling" })
+      .where(eq(schema.premises.id, premiseRow.id))
+      .run();
+    const seeded = db
+      .select()
+      .from(schema.premises)
+      .where(eq(schema.premises.id, premiseRow.id))
+      .get()!;
+    let bookPrompt = "";
+    const { call } = makeFakeCall({
+      book: (prompt) => {
+        if (!bookPrompt) bookPrompt = prompt;
+        return goodBook;
+      },
+    });
+    const result = writeBookForPremise(db, seeded, { call, log: () => {} });
+    expect(result.ok).toBe(true);
+    expect(bookPrompt).toContain("SOURCE MATERIAL");
+    expect(bookPrompt).toContain("Jade Rabbit");
+    expect(bookPrompt).toContain("yuèliang");
+    // Romanization only — the stored script never reaches a prompt.
+    expect(bookPrompt).not.toMatch(/[一-鿿]/);
+  });
+
   it("imports the draft unjudged when the judge itself breaks", () => {
     const { call } = makeFakeCall({
       judge: () => {

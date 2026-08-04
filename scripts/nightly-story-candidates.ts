@@ -44,6 +44,17 @@ import {
   type SelectionContext,
 } from "../apps/web/src/lib/stories/premises";
 import { writeBookForPremise } from "../apps/web/src/lib/stories/writeBook";
+import {
+  activeNorthStars,
+  decayInterests,
+  northStarShares,
+  sampleInterests,
+} from "../apps/web/src/lib/stories/interests";
+import {
+  sampleSeedSuggestions,
+  seedKeys,
+  seedSuggestion,
+} from "../apps/web/src/lib/stories/seeds";
 
 /** The child's milestone frontier, as short lines for the premise prompt. */
 const milestoneFrontier = (months: number): string[] => {
@@ -65,6 +76,7 @@ const milestoneFrontier = (months: number): string[] => {
 const selectionContext = (): SelectionContext => ({
   recentBooks: recentBookRows(db).map((b) => ({ lane: b.lane, tags: b.tags ?? [] })),
   recentPicks: recentPickedPremises(db),
+  northStars: northStarShares(db),
 });
 
 const main = async () => {
@@ -79,6 +91,8 @@ const main = async () => {
 
   const expired = expireStalePremises(db);
   if (expired > 0) console.log(`expired ${expired} stale premise(s) (auto-pass)`);
+  const decayed = decayInterests(db);
+  if (decayed > 0) console.log(`decayed ${decayed} interest(s)`);
 
   // --- stage A: propose tonight's premises (skip while the inbox is full) ---
   const pending = pendingPremiseCount(db);
@@ -97,9 +111,9 @@ const main = async () => {
       batchSize: PREMISES_PER_BATCH,
       recentBooks: recentBookRows(db),
       pendingTitles,
-      northStars: [], // interests/north stars land in phase 2
-      interests: [],
-      seedSuggestions: [],
+      northStars: activeNorthStars(db).map((n) => ({ label: n.label, brief: n.brief })),
+      interests: sampleInterests(db).map((i) => ({ label: i.label, brief: i.brief })),
+      seedSuggestions: sampleSeedSuggestions(northStarShares(db)).map(seedSuggestion),
       milestoneFrontier: milestoneFrontier(ageInMonths(child.dob)),
       tasteMemo: "",
     });
@@ -107,7 +121,7 @@ const main = async () => {
       console.log(`stage A: proposing ${PREMISES_PER_BATCH} premises model=${models.writer}`);
       const raw = callClaudeForJson(prompt, { model: models.writer });
       const batch = PremiseBatchSchema.parse(raw).premises.map((p) =>
-        normalizePremise(p, band),
+        normalizePremise(p, band, seedKeys),
       );
       const ranked = rankPremises(batch, selectionContext());
       storePremises(db, child.id, batch, ranked);

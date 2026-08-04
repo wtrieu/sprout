@@ -36,6 +36,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <footer className="mx-auto max-w-3xl px-4 pb-8 text-xs text-neutral-600">
         <div className="flex gap-3 border-t border-neutral-900 pt-3">
           {[
+            { href: "/interests", label: "Compass" },
             { href: "/sources", label: "Sources" },
             { href: "/jobs", label: "Jobs" },
             { href: "/materials", label: "Materials" },

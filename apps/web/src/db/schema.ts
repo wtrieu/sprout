@@ -533,6 +533,45 @@ export type PageMotion = {
   durationS: number;
 };
 
+// Preference intake: durable family north stars + lighter decaying interests
+// (the "family compass"). North stars are always-on premise context with a
+// target share of the library; interests are sampled by weight and decay
+// without reinforcement. Suggestions proposed by extraction sit at
+// status='suggested' until a parent confirms — never auto-added.
+export const interestKinds = ["north-star", "interest"] as const;
+export type InterestKind = (typeof interestKinds)[number];
+
+// 'child' is reserved for when Jun can voice their own interests.
+export const interestSources = ["manual", "chat", "review", "digest", "child"] as const;
+export type InterestSource = (typeof interestSources)[number];
+
+export const interests = sqliteTable(
+  "interests",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    kind: text("kind", { enum: interestKinds }).notNull(),
+    label: text("label").notNull(),
+    // The sentence(s) fed to the premise stage.
+    brief: text("brief").notNull(),
+    // 1..5 sampling weight; north stars ignore weight (always on).
+    weight: integer("weight").notNull().default(3),
+    // North stars only: target fraction of the library (culture: 0.2).
+    share: real("share"),
+    source: text("source", { enum: interestSources }).notNull().default("manual"),
+    // Attribution tags matched against premise/story tags.
+    tags: text("tags", { mode: "json" }).$type<string[]>().notNull(),
+    status: text("status", { enum: ["suggested", "active", "archived"] })
+      .notNull()
+      .default("active"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    lastReinforcedAt: integer("last_reinforced_at", { mode: "timestamp" }),
+    lastDecayedAt: integer("last_decayed_at", { mode: "timestamp" }),
+  },
+  (t) => [index("interests_kind_status_idx").on(t.kind, t.status)],
+);
+
 // ---------------------------------------------------------------------------
 // Settings — single-row-per-key app configuration (Zod-whitelisted in
 // lib/settings.ts; values are opaque JSON here).

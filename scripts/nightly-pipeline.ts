@@ -10,6 +10,7 @@ import { spawnSync } from "node:child_process";
 import { db } from "../apps/web/src/db/client";
 import { crawlAllSources } from "../apps/web/src/lib/crawl";
 import { extractJournalFromChat } from "../apps/web/src/lib/skills/journal";
+import { proposeInterestSuggestions } from "../apps/web/src/lib/stories/interests";
 
 const main = async () => {
   console.log(`nightly pipeline starting ${new Date().toISOString()}`);
@@ -24,6 +25,14 @@ const main = async () => {
     console.log(await extractJournalFromChat(db));
   } catch (err) {
     console.error(`journal extraction failed: ${err instanceof Error ? err.message : err}`);
+  }
+
+  // Conversational capture: propose interest candidates from the journal.
+  // Proposals wait as suggestions on /interests — never auto-added.
+  try {
+    console.log(await proposeInterestSuggestions(db));
+  } catch (err) {
+    console.error(`interest suggestions failed: ${err instanceof Error ? err.message : err}`);
   }
 
   // Same process would also work, but exec keeps run-jobs the single code path.

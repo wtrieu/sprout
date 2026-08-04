@@ -25,6 +25,7 @@ import { laneContract, storyLanes } from "./lanes";
 import { imageryOverlapNote } from "./overlap";
 import { recentBookRows } from "./premises";
 import { ENGINE_VERSION } from "./engine";
+import { getSeed, seedBlock, vocabBlock } from "./seeds";
 import {
   callClaude,
   callClaudeForJson,
@@ -361,7 +362,15 @@ Return the revised JSON object only, same shape, exactly ${pageCount} pages.`;
 };
 
 /**
- * Resolve premise material references into prompt blocks. Seeds and the world
- * bible arrive in phase 2 — until then references resolve to nothing.
+ * Resolve premise material references into prompt blocks. The world bible
+ * (worldRef) is pending owner co-design — see docs/world-bible-concepts.md —
+ * so worldBlock stays empty for now.
  */
-const resolveMaterial = (_premise: PremiseRow): BookMaterial => ({});
+const resolveMaterial = (premise: PremiseRow): BookMaterial => {
+  const seed = getSeed(premise.seedRef);
+  if (!seed) return {};
+  return {
+    seedBlock: seedBlock(seed),
+    vocabBlock: vocabBlock(seed) || undefined,
+  };
+};

@@ -57,6 +57,13 @@
       "when": 1785854538865,
       "tag": "0007_fat_havok",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1785855608656,
+      "tag": "0008_perfect_proteus",
+      "breakpoints": true
     }
   ]
 }
