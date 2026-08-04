@@ -55,6 +55,11 @@ import {
   seedKeys,
   seedSuggestion,
 } from "../apps/web/src/lib/stories/seeds";
+import {
+  compressRejectedStories,
+  maybeDistillTaste,
+  readTasteMemo,
+} from "../apps/web/src/lib/stories/taste";
 
 /** The child's milestone frontier, as short lines for the premise prompt. */
 const milestoneFrontier = (months: number): string[] => {
@@ -94,6 +99,16 @@ const main = async () => {
   const decayed = decayInterests(db);
   if (decayed > 0) console.log(`decayed ${decayed} interest(s)`);
 
+  // Weekly taste loop: distill the editor's memo when stale, and compress
+  // rejected drafts past retention to epitaphs.
+  try {
+    console.log(maybeDistillTaste(db).message);
+  } catch (err) {
+    console.error(`taste distillation failed: ${err instanceof Error ? err.message : err}`);
+  }
+  const compressed = compressRejectedStories(db);
+  if (compressed > 0) console.log(`compressed ${compressed} rejected draft(s) to epitaphs`);
+
   // --- stage A: propose tonight's premises (skip while the inbox is full) ---
   const pending = pendingPremiseCount(db);
   if (pending >= MAX_PENDING_PREMISES) {
@@ -115,7 +130,7 @@ const main = async () => {
       interests: sampleInterests(db).map((i) => ({ label: i.label, brief: i.brief })),
       seedSuggestions: sampleSeedSuggestions(northStarShares(db)).map(seedSuggestion),
       milestoneFrontier: milestoneFrontier(ageInMonths(child.dob)),
-      tasteMemo: "",
+      tasteMemo: readTasteMemo(),
     });
     try {
       console.log(`stage A: proposing ${PREMISES_PER_BATCH} premises model=${models.writer}`);

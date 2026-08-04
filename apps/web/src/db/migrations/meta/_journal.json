@@ -64,6 +64,13 @@
       "when": 1785855608656,
       "tag": "0008_perfect_proteus",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1785855974065,
+      "tag": "0009_naive_thor",
+      "breakpoints": true
     }
   ]
 }

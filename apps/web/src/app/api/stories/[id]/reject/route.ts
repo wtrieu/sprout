@@ -5,6 +5,7 @@ import { db } from "@/db/client";
 import { stories, storyPages } from "@/db/schema";
 import { deleteStoryImages } from "@/lib/stories/files";
 import { rejectReasonKeys } from "@/lib/stories/engine";
+import { nudgeInterestsByTags } from "@/lib/stories/interests";
 
 const BodySchema = z.object({
   reason: z.enum(rejectReasonKeys as [string, ...string[]]),
@@ -59,5 +60,9 @@ export const POST = async (
       .where(eq(stories.id, story.id))
       .run();
   });
+  // Review-as-intake: a rejection cools matching interests (never archives).
+  if (body.data.reason === "wrong-topic" || body.data.reason === "not-for-us") {
+    nudgeInterestsByTags(db, story.tags ?? [], -1);
+  }
   return NextResponse.json({ rejected: true });
 };

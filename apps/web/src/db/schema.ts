@@ -425,6 +425,9 @@ export const stories = sqliteTable("stories", {
   // engine). Taste distillation windows on the current version only.
   engineVersion: integer("engine_version").notNull().default(1),
   premiseId: integer("premise_id"),
+  // Read-complete beacons from the reader: re-reads are revealed preference.
+  readCount: integer("read_count").notNull().default(0),
+  lastReadAt: integer("last_read_at", { mode: "timestamp" }),
   favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
   // draft → approved → ready is the curated flow; rejected = soft-deleted
   // draft kept as taste evidence;

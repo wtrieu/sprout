@@ -4,6 +4,7 @@ import { asc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { stories, storyPages, characters } from "@/db/schema";
 import { deleteStoryImages } from "@/lib/stories/files";
+import { nudgeInterestsByTags } from "@/lib/stories/interests";
 
 export const GET = async (
   _req: NextRequest,
@@ -44,6 +45,8 @@ export const PATCH = async (
     .returning()
     .get();
   if (!story) return NextResponse.json({ error: "not found" }, { status: 404 });
+  // Review-as-intake: favoriting reinforces matching interests.
+  if (body.data.favorite) nudgeInterestsByTags(db, story.tags ?? [], 1);
   return NextResponse.json({ story });
 };
 
