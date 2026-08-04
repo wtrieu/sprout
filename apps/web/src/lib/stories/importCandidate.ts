@@ -21,26 +21,38 @@ export const CandidateSchema = z.object({
   pages: z
     .array(
       z.object({
-        text: z.string().min(1).max(400),
+        // 70 words/page at the top band — allow room without letting a wall
+        // of text through (word budgets are enforced in validatePages).
+        text: z.string().min(1).max(650),
         // Visual description only — style words and character appearance are
         // composed in code (storyArt.ts).
         scene: z.string().min(10).max(500),
       }),
     )
     .min(6)
-    .max(12),
+    .max(16),
 });
 export type Candidate = z.infer<typeof CandidateSchema>;
 
 export type ImportOptions = {
   childId: number;
   ageMonths: number;
-  formKey: string;
+  /** Text-form key; null/undefined = free prose (forms are tools, not law). */
+  formKey?: string | null;
   artPackKey: string;
-  /** The theme/outline that seeded the story (stored on stories.prompt). */
+  /** The theme/pitch that seeded the story (stored on stories.prompt). */
   theme: string;
   /** Setting-bank key (stories.setting) for variety memory; optional. */
   settingKey?: string;
+  /** Genre-lane key (lib/stories/lanes.ts). */
+  lane?: string;
+  /** Premise tags, for taste memory + interest attribution. */
+  tags?: string[];
+  lesson?: "none" | "developmental" | "cultural" | "factual";
+  /** The premise this book was written from. */
+  premiseId?: number;
+  /** Generation-engine version stamp (defaults to legacy 1 when omitted). */
+  engineVersion?: number;
 };
 
 
@@ -71,7 +83,7 @@ export const importCandidate = (db: DB, raw: unknown, opts: ImportOptions): Impo
         childId: opts.childId,
         title: candidate.title,
         style: opts.artPackKey,
-        form: opts.formKey,
+        form: opts.formKey ?? null,
         prompt: opts.theme,
         ageMonths: opts.ageMonths,
         pageCount: candidate.pages.length,
@@ -79,6 +91,11 @@ export const importCandidate = (db: DB, raw: unknown, opts: ImportOptions): Impo
         characterDesc: candidate.characterDesc,
         artNotes: composeArtNotes(opts.artPackKey, candidate.characterName),
         setting: opts.settingKey ?? null,
+        lane: opts.lane ?? null,
+        tags: opts.tags ?? null,
+        lesson: opts.lesson ?? null,
+        premiseId: opts.premiseId ?? null,
+        engineVersion: opts.engineVersion ?? 1,
         status: "draft",
       })
       .returning()

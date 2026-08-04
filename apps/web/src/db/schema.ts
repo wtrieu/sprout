@@ -380,6 +380,9 @@ export const storyArcs = sqliteTable("story_arcs", {
     .$defaultFn(() => new Date()),
 });
 
+export const storyLessons = ["none", "developmental", "cultural", "factual"] as const;
+export type StoryLesson = (typeof storyLessons)[number];
+
 export const stories = sqliteTable("stories", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   childId: integer("child_id")
@@ -405,11 +408,38 @@ export const stories = sqliteTable("stories", {
   artNotes: text("art_notes"),
   // Setting-bank key chosen in code with variety memory (null = legacy).
   setting: text("setting"),
+  // Genre-lane key (lib/stories/lanes.ts); null = template-era story.
+  lane: text("lane"),
+  // Topic/motif tags from the premise, for taste memory + interest attribution.
+  tags: text("tags", { mode: "json" }).$type<string[]>(),
+  lesson: text("lesson", { enum: storyLessons }),
+  // Soft-reject taste signal: reason chip + optional note. Text pages are kept
+  // (distiller evidence); images are deleted. Rejected stories are invisible
+  // in the app.
+  rejectReason: text("reject_reason"),
+  rejectNote: text("reject_note"),
+  // After the 90-day retention window a cleanup step compresses a rejected
+  // draft to this one-line epitaph and drops its pages.
+  epitaph: text("epitaph"),
+  // Which generation engine wrote this story (1 = template era, 2 = premise
+  // engine). Taste distillation windows on the current version only.
+  engineVersion: integer("engine_version").notNull().default(1),
+  premiseId: integer("premise_id"),
   favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
-  // draft → approved → ready is the curated flow;
+  // draft → approved → ready is the curated flow; rejected = soft-deleted
+  // draft kept as taste evidence;
   // queued/text_done/rendering/failed are legacy FLUX-pipeline states.
   status: text("status", {
-    enum: ["draft", "approved", "queued", "text_done", "rendering", "ready", "failed"],
+    enum: [
+      "draft",
+      "approved",
+      "queued",
+      "text_done",
+      "rendering",
+      "ready",
+      "failed",
+      "rejected",
+    ],
   })
     .notNull()
     .default("draft"),
@@ -417,6 +447,56 @@ export const stories = sqliteTable("stories", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+export const premiseStatuses = [
+  "proposed", // in the inbox, awaiting greenlight/pass
+  "greenlit", // parent tapped greenlight; a book write is (or was) underway
+  "auto_picked", // picked by the 48h fallback
+  "passed", // parent passed (passReason chip) or the premise expired
+  "written", // a draft story exists (storyId set)
+  "rejected", // the editor-judge rejected the draft (judgeVerdict stored)
+] as const;
+export type PremiseStatus = (typeof premiseStatuses)[number];
+
+// Stage-A output pool: every premise the engine ever proposed, with its
+// outcome. The pool itself is taste-memory raw data (passes and greenlights
+// are signal exactly like draft rejections).
+export const premises = sqliteTable(
+  "premises",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    childId: integer("child_id")
+      .notNull()
+      .references(() => children.id),
+    title: text("title").notNull(),
+    lane: text("lane").notNull(),
+    pitch: text("pitch").notNull(),
+    tags: text("tags", { mode: "json" }).$type<string[]>().notNull(),
+    lesson: text("lesson", { enum: storyLessons }).notNull().default("none"),
+    lessonNote: text("lesson_note"),
+    // Seed-corpus key (lib/stories/seeds) this premise draws on, if any.
+    seedRef: text("seed_ref"),
+    // World-bible key (lib/stories/worlds.ts), if the premise is set there.
+    worldRef: text("world_ref"),
+    // Optional text-form key (lib/skills/storyText.ts) — forms are tools now.
+    form: text("form"),
+    lengthPages: integer("length_pages").notNull(),
+    whyForJun: text("why_for_jun"),
+    // Stage-A ranking score, for inbox ordering (higher = more diverse pick).
+    score: real("score"),
+    status: text("status", { enum: premiseStatuses }).notNull().default("proposed"),
+    passReason: text("pass_reason"),
+    // Editor-judge verdict JSON, stored on rejection (and kept on revisions).
+    judgeVerdict: text("judge_verdict"),
+    storyId: integer("story_id").references(() => stories.id),
+    engineVersion: integer("engine_version").notNull().default(2),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    decidedAt: integer("decided_at", { mode: "timestamp" }),
+  },
+  (t) => [index("premises_status_idx").on(t.status)],
+);
 
 export const storyPages = sqliteTable(
   "story_pages",

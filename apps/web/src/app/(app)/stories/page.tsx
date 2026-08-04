@@ -44,6 +44,7 @@ function StoryRow({
   borderClass,
   titleClass,
   showFavorite,
+  hideDelete,
   onDelete,
   onToggleFavorite,
 }: {
@@ -53,6 +54,8 @@ function StoryRow({
   borderClass: string;
   titleClass?: string;
   showFavorite?: boolean;
+  /** Drafts hide the trash: rejection (with a reason chip) lives on the review page. */
+  hideDelete?: boolean;
   onDelete: (s: Story) => void;
   onToggleFavorite?: (s: Story) => void;
 }) {
@@ -83,14 +86,16 @@ function StoryRow({
           <Star className="h-5 w-5" fill={story.favorite ? "currentColor" : "none"} />
         </button>
       )}
-      <button
-        type="button"
-        onClick={() => onDelete(story)}
-        aria-label="Delete story"
-        className="relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-red-950/60 hover:text-red-400 active:scale-90"
-      >
-        <Trash2 className="h-5 w-5" />
-      </button>
+      {!hideDelete && (
+        <button
+          type="button"
+          onClick={() => onDelete(story)}
+          aria-label="Delete story"
+          className="relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-red-950/60 hover:text-red-400 active:scale-90"
+        >
+          <Trash2 className="h-5 w-5" />
+        </button>
+      )}
     </div>
   );
 }
@@ -100,13 +105,16 @@ export default function StoriesPage() {
   const [ageValue, setAgeValue] = useState("auto");
   const [perDay, setPerDay] = useState(4);
   const [showOlder, setShowOlder] = useState(false);
+  const [premisesWaiting, setPremisesWaiting] = useState(0);
 
   const load = useCallback(async () => {
-    const [s, cfg] = await Promise.all([
+    const [s, cfg, prem] = await Promise.all([
       fetch("/api/stories").then((r) => r.json()),
       fetch("/api/settings").then((r) => r.json()),
+      fetch("/api/premises?status=proposed").then((r) => r.json()),
     ]);
     setStoryList(s.stories);
+    setPremisesWaiting(prem.premises?.length ?? 0);
     const target: AgeTarget | undefined = cfg.settings?.storyAgeTarget;
     if (target) setAgeValue(target.mode === "auto" ? "auto" : String(target.months));
     if (typeof cfg.settings?.storyCandidatesPerDay === "number") {
@@ -203,6 +211,25 @@ export default function StoriesPage() {
         </div>
       </div>
 
+      <Link
+        href="/premises"
+        className={`flex items-center justify-between rounded-lg border px-4 py-3 text-sm transition ${
+          premisesWaiting > 0
+            ? "border-amber-500/40 bg-amber-500/5 text-amber-200 hover:border-amber-500/70"
+            : "border-neutral-800 text-neutral-500 hover:border-neutral-700"
+        }`}
+      >
+        <span>
+          💡 Premise inbox
+          {premisesWaiting > 0 && (
+            <span className="ml-2 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-medium text-neutral-950">
+              {premisesWaiting} to review
+            </span>
+          )}
+        </span>
+        <span>→</span>
+      </Link>
+
       <section className="space-y-2">
         <h2 className="text-sm font-medium text-neutral-400">Tonight&apos;s candidates</h2>
         {drafts.length === 0 ? (
@@ -218,6 +245,7 @@ export default function StoriesPage() {
               subtitle={`${s.characterName} · ${s.pageCount} pages`}
               hint={<span className="text-amber-400">Review →</span>}
               borderClass="border-amber-500/30 hover:border-amber-500/70"
+              hideDelete
               onDelete={remove}
             />
           ))

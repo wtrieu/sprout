@@ -11,27 +11,53 @@ import type { DB } from "../../db/client";
 import { stories } from "../../db/schema";
 
 // --- age bands: what "written for a toddler" means at each stage --------------
+// Length scales with age too: word budget per page AND page count both grow.
 
-export type AgeBand = { maxWordsPerPage: number; language: string };
+export type AgeBand = {
+  maxWordsPerPage: number;
+  minPages: number;
+  maxPages: number;
+  language: string;
+};
 
 export const ageBand = (months: number): AgeBand => {
   if (months < 18)
     return {
       maxWordsPerPage: 22,
+      minPages: 6,
+      maxPages: 8,
       language:
         "Written for a 1-year-old: naming, sounds, and rhythm matter more than plot. 1-2 very short sentences per page. Concrete nouns the child can point to. Lots of sound words.",
     };
   if (months < 30)
     return {
       maxWordsPerPage: 32,
+      minPages: 8,
+      maxPages: 10,
       language:
         "Written for a young toddler: a thin thread of story, told in short rhythmic sentences. Repetition is a feature. One or two 'stretch words' across the whole book (a delicious new word like 'glimmer' or 'burrow'), used where context makes the meaning obvious.",
     };
+  if (months < 48)
+    return {
+      maxWordsPerPage: 45,
+      minPages: 10,
+      maxPages: 12,
+      language:
+        "Written for a preschooler: a real little story with a gentle arc, still read aloud — keep the music in the sentences. Up to three sentences per page.",
+    };
   return {
-    maxWordsPerPage: 45,
+    maxWordsPerPage: 70,
+    minPages: 12,
+    maxPages: 16,
     language:
-      "Written for a preschooler: a real little story with a gentle arc, still read aloud — keep the music in the sentences. Up to three sentences per page.",
+      "Written for a 4-6 year old: a full story with a real arc — a want, a complication, a resolution — still built to be read aloud. Richer vocabulary is welcome; a few stretch words with meaning clear from context.",
   };
+};
+
+/** Clamp a premise's proposed page count into the band's budget. */
+export const clampPageCount = (band: AgeBand, proposed: number | undefined): number => {
+  if (!proposed || !Number.isFinite(proposed)) return band.maxPages;
+  return Math.min(band.maxPages, Math.max(band.minPages, Math.round(proposed)));
 };
 
 // --- the four forms ------------------------------------------------------------
@@ -180,10 +206,18 @@ const lastWord = (line: string): string =>
 const isBankPair = (a: string, b: string): boolean =>
   RHYME_PAIRS.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
 
-/** Code-side craft checks — the ones a machine can verify. */
+// Owner decision 2026-08-03: no Chinese characters rendered anywhere for now —
+// cultural vocabulary is romanization-only. Covers CJK ideographs + bopomofo.
+const CJK_RE = /[぀-ヿ㄀-ㄯ㐀-䶿一-鿿豈-﫿]/;
+
+/**
+ * Code-side craft checks — the ones a machine can verify. Forms are tools now:
+ * form-specific validators run only when the premise picked a form
+ * (formKey null/undefined = free prose, only the global checks apply).
+ */
 export const validatePages = (
   result: { pages: { text: string }[] },
-  formKey: string,
+  formKey: string | null | undefined,
   band: AgeBand,
 ): string[] => {
   const problems: string[] = [];
@@ -191,6 +225,11 @@ export const validatePages = (
     const w = wordCount(p.text);
     if (w > band.maxWordsPerPage + 8) {
       problems.push(`page ${i + 1} is ${w} words — the limit for this age is ${band.maxWordsPerPage}`);
+    }
+    if (CJK_RE.test(p.text)) {
+      problems.push(
+        `page ${i + 1} contains Chinese/Japanese characters — use romanization only, no script`,
+      );
     }
   });
   if (formKey === "lullaby-rhyme") {
