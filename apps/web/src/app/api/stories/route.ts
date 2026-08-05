@@ -22,6 +22,9 @@ export const GET = () => {
     })
     .from(stories)
     .leftJoin(characters, eq(stories.characterId, characters.id))
+    // Rejected drafts are taste evidence for the weekly distiller, not
+    // library entries — invisible everywhere in the app.
+    .where(sql`${stories.status} != 'rejected'`)
     .orderBy(desc(stories.id))
     .all();
   return NextResponse.json({ stories: rows });

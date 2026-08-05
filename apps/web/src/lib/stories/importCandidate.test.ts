@@ -143,6 +143,40 @@ describe("importCandidate", () => {
     if (!noQuestions.ok) expect(noQuestions.problems[0]).toMatch(/QUESTION & ANSWER/);
   });
 
+  it("imports without a form (forms are tools now) and stamps engine metadata", () => {
+    const result = importCandidate(db, goodCandidate, {
+      ...opts(),
+      formKey: null,
+      lane: "little-quest",
+      tags: ["badger", "meadow"],
+      lesson: "none",
+      engineVersion: 2,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const story = db
+      .select()
+      .from(schema.stories)
+      .where(eq(schema.stories.id, result.storyId))
+      .get()!;
+    expect(story.form).toBeNull();
+    expect(story.lane).toBe("little-quest");
+    expect(story.tags).toEqual(["badger", "meadow"]);
+    expect(story.engineVersion).toBe(2);
+  });
+
+  it("accepts a 16-page book for the oldest age band", () => {
+    const long = {
+      ...goodCandidate,
+      pages: Array.from({ length: 16 }, (_, i) => ({
+        text: `Bram marched on, further than ever before. (page ${i + 1})`,
+        scene: `rolling hills at midday, the badger cub walking with a stick, page ${i + 1}`,
+      })),
+    };
+    const result = importCandidate(db, long, { ...opts(), ageMonths: 60, formKey: null });
+    expect(result.ok).toBe(true);
+  });
+
   it("records the setting key for variety memory", () => {
     const result = importCandidate(db, goodCandidate, { ...opts(), settingKey: "burrow" });
     expect(result.ok).toBe(true);

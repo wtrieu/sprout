@@ -56,10 +56,37 @@ export const runWeeklyDigest = async (db: DB): Promise<string> => {
     sql`SELECT COUNT(*) as n FROM activities WHERE status = 'done' AND created_at >= ${weekAgo}`,
   );
 
-  // Family highlights: what Sprout made this week.
+  // Family highlights: what Sprout made this week (rejected drafts stay invisible).
   const weekStories = db.all<{ id: number; title: string | null; style: string | null; status: string }>(sql`
-    SELECT id, title, style, status FROM stories WHERE created_at >= ${weekAgo} ORDER BY id DESC LIMIT 10
+    SELECT id, title, style, status FROM stories
+    WHERE created_at >= ${weekAgo} AND status != 'rejected' ORDER BY id DESC LIMIT 10
   `);
+
+  // Library report: this month's mix by lane and tag (engine-written books).
+  const monthAgo = Math.floor(Date.now() / 1000) - 30 * 86400;
+  const monthLanes = db.all<{ lane: string; n: number }>(sql`
+    SELECT lane, COUNT(*) as n FROM stories
+    WHERE created_at >= ${monthAgo} AND status != 'rejected' AND lane IS NOT NULL
+    GROUP BY lane ORDER BY n DESC
+  `);
+  const monthTags = db.all<{ tags: string | null }>(sql`
+    SELECT tags FROM stories
+    WHERE created_at >= ${monthAgo} AND status != 'rejected' AND tags IS NOT NULL
+  `);
+  const tagCounts = new Map<string, number>();
+  for (const row of monthTags) {
+    try {
+      for (const t of JSON.parse(row.tags ?? "[]") as string[]) {
+        tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1);
+      }
+    } catch {
+      // pre-engine rows may hold junk — skip
+    }
+  }
+  const topTags = [...tagCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([t, n]) => `${t} (${n})`);
   const weekBriefs = db.all<{ id: number; topic: string }>(
     sql`SELECT id, topic FROM research_briefs WHERE created_at >= ${weekAgo} ORDER BY id DESC LIMIT 5`,
   );
@@ -86,6 +113,7 @@ Use ONLY the material below. Markdown, ~350 words max. Structure:
 - "Coming up" — 3-4 upcoming milestones to look forward to (around ${nextBucket?.age ?? months + 3} months).
 - "This week's activities" — if any are listed${(activitiesDone?.n ?? 0) > 0 ? `; celebrate the ${activitiesDone!.n} completed` : ""}.
 - "Research corner" — if research briefs are listed, one line each with the link.
+- "The library this month" — if a lane mix is listed, one warm line describing the month's story mix (genres and recurring topics), linking the words "premise inbox" to ${BASE_URL}/premises.
 Do not invent facts, articles, stories, or milestones not listed below. No medical advice.
 
 JOURNAL THIS WEEK (milestones reached, notes):
@@ -104,7 +132,11 @@ THIS WEEK'S ACTIVITIES (${activitiesDone?.n ?? 0} marked done):
 ${weekActivities.map((a) => `- ${a.title}: ${a.description}`).join("\n") || "(none)"}
 
 RESEARCH BRIEFS THIS WEEK:
-${weekBriefs.length ? weekBriefs.map((b) => `- [${b.topic}](${BASE_URL}/research)`).join("\n") : "(none)"}`;
+${weekBriefs.length ? weekBriefs.map((b) => `- [${b.topic}](${BASE_URL}/research)`).join("\n") : "(none)"}
+
+THE LIBRARY THIS MONTH (story mix by genre lane, then recurring topics):
+${monthLanes.length ? monthLanes.map((l) => `- ${l.lane}: ${l.n} book(s)`).join("\n") : "(no lane data yet)"}
+${topTags.length ? `Topics: ${topTags.join(", ")}` : ""}`;
 
   const contentMd = await callClaudeText(prompt, { temperature: 0.5 });
   const footer =

@@ -17,6 +17,8 @@ export const settingSchemas = {
   ]),
   /** How many story candidates the nightly run drafts. */
   storyCandidatesPerDay: z.number().int().min(1).max(6),
+  /** Premises unreviewed for this long are auto-picked (diverse winners). */
+  premiseAutoPickHours: z.number().int().min(1).max(168),
 } as const;
 
 export type SettingKey = keyof typeof settingSchemas;
@@ -27,6 +29,7 @@ export const settingKeys = Object.keys(settingSchemas) as SettingKey[];
 const DEFAULTS: { [K in SettingKey]: SettingValue<K> } = {
   storyAgeTarget: { mode: "auto" },
   storyCandidatesPerDay: 4, // testing phase — dial down from the Stories page later
+  premiseAutoPickHours: 48, // owner decision 2026-08-04
 };
 
 export const getSetting = <K extends SettingKey>(db: DB, key: K): SettingValue<K> => {

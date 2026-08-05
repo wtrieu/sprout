@@ -73,6 +73,7 @@ export default function ReadPage({ params }: { params: Promise<{ id: string }> }
   const [idx, setIdx] = useState(-1); // -1 = title page
   const [touchX, setTouchX] = useState<number | null>(null);
   const prevIdxRef = useRef(-1);
+  const beaconSentRef = useRef(false);
 
   useEffect(() => {
     fetch(`/api/stories/${id}`)
@@ -90,6 +91,13 @@ export default function ReadPage({ params }: { params: Promise<{ id: string }> }
       return nextIdx;
     });
   }, []);
+
+  // Read-complete beacon: fires once per visit when the last page is reached.
+  useEffect(() => {
+    if (beaconSentRef.current || pages.length === 0 || idx < pages.length - 1) return;
+    beaconSentRef.current = true;
+    navigator.sendBeacon(`/api/stories/${id}/read`);
+  }, [idx, pages.length, id]);
   const next = useCallback(
     () => go((i) => Math.min(i + 1, pages.length - 1)),
     [go, pages.length],

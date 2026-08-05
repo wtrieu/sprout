@@ -74,6 +74,19 @@ export const artPacks: Record<string, ArtPack> = {
       "children's picture book illustration, mid-century retro flat style, simple geometric shapes, limited warm palette of 4 colors, subtle print grain, playful vintage golden-books charm",
     negative: "photo, 3d render, gradients, realistic shading",
   },
+  // Two packs tuned for the myth/folk seed material (story engine phase 2).
+  "ink-wash": {
+    name: "Ink-wash storybook",
+    styleDna:
+      "children's picture book illustration, East Asian ink wash painting style, soft sumi and shuimo brush strokes, generous misty negative space, one warm accent color, gentle flowing composition, serene classical storybook mood",
+    negative: "photo, 3d render, hard outlines, saturated colors, busy detail",
+  },
+  "paper-cut-folk": {
+    name: "Paper-cut folk",
+    styleDna:
+      "children's picture book illustration, traditional paper-cut folk art style, layered silhouette shapes with delicate cut-out patterns, warm red and gold accents on cream, festive lantern-light warmth, handcrafted charm",
+    negative: "photo, 3d render, realistic shading, thin sketch lines",
+  },
 };
 
 export const artPackKeys = Object.keys(artPacks);

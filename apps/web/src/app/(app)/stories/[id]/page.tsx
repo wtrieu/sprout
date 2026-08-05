@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Star, Trash2 } from "lucide-react";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { normalizePageText } from "@/lib/stories/text";
+import { REJECT_REASONS } from "@/lib/stories/engine";
 
 type Page = {
   pageIndex: number;
@@ -121,6 +122,7 @@ export default function StoryDetailPage({ params }: { params: Promise<{ id: stri
   const [story, setStory] = useState<Story | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
   const [busy, setBusy] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
 
   const load = useCallback(async () => {
     const d = await fetch(`/api/stories/${id}`).then((r) => r.json());
@@ -150,10 +152,22 @@ export default function StoryDetailPage({ params }: { params: Promise<{ id: stri
     load();
   };
 
-  const reject = async () => {
+  const remove = async () => {
     if (!confirm(`Delete "${story.title ?? story.prompt}"? This can't be undone.`)) return;
     setBusy(true);
     await fetch(`/api/stories/${story.id}`, { method: "DELETE" });
+    router.push("/stories");
+  };
+
+  // Draft rejection is soft: a one-tap reason chip feeds the taste memory;
+  // the text is kept as evidence for the weekly distiller.
+  const rejectWithReason = async (reason: string) => {
+    setBusy(true);
+    await fetch(`/api/stories/${story.id}/reject`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
     router.push("/stories");
   };
 
@@ -216,14 +230,16 @@ export default function StoryDetailPage({ params }: { params: Promise<{ id: stri
               </a>
             </>
           )}
-          <button
-            onClick={reject}
-            disabled={busy}
-            className="flex h-10 items-center gap-1.5 rounded-md border border-neutral-800 px-3 text-sm text-neutral-500 transition hover:border-red-900 hover:text-red-400 active:scale-95 disabled:opacity-50"
-          >
-            <Trash2 className="h-4 w-4" />
-            Delete
-          </button>
+          {!isDraft && (
+            <button
+              onClick={remove}
+              disabled={busy}
+              className="flex h-10 items-center gap-1.5 rounded-md border border-neutral-800 px-3 text-sm text-neutral-500 transition hover:border-red-900 hover:text-red-400 active:scale-95 disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </button>
+          )}
         </div>
       </div>
 
@@ -286,22 +302,44 @@ export default function StoryDetailPage({ params }: { params: Promise<{ id: stri
 
       {isDraft && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-neutral-800 bg-neutral-950/95 px-4 py-3 backdrop-blur">
-          <div className="mx-auto flex max-w-3xl items-center justify-end gap-3">
-            <button
-              onClick={reject}
-              disabled={busy}
-              className="rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-400 transition hover:border-red-900 hover:text-red-400 disabled:opacity-50"
-            >
-              Reject
-            </button>
-            <button
-              onClick={approve}
-              disabled={busy}
-              className="rounded-md bg-amber-500 px-5 py-2 text-sm font-medium text-neutral-950 hover:bg-amber-400 disabled:opacity-50"
-            >
-              Approve — I&apos;ll illustrate it
-            </button>
-          </div>
+          {rejecting ? (
+            <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-end gap-2">
+              <span className="text-xs text-neutral-500">Why?</span>
+              {REJECT_REASONS.map((r) => (
+                <button
+                  key={r.key}
+                  disabled={busy}
+                  onClick={() => rejectWithReason(r.key)}
+                  className="rounded-full border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 transition hover:border-red-800 hover:text-red-300 disabled:opacity-50"
+                >
+                  {r.label}
+                </button>
+              ))}
+              <button
+                onClick={() => setRejecting(false)}
+                className="px-2 py-1.5 text-xs text-neutral-600 hover:text-neutral-400"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="mx-auto flex max-w-3xl items-center justify-end gap-3">
+              <button
+                onClick={() => setRejecting(true)}
+                disabled={busy}
+                className="rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-400 transition hover:border-red-900 hover:text-red-400 disabled:opacity-50"
+              >
+                Reject
+              </button>
+              <button
+                onClick={approve}
+                disabled={busy}
+                className="rounded-md bg-amber-500 px-5 py-2 text-sm font-medium text-neutral-950 hover:bg-amber-400 disabled:opacity-50"
+              >
+                Approve — I&apos;ll illustrate it
+              </button>
+            </div>
+          )}
         </div>
       )}
 
