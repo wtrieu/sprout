@@ -17,6 +17,7 @@ import {
   type SelectablePremise,
   type SelectionContext,
 } from "./premises";
+import { defaultWorld } from "./worlds";
 
 const migrationsFolder = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -194,6 +195,20 @@ describe("normalizePremise", () => {
     );
     expect(n.form).toBe("refrain");
     expect(n.seedRef).toBe("zodiac-race");
+  });
+
+  it("lands every fantasy-world premise in the world bible", () => {
+    expect(normalizePremise({ ...base, lane: "fantasy-world" }, band).worldRef).toBe(
+      defaultWorld.key,
+    );
+    expect(
+      normalizePremise({ ...base, lane: "fantasy-world", worldRef: "invented" }, band).worldRef,
+    ).toBe(defaultWorld.key);
+  });
+
+  it("drops a worldRef on any other lane", () => {
+    const n = normalizePremise({ ...base, lane: "folk-tale", worldRef: defaultWorld.key }, band);
+    expect(n.worldRef).toBeUndefined();
   });
 });
 

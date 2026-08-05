@@ -1,7 +1,27 @@
 import { asc, eq } from "drizzle-orm";
 import type { DB } from "../../db/client";
-import { stories, storyPages } from "../../db/schema";
+import { premises, stories, storyPages } from "../../db/schema";
 import { assignMotion } from "./motion";
+import { appendCanon, canonLineFor, defaultWorld, getWorld } from "./worlds";
+
+/**
+ * A published fantasy-world book leaves one line of canon behind, so the world
+ * accretes instead of resetting nightly (see lib/stories/worlds.ts). Canon is
+ * a nicety, never a reason to fail an upload — any filesystem trouble is
+ * logged and swallowed.
+ */
+const recordCanon = (db: DB, story: typeof stories.$inferSelect): void => {
+  if (story.lane !== "fantasy-world") return;
+  const premise = story.premiseId
+    ? db.select().from(premises).where(eq(premises.id, story.premiseId)).get()
+    : undefined;
+  const world = getWorld(premise?.worldRef) ?? defaultWorld;
+  try {
+    appendCanon(world.key, canonLineFor(story));
+  } catch (err) {
+    console.error(`canon append failed for story #${story.id}: ${err}`);
+  }
+};
 
 /**
  * If every page of an approved story has an uploaded image, assign Ken Burns
@@ -31,5 +51,6 @@ export const finalizeStoryIfComplete = (db: DB, storyId: number): string | null 
     }
     tx.update(stories).set({ status: "ready" }).where(eq(stories.id, storyId)).run();
   });
+  recordCanon(db, story);
   return "ready";
 };

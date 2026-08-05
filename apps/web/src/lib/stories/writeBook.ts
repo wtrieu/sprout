@@ -25,7 +25,8 @@ import { laneContract, storyLanes } from "./lanes";
 import { imageryOverlapNote } from "./overlap";
 import { recentBookRows } from "./premises";
 import { ENGINE_VERSION } from "./engine";
-import { getSeed, seedBlock, vocabBlock } from "./seeds";
+import { getSeed, seedBlock, vocabBlock, vocabBlockFor } from "./seeds";
+import { defaultWorld, getWorld, worldBlock } from "./worlds";
 import {
   callClaude,
   callClaudeForJson,
@@ -55,7 +56,7 @@ export type BookPipelineDeps = {
   log?: (msg: string) => void;
 };
 
-/** Extra material the caller resolved for this premise (seeds arrive in phase 2). */
+/** Extra material resolved from the premise's seedRef/worldRef (see resolveMaterial). */
 export type BookMaterial = {
   /** Seed bones + adaptation notes, already formatted as a prompt block. */
   seedBlock?: string;
@@ -362,15 +363,19 @@ Return the revised JSON object only, same shape, exactly ${pageCount} pages.`;
 };
 
 /**
- * Resolve premise material references into prompt blocks. The world bible
- * (worldRef) is pending owner co-design — see docs/world-bible-concepts.md —
- * so worldBlock stays empty for now.
+ * Resolve premise material references into prompt blocks: the seed entry, the
+ * world bible (fantasy-world premises always land in the default world, even
+ * if stage A forgot the worldRef), and at most one stretch-word block — a
+ * seed's vocabulary wins over the world's when a book somehow has both.
  */
 const resolveMaterial = (premise: PremiseRow): BookMaterial => {
   const seed = getSeed(premise.seedRef);
-  if (!seed) return {};
+  const world =
+    getWorld(premise.worldRef) ?? (premise.lane === "fantasy-world" ? defaultWorld : null);
   return {
-    seedBlock: seedBlock(seed),
-    vocabBlock: vocabBlock(seed) || undefined,
+    seedBlock: seed ? seedBlock(seed) : undefined,
+    worldBlock: world ? worldBlock(world) : undefined,
+    vocabBlock:
+      (seed ? vocabBlock(seed) : "") || (world ? vocabBlockFor(world.vocab) : "") || undefined,
   };
 };
