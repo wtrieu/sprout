@@ -100,8 +100,10 @@ AGE NOTES: ${seed.ageNotes}`;
  * only — no Chinese characters rendered anywhere (owner decision 2026-08-03;
  * the `script` field is stored for the future, never displayed).
  */
-export const vocabBlock = (seed: StorySeed): string => {
-  if (!seed.vocab || seed.vocab.length === 0) return "";
+export const vocabBlockFor = (vocab: SeedVocab[] | undefined): string => {
+  if (!vocab || vocab.length === 0) return "";
   return `STRETCH WORDS available (use AT MOST 1-2, only where the scene makes the meaning obvious — a name called across a kitchen, a word whispered at the window. ROMANIZATION ONLY; never render Chinese characters or any non-Latin script):
-${seed.vocab.map((v) => `- ${v.romanization} — ${v.gloss}`).join("\n")}`;
+${vocab.map((v) => `- ${v.romanization} — ${v.gloss}`).join("\n")}`;
 };
+
+export const vocabBlock = (seed: StorySeed): string => vocabBlockFor(seed.vocab);

@@ -6,8 +6,10 @@ contrasting concepts — cut, edit, mix — and `worlds.ts` gets implemented fro
 the edited winner. Each published book in the lane will append one line of
 canon, so the world accretes instead of resetting nightly.
 
-Until a winner is chosen, the engine treats `fantasy-world` premises like any
-other lane (no world context is injected), so nothing blocks on this.
+> **Decided 2026-08-04 — winner: Concept 3, The Nine Cloud Villages.** Shipped
+> as `apps/web/src/lib/stories/worlds.ts`; concepts 1 and 2 are kept below as a
+> record of what was not chosen. See "What shipped" at the bottom for the edits
+> made on the way in.
 
 ---
 
@@ -111,15 +113,31 @@ geography here — a village might spend a week being fog.
 
 ---
 
-## Decision needed from the owner
+## What shipped (2026-08-04)
 
-1. Which world (or which mix — e.g. Concept 3's tone with Concept 2's scale)?
-2. Any renames/cuts among places and characters?
-3. Should the world's texture stay culture-neutral (Concepts 1-2) or carry the
-   light Taiwanese inflection (Concept 3)? Note the inflection is texture,
-   not lesson — it wouldn't count against the lesson dial or the culture share.
+Concept 3 as written, plus these edits made while implementing
+`apps/web/src/lib/stories/worlds.ts`:
 
-Once decided, `apps/web/src/lib/stories/worlds.ts` gets implemented with the
-chosen world (places, characters, rules, tone, `canonLog`), canon accretion
-on finalize, and the `fantasy-world` lane starts injecting the world block.
+- **Puff is a listed character**, not a detail inside Bo's entry — he drives
+  premises on his own, so the writer needs his behaviour spelled out (wanders,
+  sulks, hides in kitchens, comes back; cannot speak, extremely expressive).
+- **Six explicit world rules**, which the concept only implied. Two of them do
+  real safety work: *nothing falls* (nobody is ever afraid of the edge) and
+  *weather is inconvenient, never dangerous*. One does craft work: a
+  kite-bridge takes two people to fly, so **nobody crosses alone** — the world
+  itself supplies a companion.
+- **Taiwanese inflection kept, as texture only** — `a-má` and `tang-yuan` ride
+  the existing stretch-word slot (1-2 per book, romanization only, never CJK
+  script, per the 2026-08-03 decision). It carries no lesson and does not count
+  against the lesson dial or the culture share.
+- **Canon lives in `data/world-canon.md`**, not in code: one line per published
+  fantasy-world book, appended when the story goes ready, hand-editable
+  (delete a line that stopped being true). The last 24 lines of a world's
+  section ride into the premise and book prompts, so prompt weight stays
+  bounded however long the log grows.
+- **Stage A proposes at most one fantasy-world premise a night**, and
+  `normalizePremise` forces every fantasy-world premise into the world bible
+  (and strips `worldRef` from every other lane), so the lane can never run
+  world-less again.
+
 One world to start; a second only if appetite emerges.

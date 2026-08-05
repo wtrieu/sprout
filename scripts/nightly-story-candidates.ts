@@ -60,6 +60,7 @@ import {
   maybeDistillTaste,
   readTasteMemo,
 } from "../apps/web/src/lib/stories/taste";
+import { worldBrief } from "../apps/web/src/lib/stories/worlds";
 
 /** The child's milestone frontier, as short lines for the premise prompt. */
 const milestoneFrontier = (months: number): string[] => {
@@ -131,6 +132,7 @@ const main = async () => {
       seedSuggestions: sampleSeedSuggestions(northStarShares(db)).map(seedSuggestion),
       milestoneFrontier: milestoneFrontier(ageInMonths(child.dob)),
       tasteMemo: readTasteMemo(),
+      worldBrief: worldBrief(),
     });
     try {
       console.log(`stage A: proposing ${PREMISES_PER_BATCH} premises model=${models.writer}`);

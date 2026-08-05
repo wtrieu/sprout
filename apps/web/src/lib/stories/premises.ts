@@ -11,6 +11,7 @@ import type { DB } from "../../db/client";
 import { premises, stories, storyLessons, type StoryLesson } from "../../db/schema";
 import { formKeys, storyForms, type AgeBand } from "../skills/storyText";
 import { laneKeys, laneMenu, storyLanes } from "./lanes";
+import { defaultWorld, worldKeys } from "./worlds";
 import { ENGINE_VERSION } from "./engine";
 
 /** Premises proposed per stage-A batch. */
@@ -49,6 +50,8 @@ export const PremiseBatchSchema = z.object({
  * Clean one model-proposed premise: unknown lanes fall back to
  * everyday-wonder, unknown forms/seeds are dropped rather than trusted, the
  * funny lane never carries a lesson, and tags are normalized to lowercase.
+ * A fantasy-world premise always lands in the world bible — the lane has no
+ * meaning without one — and worldRef is dropped everywhere else.
  */
 export const normalizePremise = (
   p: Premise,
@@ -57,6 +60,7 @@ export const normalizePremise = (
 ): Premise => {
   const lane = laneKeys.includes(p.lane) ? p.lane : "everyday-wonder";
   const lessonAllowed = storyLanes[lane].lessonAllowed;
+  const worldRef = p.worldRef && worldKeys.has(p.worldRef) ? p.worldRef : undefined;
   return {
     ...p,
     lane,
@@ -65,6 +69,7 @@ export const normalizePremise = (
     lessonNote: lessonAllowed ? p.lessonNote : undefined,
     form: p.form && formKeys.includes(p.form) ? p.form : undefined,
     seedRef: p.seedRef && validSeedKeys.has(p.seedRef) ? p.seedRef : undefined,
+    worldRef: lane === "fantasy-world" ? (worldRef ?? defaultWorld.key) : undefined,
     lengthPages: Math.min(band.maxPages, Math.max(band.minPages, p.lengthPages)),
   };
 };
@@ -299,6 +304,8 @@ export type PremisePromptInput = {
   milestoneFrontier: string[];
   /** The distilled editor's memo (data/editorial-taste.md), or "". */
   tasteMemo: string;
+  /** The world-bible brief (lib/stories/worlds.ts) for the fantasy-world lane. */
+  worldBrief: string;
 };
 
 const formMenu = (): string =>
@@ -331,6 +338,8 @@ Each book will be ${input.band.minPages}-${input.band.maxPages} pages, up to ${i
 
   sections.push(`GENRE LANES (spread tonight's premises across at least 4 different lanes):\n${laneMenu()}`);
 
+  if (input.worldBrief) sections.push(input.worldBrief);
+
   sections.push(`THE LESSON DIAL — entertainment first. At most ${lessonCap} of the ${input.batchSize} premises may carry an explicit lesson ("developmental", "cultural", or "factual" — with a one-line lessonNote saying what is SHOWN, never preached). Every other premise is lesson: "none" — commissioned as "no lesson, just a good story."${
     input.milestoneFrontier.length > 0
       ? `\nIf you use a developmental lesson, draw from the child's current frontier: ${input.milestoneFrontier.join("; ")}`
@@ -356,7 +365,7 @@ Each book will be ${input.band.minPages}-${input.band.maxPages} pages, up to ${i
   if (avoid.length > 0) sections.push(avoid.join("\n\n"));
 
   sections.push(`Return ONLY a JSON object, no prose before or after, exactly this shape:
-{ "premises": [ { "title": string, "lane": string (a lane key), "pitch": string (2-3 sentences — the premise itself, concrete and appealing), "tags": string[] (3-6 lowercase topic/motif tags), "lesson": "none"|"developmental"|"cultural"|"factual", "lessonNote": string (only when lesson is not "none"), "seedRef": string (optional seed key), "form": string (optional form key), "lengthPages": number, "whyForJun": string (one sentence: why this child, why now) } ] }
+{ "premises": [ { "title": string, "lane": string (a lane key), "pitch": string (2-3 sentences — the premise itself, concrete and appealing), "tags": string[] (3-6 lowercase topic/motif tags), "lesson": "none"|"developmental"|"cultural"|"factual", "lessonNote": string (only when lesson is not "none"), "seedRef": string (optional seed key), "worldRef": string (only on a fantasy-world premise — the world key above), "form": string (optional form key), "lengthPages": number, "whyForJun": string (one sentence: why this child, why now) } ] }
 Exactly ${input.batchSize} premises.`);
 
   return sections.join("\n\n");
