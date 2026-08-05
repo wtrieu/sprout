@@ -106,9 +106,14 @@ batch time.
 | Job | Schedule (launchd) | Manual |
 |---|---|---|
 | Nightly pipeline (crawl → classify/embed → render images) | 02:30 daily | `pnpm --filter web run job:nightly` |
+| Daily story candidates (headless `claude -p` drafts for review) | 05:00 daily | `pnpm --filter web run job:stories` |
 | Weekly activities | Sun 06:00 | `pnpm --filter web run job:activities` |
 | Weekly digest email | Sun 06:30 | `pnpm --filter web run job:digest` |
 | Drain queue only | — | `pnpm --filter web run job:run` |
+
+The story-candidate job bills a Claude Max subscription via the headless CLI
+(the `ANTHROPIC_API_KEY` is stripped from its env so it can never fall back to
+metered API billing) — see `scripts/nightly-story-candidates.ts`.
 
 Install launchd agents (after fixing paths/env in the plists):
 
@@ -132,8 +137,12 @@ apps/web/            # Next.js app (UI, API routes, DB, lib)
 services/imagegen/   # Python (uv) FLUX worker — drain-and-exit
 scripts/             # seeds + job entrypoints (run via pnpm --filter web)
 infra/               # launchd plists + cloudflared config
+docs/                # architecture, orchestration, and landing-page notes
 data/                # sqlite db + generated images (gitignored)
 ```
+
+See `docs/ARCHITECTURE.md` for how the two halves, the shared age engine, and
+the sequential job lanes fit together.
 
 ## Content licensing notes
 
