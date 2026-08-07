@@ -43,6 +43,8 @@ export const JudgeVerdictSchema = z.object({
   readAloud: z.string(),
   ageFit: z.string(),
   lessonSubtlety: z.string().optional(),
+  pictures: z.string().optional(),
+  factAccuracy: z.string().optional(),
   fixes: z.array(z.string()).default([]),
 });
 export type JudgeVerdict = z.infer<typeof JudgeVerdictSchema>;
@@ -130,11 +132,21 @@ Hard limit: at most ${band.maxWordsPerPage} words of story text per page.`);
 
   sections.push(`CRAFT:
 - Work in one pass as outline → draft → self-edit: before returning, reread for SENSE (does every beat follow?) and for read-aloud rhythm (would a tired parent enjoy saying these words?). Fix what stumbles.
-- Each page needs a "scene": a self-contained visual description of THAT page's moment (setting, what the character is doing, time of day, mood, lighting). Do NOT describe the character's appearance (characterDesc covers it) and do NOT name an art style. Never include text or words in the scene. Compose simply: the character alone or with ONE companion, full-body or distant views, no crowds, no mirrors, nothing hand-intricate.
 - Never render Chinese or other non-Latin script — if a foreign word appears, romanization only.`);
 
+  const nonfiction = storyLanes[premise.lane]?.kind === "nonfiction";
+  sections.push(`THE PICTURES — the best picture books reward a second and third look; every page here is a full illustration brief in layers, and the worldbuilding lives in them:
+- "scene" (per page): THAT page's foreground moment — setting, what the character is doing, time of day, light, mood. Do NOT describe the character's appearance (characterDesc covers it) and do NOT name an art style. Never any text, words, or signage in the image.
+- "background" (per page): the world going on BEHIND the moment — one or two small happenings that are not the main story (a neighbour mending a roof in the distance, a line of ants moving house, weather arriving over the hills). Give the background its own quiet thread: let one tiny subplot recur across several pages and quietly resolve by the last page, so a rereading child discovers a second story living in the pictures.${
+    nonfiction
+      ? `\n  In this nonfiction book the background layer is also where extra TRUTH lives — real anatomy, real tools, real weather, the true surroundings of the subject. Every background detail must stay true.`
+      : ""
+  }
+- "hiddenFriend" (book-level, under 20 words): one small companion creature or object that hides somewhere in EVERY page's picture, doing its own little thing. It never appears in the text — it belongs to the pictures only, a secret between the illustrator and the child.
+- Composition safety: background figures stay small and simple (distant shapes, silhouettes — never a crowd of detailed faces); richness lives in objects, creatures, light, and world-detail. Nothing hand-intricate on the main character, no mirrors.`);
+
   sections.push(`Return ONLY a JSON object, no prose before or after, exactly this shape:
-{ "title": string, "characterName": string, "characterDesc": string, "pages": [ { "text": string, "scene": string } ] }
+{ "title": string, "characterName": string, "characterDesc": string, "hiddenFriend": string, "pages": [ { "text": string, "scene": string, "background": string } ] }
 Exactly ${opts.pageCount} pages.`);
 
   return sections.join("\n\n");
@@ -167,9 +179,16 @@ RUBRIC — judge each:
 3. readAloud: mouth-feel and rhythm read aloud — do any sentences stumble?
 4. ageFit: right for this reading level — not babyish, not over their head?
 5. lessonSubtlety: per the lesson dial above.
+6. pictures: read scene/background/hiddenFriend as the illustration brief they are — do the backgrounds build a world with small discoverable happenings (and a background thread that pays off), or do they just restate the foreground? Is the hidden friend genuinely hideable on every page?${
+    storyLanes[opts.premise.lane]?.kind === "nonfiction"
+      ? `\n7. factAccuracy: this is a NONFICTION book — is every stated fact (in text AND in the picture layers) true? Simplification is fine; invention is not. A false or misleading fact alone justifies "revise", with the correction in "fixes".`
+      : ""
+  }
 
 Return ONLY JSON:
-{ "verdict": "approve" | "revise" | "reject", "coherence": string, "freshness": string, "readAloud": string, "ageFit": string, "lessonSubtlety": string, "fixes": [string] }
+{ "verdict": "approve" | "revise" | "reject", "coherence": string, "freshness": string, "readAloud": string, "ageFit": string, "lessonSubtlety": string, "pictures": string${
+    storyLanes[opts.premise.lane]?.kind === "nonfiction" ? `, "factAccuracy": string` : ""
+  }, "fixes": [string] }
 - "approve": publishable as-is (small nits are fine).
 - "revise": specific fixes would rescue it — list them concretely in "fixes".
 - "reject": the execution is unsalvageable; a revision would be a rewrite.`;
@@ -205,6 +224,29 @@ const blockingProblems = (problems: string[], pages: number, band: AgeBand): str
     : problems;
 
 /**
+ * The illustration layers are asked for by the prompt but optional in the
+ * schema — a thin draft gets one repair pass to add them, and if it comes
+ * back thin again we import anyway (a book without backgrounds is still a
+ * book; these problems never block).
+ */
+const artLayerProblems = (candidate: Candidate | null): string[] => {
+  if (!candidate) return [];
+  const problems: string[] = [];
+  if (!candidate.hiddenFriend) {
+    problems.push(
+      `missing "hiddenFriend" — the book needs its small companion hidden in every picture`,
+    );
+  }
+  const thin = candidate.pages.filter((p) => !p.background).length;
+  if (thin > 0) {
+    problems.push(
+      `${thin} page(s) missing "background" — every page's picture needs its background layer (world life behind the moment)`,
+    );
+  }
+  return problems;
+};
+
+/**
  * The full B→C pipeline for one premise. The caller is responsible for having
  * set the premise's status to greenlit/auto_picked; this function transitions
  * it to written (with storyId) or rejected (with the judge verdict stored).
@@ -225,7 +267,7 @@ export const writeBookForPremise = (
   const band = ageBand(targetMonths);
   const pageCount = clampPageCount(band, premiseRow.lengthPages);
   const formKey = premiseRow.form ?? null;
-  const artPackKey = pickArtPack(db);
+  const artPackKey = pickArtPack(db, [], premiseRow.lane);
   const material = resolveMaterial(premiseRow);
 
   const reject = (verdict: unknown, reason: string): WriteBookResult => {
@@ -251,13 +293,15 @@ export const writeBookForPremise = (
   );
   let raw = callClaudeForJson(prompt, { model: models.writer }, call);
   let { candidate, problems } = parseAndValidate(raw, formKey, band, pageCount);
+  let artProblems = artLayerProblems(candidate);
 
-  if (!candidate || problems.length > 0) {
-    log(`draft flagged, one repair pass: ${problems.join("; ")}`);
+  if (!candidate || problems.length > 0 || artProblems.length > 0) {
+    const flagged = [...problems, ...artProblems];
+    log(`draft flagged, one repair pass: ${flagged.join("; ")}`);
     const repairPrompt = `${prompt}
 
 You already wrote a draft, but an editor flagged problems. Fix ONLY these, keeping everything that works:
-${problems.map((p) => `- ${p}`).join("\n")}
+${flagged.map((p) => `- ${p}`).join("\n")}
 
 YOUR PREVIOUS DRAFT:
 ${JSON.stringify(raw)}
@@ -265,6 +309,10 @@ ${JSON.stringify(raw)}
 Return the corrected JSON object only, same shape, exactly ${pageCount} pages.`;
     raw = callClaudeForJson(repairPrompt, { model: models.writer }, call);
     ({ candidate, problems } = parseAndValidate(raw, formKey, band, pageCount));
+    artProblems = artLayerProblems(candidate);
+    if (artProblems.length > 0) {
+      log(`art layers still thin after repair (importing anyway): ${artProblems.join("; ")}`);
+    }
   }
   if (candidate) problems = blockingProblems(problems, candidate.pages.length, band);
   if (!candidate || problems.length > 0) {

@@ -68,6 +68,12 @@ export type StoryForm = {
   spec: string;
   /** Authored exemplar pages (different character/world; shape only). */
   exemplar: string;
+  /**
+   * Forms that only make sense in the bedtime-winddown lane. Everything else
+   * is a general structure whose ending lands wherever its lane points —
+   * sleepy endings are a bedtime-lane feature, not a form feature.
+   */
+  bedtimeOnly?: boolean;
 };
 
 export const storyForms: Record<string, StoryForm> = {
@@ -77,8 +83,8 @@ export const storyForms: Record<string, StoryForm> = {
 - Strong read-aloud rhythm — short beats, deliberate repetition of sentence shapes.
 - Sound play on most pages: onomatopoeia ("pit-pat, pit-pat"), soft alliteration.
 - Use the rule of three: three tries, three friends, or three sounds before the turn.
-- End most pages with a small forward pull (a question, a sound approaching, "and then…") — except the last two pages, which slow down and settle.`,
-    exemplar: `EXAMPLE pages from a different book (duckling named Pip, theme: listening to rain):
+- End most pages with a small forward pull (a question, a sound approaching, "and then…"). The last page lands wherever the lane points — settling down only in a bedtime book.`,
+    exemplar: `EXAMPLE pages from a different book (duckling named Pip, theme: listening to rain — a bedtime book, so this one settles at the end):
 - "Pit-pat. Pit-pat. The rain tapped on the big green leaf. Pip peeked out. What was that sound?"
 - "Pit-pat, PIT-PAT! The rain danced faster. Pip's little feet danced too."
 - "Then the rain slowed. Pit… pat. Pit… pat. Pip yawned a wide, wobbly yawn."
@@ -90,19 +96,19 @@ export const storyForms: Record<string, StoryForm> = {
 - Design one refrain of 4-10 words with a [slot].
 - Every page: 1-2 scene sentences, then the refrain with a new slot value.
 - Slot values follow a sequence the child can feel (bigger and bigger, one per friend, around the house).
-- On the final page the refrain turns sleepy — same words, but soft, aimed at bed.`,
+- On the final page the refrain lands its best turn — the biggest, funniest, or warmest slot value the sequence was building to. Only in a bedtime book does it turn sleepy instead.`,
     exemplar: `EXAMPLE from a different book (duckling named Pip, refrain "Splash, splash, who's in the puddle?", theme: greeting friends):
 - "Pip found a puddle, round as the moon. Splash, splash — who's in the puddle? A FROG is in the puddle!"
 - "The frog wiggled in. Splash, splash — who's in the puddle? A SNAIL is in the puddle!"
-- (final page) "The puddle went still and shiny. Splash… splash… who's in the puddle? Just the stars. Time for bed, Pip."`,
+- (final page of THIS book, which happened to be a bedtime book) "The puddle went still and shiny. Splash… splash… who's in the puddle? Just the stars. Time for bed, Pip."`,
   },
   cumulative: {
     name: "Cumulative",
     spec: `A CUMULATIVE list: each page adds ONE new item and repeats the whole list so far, newest first. The repetition IS the story.
 - Page 1 introduces the place and the first item.
 - Each next page: one short scene sentence, then the growing list in a fixed sentence frame.
-- 4-5 items maximum, then the last pages settle everything down (the list appears once more, slow and complete, as everyone sleeps).`,
-    exemplar: `EXAMPLE frame from a different book (duckling named Pip building a nest):
+- 4-5 items maximum, then the last page pays the list off: it appears once more, complete, at the moment the story lands (the feast eaten, the machine assembled, the nest finished — or, in a bedtime book, slow and hushed as everyone sleeps).`,
+    exemplar: `EXAMPLE frame from a different book (duckling named Pip building a nest — a bedtime book, so its payoff is sleepy):
 - "Pip found a leaf. In Pip's little nest there was… a leaf."
 - "A feather floated down. In Pip's little nest there was a feather, and a leaf."
 - "Moss! Springy moss. In Pip's little nest there was moss, a feather, and a leaf."
@@ -110,6 +116,7 @@ export const storyForms: Record<string, StoryForm> = {
   },
   "lullaby-rhyme": {
     name: "Lullaby rhyme",
+    bedtimeOnly: true,
     spec: `Soft rhyming couplets (AABB), sung more than told.
 - Two short lines per page. BOTH line-endings of every couplet MUST come from the same rhyme pair in the RHYME BANK below — do not invent your own rhymes.
 - Build each line naturally toward its ending word: normal word order, no filler words to pad the meter. If a couplet fights you, pick a different pair from the bank.
@@ -124,6 +131,7 @@ night/light · deep/sleep · moon/soon · star/are · sky/by · head/bed · tigh
   },
   "goodnight-catalog": {
     name: "Goodnight catalog",
+    bedtimeOnly: true,
     spec: `The Goodnight Moon shape: first SURVEY the room/place, then say goodnight to everything in it, one by one.
 - Pages 1-3: name what is in the scene, plainly and warmly ("There is a…", "And a…"). Concrete, pictureable things the child could point to.
 - Remaining pages: "Goodnight, [thing]" beats — 2-3 goodnights per page, revisiting the SAME things in the same order they were introduced. No new objects after the survey.
@@ -141,26 +149,43 @@ night/light · deep/sleep · moon/soon · star/are · sky/by · head/bed · tigh
 - Design ONE question frame of 5-10 words ("[Name], [Name], what do you see/hear…?") and repeat it exactly, only the name changing.
 - Each page: the question to the current friend, then their answer pointing to the next friend ("I see a … looking at me").
 - 4-6 friends in the chain, each simple and drawable alone.
-- The last friend's answer points back to bed: they see the main character yawning / the moon rising, and everyone settles. The final page answers the question with sleep.`,
-    exemplar: `EXAMPLE frame from a different book (duckling named Pip at the pond):
+- The last friend's answer closes the loop: it points back to the main character, the starting place, or the thing the chain was secretly building toward — the child feels the circle complete. In a bedtime book, the loop closes on sleep.`,
+    exemplar: `EXAMPLE frame from a different book (duckling named Pip at the pond — a bedtime book, so this chain closes on sleep):
 - "Pip, Pip, what do you hear? I hear a frog singing near."
 - "Frog, Frog, what do you hear? I hear a cricket ticking clear."
 - (final) "Moon, Moon, what do you see? I see one sleepy duckling… fast asleep by the reeds."`,
   },
   "journey-home": {
     name: "Journey home",
-    spec: `The out-and-back expedition (Bear Hunt's engine, tuned for bedtime): a little journey through 3 terrains, each with its own repeated MOVEMENT SOUND, then home the same way, faster and softer.
+    spec: `The out-and-back expedition (Bear Hunt's engine): a little journey through 3 terrains, each with its own repeated MOVEMENT SOUND, then home the same way.
 - One travel frame repeated per terrain: "Over/through/across the [terrain] — [sound, sound, sound]."
 - Each terrain gets one page out: the frame plus one small wonder noticed there.
-- The turn: something gentle signals bedtime (first star, a yawn, the wind going quiet) — NOT a scare. Nothing chases anyone.
-- Coming home: the same terrains in reverse in 1-2 pages, sounds softening ("swish… swish…").
-- Last page: home, warm, tucked in — the journey's sounds become a lullaby.`,
-    exemplar: `EXAMPLE pages from a different book (duckling named Pip):
+- The turn: something at the far point signals it's time to head home — the thing found, a changing sky, a distant call — NOT a scare. Nothing chases anyone.
+- Coming home: the same terrains in reverse in 1-2 pages, the sounds returning like old friends.
+- Last page: home, warm, satisfied. In a bedtime book the sounds soften on the way back ("swish… swish…") and become a lullaby; elsewhere the homecoming can be triumphant.`,
+    exemplar: `EXAMPLE pages from a different book (duckling named Pip — a bedtime book, so its return softens):
 - "Over the pebbly bank — clickety, clickety, clickety. Pip found a snail with a swirly shell."
 - "Through the tall reeds — swish, swish, swish. Pip found a feather, soft as a cloud."
 - "Then the first star blinked on. Time to go home, Pip."
 - "Back through the reeds — swish… swish… Back over the pebbles — click… click…"
 - "Home in the warm nest. Clickety, swish, hush. Goodnight, Pip."`,
+  },
+  // Added 2026-08-07 for the nonfiction shelf: the zoom structure real
+  // picture books use to make true things astonishing (think "Zoom").
+  "look-closer": {
+    name: "Look closer",
+    spec: `A ZOOM: each page turn moves one honest step of scale into the subject — from the familiar whole down to the hidden inside, or from the tiny up to the vast.
+- Page 1 shows the subject exactly as the child already knows it, at arm's length.
+- Every page turn is ONE deliberate step of scale, and each step reveals one new true, drawable layer.
+- A short repeated pivot line marks each step ("Look closer." / "Closer still.") so the child can say it with you.
+- The last page snaps back to the page-1 view — the same familiar thing, now seen with new eyes. Name what the child now knows is hiding inside.
+- In a nonfiction book every layer must be really there — the zoom is a promise that the world actually goes this deep.`,
+    exemplar: `EXAMPLE pages from a different book (a garden pond):
+- "Here is the pond. Brown and quiet, with one bent reed. Look closer."
+- "Under the skin of the water: a forest of green stems, taller than you. Look closer."
+- "On one stem, a snail no bigger than a pea. Look closer."
+- "On the snail's shell, one round drop of water. And in the drop — a tiny swimmer, waving its arms."
+- (final) "Here is the pond. Brown and quiet, with one bent reed. And now you know who lives inside."`,
   },
 };
 

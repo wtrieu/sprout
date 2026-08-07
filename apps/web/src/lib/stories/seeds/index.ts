@@ -7,11 +7,17 @@ import type { StorySeed, SeedVocab } from "./types";
 import { zhTwSeeds } from "./zh-tw";
 import { worldMythSeeds } from "./world-myths";
 import { historySeeds } from "./history";
+import { wonderSeeds } from "./wonders";
 import type { NorthStarShare } from "../premises";
 
 export type { StorySeed, SeedVocab } from "./types";
 
-export const allSeeds: StorySeed[] = [...zhTwSeeds, ...worldMythSeeds, ...historySeeds];
+export const allSeeds: StorySeed[] = [
+  ...zhTwSeeds,
+  ...worldMythSeeds,
+  ...historySeeds,
+  ...wonderSeeds,
+];
 
 const byKey = new Map(allSeeds.map((s) => [s.key, s]));
 

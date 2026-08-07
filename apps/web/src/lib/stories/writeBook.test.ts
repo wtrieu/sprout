@@ -32,9 +32,11 @@ const goodBook = {
   characterName: "Nib",
   characterDesc:
     "a small garden snail with a swirly caramel shell, soft grey body, and a tiny red knitted cap",
+  hiddenFriend: "a ladybird with one missing spot, always mid-errand",
   pages: Array.from({ length: 8 }, (_, i) => ({
     text: `Nib slid along the garden wall, slow and steady. (page ${i + 1})`,
     scene: `a garden wall in morning light, the snail gliding along the top, dew shining, page ${i + 1}`,
+    background: `beyond the wall, a robin gathering straw for a slowly growing nest, page ${i + 1}`,
   })),
 };
 
@@ -107,7 +109,7 @@ describe("writeBookForPremise", () => {
     expect(story.lane).toBe("little-quest");
     expect(story.tags).toEqual(["snail", "garden"]);
     expect(story.lesson).toBe("none");
-    expect(story.engineVersion).toBe(2);
+    expect(story.engineVersion).toBe(3);
     expect(story.premiseId).toBe(premiseRow.id);
 
     const premise = db
@@ -216,5 +218,84 @@ describe("writeBookForPremise", () => {
     });
     const result = writeBookForPremise(db, premiseRow, { call, log: () => {} });
     expect(result.ok).toBe(true);
+  });
+
+  it("composes background and hidden friend into every page's illustration prompt", () => {
+    const { call } = makeFakeCall({});
+    const result = writeBookForPremise(db, premiseRow, { call, log: () => {} });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const pages = db.select().from(schema.storyPages).all();
+    expect(pages.length).toBeGreaterThan(0);
+    for (const page of pages) {
+      expect(page.illustrationPrompt).toContain("in the background, beyond the wall");
+      expect(page.illustrationPrompt).toContain("hidden somewhere small in the scene");
+      expect(page.illustrationPrompt).toContain("ladybird");
+    }
+    const story = db.select().from(schema.stories).all()[0];
+    expect(story.artNotes).toContain("hidden friend");
+  });
+
+  it("repairs a draft missing the illustration layers, and imports even if still thin", () => {
+    const { hiddenFriend: _hf, ...flatBook } = goodBook;
+    const thinBook = {
+      ...flatBook,
+      pages: goodBook.pages.map(({ text, scene }) => ({ text, scene })),
+    };
+    let repairPrompt = "";
+    const { call, calls } = makeFakeCall({
+      book: (prompt, nth) => {
+        if (nth === 1) repairPrompt = prompt;
+        return thinBook; // still thin after repair — must import anyway
+      },
+    });
+    const result = writeBookForPremise(db, premiseRow, { call, log: () => {} });
+    expect(result.ok).toBe(true);
+    expect(calls.filter((c) => c.kind === "book")).toHaveLength(2);
+    expect(repairPrompt).toContain("hiddenFriend");
+    expect(repairPrompt).toContain("background");
+  });
+
+  it("adds the factAccuracy rubric only for nonfiction-lane books", () => {
+    db.update(schema.premises)
+      .set({ lane: "animal-lives", lesson: "factual" })
+      .where(eq(schema.premises.id, premiseRow.id))
+      .run();
+    const nonfiction = db
+      .select()
+      .from(schema.premises)
+      .where(eq(schema.premises.id, premiseRow.id))
+      .get()!;
+    let judgePrompt = "";
+    let bookPrompt = "";
+    const { call } = makeFakeCall({
+      book: (prompt) => {
+        if (!bookPrompt) bookPrompt = prompt;
+        return goodBook;
+      },
+      judge: (prompt) => {
+        judgePrompt = prompt;
+        return approveVerdict;
+      },
+    });
+    const result = writeBookForPremise(db, nonfiction, { call, log: () => {} });
+    expect(result.ok).toBe(true);
+    expect(judgePrompt).toContain("factAccuracy");
+    expect(bookPrompt).toContain("NONFICTION");
+
+    // …and a fiction lane gets neither.
+    db.update(schema.premises)
+      .set({ lane: "little-quest", lesson: "none", status: "greenlit", storyId: null })
+      .where(eq(schema.premises.id, premiseRow.id))
+      .run();
+    const fiction = db
+      .select()
+      .from(schema.premises)
+      .where(eq(schema.premises.id, premiseRow.id))
+      .get()!;
+    judgePrompt = "";
+    const result2 = writeBookForPremise(db, fiction, { call, log: () => {} });
+    expect(result2.ok).toBe(true);
+    expect(judgePrompt).not.toContain("factAccuracy");
   });
 });

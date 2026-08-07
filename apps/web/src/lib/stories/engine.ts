@@ -10,8 +10,9 @@
  * v2 redesign) can never haunt the new editorial memo.
  *   1 = template era (hardcoded bedtime prompt)
  *   2 = premise-first commissioned library
+ *   3 = nonfiction shelf + layered second-look illustrations
  */
-export const ENGINE_VERSION = 2;
+export const ENGINE_VERSION = 3;
 
 /** One-tap taste-signal chips for draft rejection and premise passes. */
 export const REJECT_REASONS = [

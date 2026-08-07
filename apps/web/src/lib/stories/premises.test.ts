@@ -210,6 +210,34 @@ describe("normalizePremise", () => {
     const n = normalizePremise({ ...base, lane: "folk-tale", worldRef: defaultWorld.key }, band);
     expect(n.worldRef).toBeUndefined();
   });
+
+  it("forces lesson to factual on every nonfiction lane", () => {
+    for (const lane of ["how-it-works", "animal-lives", "big-ideas", "history-vignette"]) {
+      const n = normalizePremise({ ...base, lane, lesson: "none" }, band);
+      expect(n.lesson).toBe("factual");
+    }
+    // Fiction lanes keep the proposed lesson (outside funny).
+    expect(normalizePremise({ ...base, lane: "little-quest" }, band).lesson).toBe(
+      "developmental",
+    );
+  });
+
+  it("keeps bedtime-only forms inside the bedtime lane", () => {
+    const outside = normalizePremise(
+      { ...base, lane: "animal-lives", form: "lullaby-rhyme" },
+      band,
+    );
+    expect(outside.form).toBeUndefined();
+    const inside = normalizePremise(
+      { ...base, lane: "bedtime-winddown", form: "goodnight-catalog" },
+      band,
+    );
+    expect(inside.form).toBe("goodnight-catalog");
+    // General forms travel anywhere.
+    expect(
+      normalizePremise({ ...base, lane: "big-ideas", form: "look-closer" }, band).form,
+    ).toBe("look-closer");
+  });
 });
 
 describe("auto-pick fallback plumbing", () => {
