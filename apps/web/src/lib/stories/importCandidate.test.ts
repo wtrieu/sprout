@@ -190,6 +190,50 @@ describe("importCandidate", () => {
     expect(story.favorite).toBe(false);
   });
 
+  it("composes layered prompts when the candidate carries backgrounds and a hidden friend", () => {
+    const layered = {
+      ...goodCandidate,
+      hiddenFriend: "a white moth with one torn wing, always nearby",
+      pages: goodCandidate.pages.map((p, i) => ({
+        ...p,
+        background: `far across the meadow, a farmer stacking hay onto a growing cart, page ${i + 1}`,
+      })),
+    };
+    const result = importCandidate(db, layered, opts());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const story = db
+      .select()
+      .from(schema.stories)
+      .where(eq(schema.stories.id, result.storyId))
+      .get()!;
+    expect(story.artNotes).toContain("torn wing");
+    const pages = db
+      .select()
+      .from(schema.storyPages)
+      .where(eq(schema.storyPages.storyId, result.storyId))
+      .all();
+    for (const page of pages) {
+      expect(page.illustrationPrompt).toContain("in the background, far across the meadow");
+      expect(page.illustrationPrompt).toContain("hidden somewhere small in the scene");
+      // The pack's depth clause rides every prompt.
+      expect(page.illustrationPrompt).toContain("second look");
+    }
+  });
+
+  it("still imports plain scene-only candidates (older shape, no layers)", () => {
+    const result = importCandidate(db, goodCandidate, opts());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const page = db
+      .select()
+      .from(schema.storyPages)
+      .where(eq(schema.storyPages.storyId, result.storyId))
+      .all()[0];
+    expect(page.illustrationPrompt).not.toContain("in the background,");
+    expect(page.illustrationPrompt).not.toContain("hidden somewhere small");
+  });
+
   it("normalizePageText handles mid-line and trailing separators", () => {
     expect(normalizePageText("a line, / another line.")).toBe("a line,\nanother line.");
     expect(normalizePageText("ends with slash /")).toBe("ends with slash");

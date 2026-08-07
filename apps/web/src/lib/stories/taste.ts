@@ -7,8 +7,11 @@
  *   1. The writer never sees rejected drafts — raw rejected text has exactly
  *      one consumer: this distiller. Only the memo enters generation prompts,
  *      hard-capped at MEMO_MAX_LINES so prompt weight stays constant.
- *   2. Regime-tagged rolling window: only the current ENGINE_VERSION's last
- *      ~30 days count. Template-era rejections are excluded outright.
+ *   2. Regime-tagged rolling window: only post-template engines' last ~30
+ *      days count (engineVersion >= 2). Template-era rejections are excluded
+ *      outright — the template itself was the problem there, a lesson already
+ *      encoded in the redesign. Later engine bumps (v2 → v3) refine the same
+ *      premise-first regime, so their taste signal stays valid across bumps.
  *   3. Mostly-positive memo: approvals/favorites drive "more like this"; the
  *      avoid list is capped at ~5 items with at most 1-2 quoted phrases.
  *   4. Text is evidence, not a museum: rejected drafts keep pages for 90
@@ -19,10 +22,11 @@ import path from "node:path";
 import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import { premises, stories, storyPages } from "../../db/schema";
-import { ENGINE_VERSION } from "./engine";
 import { callClaude, extractResultText, storyModels, type CallClaude } from "./claudeCli";
 
 export const MEMO_MAX_LINES = 40;
+/** First post-template engine — taste signal counts from here on (guardrail 2). */
+const TASTE_MIN_ENGINE_VERSION = 2;
 const WINDOW_DAYS = 30;
 const DISTILL_EVERY_DAYS = 7;
 const EPITAPH_AFTER_DAYS = 90;
@@ -55,7 +59,9 @@ const collectSignals = (db: DB): TasteSignals => {
   const engineStories = db
     .select()
     .from(stories)
-    .where(and(eq(stories.engineVersion, ENGINE_VERSION), gte(stories.createdAt, cutoff)))
+    .where(
+      and(gte(stories.engineVersion, TASTE_MIN_ENGINE_VERSION), gte(stories.createdAt, cutoff)),
+    )
     .all();
 
   const kept = engineStories
@@ -86,7 +92,7 @@ const collectSignals = (db: DB): TasteSignals => {
     .from(premises)
     .where(
       and(
-        eq(premises.engineVersion, ENGINE_VERSION),
+        gte(premises.engineVersion, TASTE_MIN_ENGINE_VERSION),
         gte(premises.createdAt, cutoff),
         inArray(premises.status, ["passed", "rejected"]),
       ),

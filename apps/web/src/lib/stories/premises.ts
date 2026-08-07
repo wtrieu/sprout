@@ -51,7 +51,10 @@ export const PremiseBatchSchema = z.object({
  * everyday-wonder, unknown forms/seeds are dropped rather than trusted, the
  * funny lane never carries a lesson, and tags are normalized to lowercase.
  * A fantasy-world premise always lands in the world bible — the lane has no
- * meaning without one — and worldRef is dropped everywhere else.
+ * meaning without one — and worldRef is dropped everywhere else. Nonfiction
+ * lanes are inherently factual (lesson forced to "factual" so the dial and
+ * taste memory see them truthfully), and bedtime-only forms never escape the
+ * bedtime lane.
  */
 export const normalizePremise = (
   p: Premise,
@@ -59,15 +62,20 @@ export const normalizePremise = (
   validSeedKeys: ReadonlySet<string> = new Set(),
 ): Premise => {
   const lane = laneKeys.includes(p.lane) ? p.lane : "everyday-wonder";
-  const lessonAllowed = storyLanes[lane].lessonAllowed;
+  const laneDef = storyLanes[lane];
   const worldRef = p.worldRef && worldKeys.has(p.worldRef) ? p.worldRef : undefined;
+  const formOk =
+    p.form &&
+    formKeys.includes(p.form) &&
+    !(storyForms[p.form].bedtimeOnly && lane !== "bedtime-winddown");
   return {
     ...p,
     lane,
     tags: [...new Set(p.tags.map((t) => t.trim().toLowerCase()).filter(Boolean))],
-    lesson: lessonAllowed ? p.lesson : "none",
-    lessonNote: lessonAllowed ? p.lessonNote : undefined,
-    form: p.form && formKeys.includes(p.form) ? p.form : undefined,
+    lesson:
+      laneDef.kind === "nonfiction" ? "factual" : laneDef.lessonAllowed ? p.lesson : "none",
+    lessonNote: laneDef.lessonAllowed ? p.lessonNote : undefined,
+    form: formOk ? p.form : undefined,
     seedRef: p.seedRef && validSeedKeys.has(p.seedRef) ? p.seedRef : undefined,
     worldRef: lane === "fantasy-world" ? (worldRef ?? defaultWorld.key) : undefined,
     lengthPages: Math.min(band.maxPages, Math.max(band.minPages, p.lengthPages)),
@@ -309,7 +317,12 @@ export type PremisePromptInput = {
 };
 
 const formMenu = (): string =>
-  formKeys.map((k) => `- ${k}: ${storyForms[k].name}`).join("\n");
+  formKeys
+    .map(
+      (k) =>
+        `- ${k}: ${storyForms[k].name}${storyForms[k].bedtimeOnly ? " (bedtime-winddown lane only)" : ""}`,
+    )
+    .join("\n");
 
 export const buildPremisePrompt = (input: PremisePromptInput): string => {
   const lessonCap = Math.max(1, Math.floor(input.batchSize * LESSON_CAP_RATIO));
@@ -338,9 +351,11 @@ Each book will be ${input.band.minPages}-${input.band.maxPages} pages, up to ${i
 
   sections.push(`GENRE LANES (spread tonight's premises across at least 4 different lanes):\n${laneMenu()}`);
 
+  sections.push(`THE NONFICTION SHELF — the lanes marked [nonfiction] explain the real world: real animals, real machines, real history, real big ideas. Include 1-2 nonfiction premises tonight. They are commissioned as read-aloud WONDER, not curriculum: true facts chosen for astonishment, real words used warmly, no quiz, no recap, no moral. Being read true things is a gift to this child even before full understanding arrives — pick subjects a curious person could fall in love with later (computers, octopuses, the moon, ants, bridges, bread). Every nonfiction premise carries lesson "factual", with a lessonNote naming the true things the book will show.`);
+
   if (input.worldBrief) sections.push(input.worldBrief);
 
-  sections.push(`THE LESSON DIAL — entertainment first. At most ${lessonCap} of the ${input.batchSize} premises may carry an explicit lesson ("developmental", "cultural", or "factual" — with a one-line lessonNote saying what is SHOWN, never preached). Every other premise is lesson: "none" — commissioned as "no lesson, just a good story."${
+  sections.push(`THE LESSON DIAL — entertainment first. At most ${lessonCap} of the ${input.batchSize} premises may carry an explicit lesson ("developmental", "cultural", or "factual" — with a one-line lessonNote saying what is SHOWN, never preached). Nonfiction-shelf premises are always "factual" and count here, so they and any other lessons share the ${lessonCap} slots. Every other premise is lesson: "none" — commissioned as "no lesson, just a good story."${
     input.milestoneFrontier.length > 0
       ? `\nIf you use a developmental lesson, draw from the child's current frontier: ${input.milestoneFrontier.join("; ")}`
       : ""

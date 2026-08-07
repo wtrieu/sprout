@@ -18,6 +18,10 @@ export const CandidateSchema = z.object({
   title: z.string().min(3).max(120),
   characterName: z.string().min(2).max(60),
   characterDesc: z.string().min(20).max(400),
+  // The book's recurring background companion, hidden in every picture.
+  // Optional in the schema (older candidates predate it) but the writer
+  // prompt requires it and the pipeline repairs a draft that omits it.
+  hiddenFriend: z.string().min(10).max(240).optional(),
   pages: z
     .array(
       z.object({
@@ -27,6 +31,9 @@ export const CandidateSchema = z.object({
         // Visual description only — style words and character appearance are
         // composed in code (storyArt.ts).
         scene: z.string().min(10).max(500),
+        // The world behind the moment: background life + the page's small
+        // findable detail. Optional for the same back-compat reason.
+        background: z.string().min(10).max(450).optional(),
       }),
     )
     .min(6)
@@ -89,7 +96,11 @@ export const importCandidate = (db: DB, raw: unknown, opts: ImportOptions): Impo
         pageCount: candidate.pages.length,
         characterName: candidate.characterName,
         characterDesc: candidate.characterDesc,
-        artNotes: composeArtNotes(opts.artPackKey, candidate.characterName),
+        artNotes: composeArtNotes(
+          opts.artPackKey,
+          candidate.characterName,
+          candidate.hiddenFriend,
+        ),
         setting: opts.settingKey ?? null,
         lane: opts.lane ?? null,
         tags: opts.tags ?? null,
@@ -110,6 +121,7 @@ export const importCandidate = (db: DB, raw: unknown, opts: ImportOptions): Impo
             opts.artPackKey,
             candidate.characterDesc,
             page.scene,
+            { background: page.background, hiddenFriend: candidate.hiddenFriend },
           ),
         })
         .run();
