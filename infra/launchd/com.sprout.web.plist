@@ -24,7 +24,13 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+    <!-- Must include ~/.local/bin: the web server spawns job:write-book and
+         job:stories directly (premise greenlight, "Generate now") as
+         detached children that inherit this PATH, and those scripts shell
+         out to the `claude` CLI. Without it those spawns fail to find the
+         binary and silently no-op — only the nightly cron job (which sets
+         this correctly) was rescuing greenlit books, a day late. -->
+    <string>/Users/waylantrieu/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
     <key>NODE_ENV</key>
     <string>production</string>
     <key>DATABASE_URL</key>
