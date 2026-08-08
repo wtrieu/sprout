@@ -134,6 +134,33 @@ describe("distillTaste", () => {
     expect(seenPrompt).toContain("Passed Pitch");
     expect(seenPrompt).toContain("not-for-us");
   });
+
+  it("ignores superseded clear-outs — a regime change is not taste", () => {
+    insertStory({ title: "Kept One", favorite: true });
+    insertStory({ title: "Kept Two" });
+    insertStory({ title: "Real Reject", status: "rejected", rejectReason: "clunky" });
+    insertStory({ title: "Cleared Draft", status: "rejected", rejectReason: "superseded" });
+    db.insert(schema.premises)
+      .values({
+        childId,
+        title: "Cleared Premise",
+        lane: "funny",
+        pitch: "An old-engine premise retired when v3 shipped, through no fault of its own.",
+        tags: ["soup"],
+        lengthPages: 8,
+        status: "passed",
+        passReason: "superseded",
+      })
+      .run();
+    let seenPrompt = "";
+    distillTaste(db, (prompt) => {
+      seenPrompt = prompt;
+      return "## More like this\n- warmth";
+    });
+    expect(seenPrompt).toContain("Real Reject");
+    expect(seenPrompt).not.toContain("Cleared Draft");
+    expect(seenPrompt).not.toContain("Cleared Premise");
+  });
 });
 
 describe("compressRejectedStories", () => {

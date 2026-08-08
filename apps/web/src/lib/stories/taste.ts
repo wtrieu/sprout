@@ -71,7 +71,11 @@ const collectSignals = (db: DB): TasteSignals => {
         `- KEPT${s.favorite ? " + FAVORITED" : ""}: "${s.title}" [${s.lane ?? "?"}] tags: ${(s.tags ?? []).join(", ")}${(s.readCount ?? 0) > 1 ? ` — read ${s.readCount} times` : ""}`,
     );
 
-  const rejectedRows = engineStories.filter((s) => s.status === "rejected");
+  // "superseded" marks administrative clear-outs (a regime change retired the
+  // old queue) — not taste. Neither kept nor rejected signal.
+  const rejectedRows = engineStories.filter(
+    (s) => s.status === "rejected" && s.rejectReason !== "superseded",
+  );
   const rejected = rejectedRows.map((s) => {
     const pages = s.epitaph
       ? []
@@ -98,7 +102,7 @@ const collectSignals = (db: DB): TasteSignals => {
       ),
     )
     .all()
-    .filter((p) => p.passReason !== "expired")
+    .filter((p) => p.passReason !== "expired" && p.passReason !== "superseded")
     .map((p) =>
       p.status === "passed"
         ? `- PREMISE PASSED (${p.passReason ?? "no reason"}): "${p.title}" [${p.lane}] — ${p.pitch.slice(0, 120)}`
