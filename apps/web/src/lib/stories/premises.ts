@@ -16,6 +16,13 @@ import { ENGINE_VERSION } from "./engine";
 
 /** Premises proposed per stage-A batch. */
 export const PREMISES_PER_BATCH = 8;
+/**
+ * Express commissions (the "Write a book now" button) still generate a small
+ * batch — 3 candidates give the ranker a real choice — but only the winner is
+ * kept and written; runners-up are scaffolding, never inbox clutter.
+ * (PremiseBatchSchema's minimum is 3.)
+ */
+export const EXPRESS_BATCH_SIZE = 3;
 /** Stage A skips a night while this many premises sit unreviewed. */
 export const MAX_PENDING_PREMISES = PREMISES_PER_BATCH;
 /** Lesson dial: at most ~1 in 3 selected premises carries an explicit lesson. */
@@ -314,6 +321,12 @@ export type PremisePromptInput = {
   tasteMemo: string;
   /** The world-bible brief (lib/stories/worlds.ts) for the fantasy-world lane. */
   worldBrief: string;
+  /**
+   * An on-demand parent request ("a book about excavators"). When set, every
+   * premise must honor it and it overrides batch-shape guidance (lane spread,
+   * the nonfiction-shelf quota).
+   */
+  request?: string;
 };
 
 const formMenu = (): string =>
@@ -332,6 +345,11 @@ export const buildPremisePrompt = (input: PremisePromptInput): string => {
 
 Reading level: ${input.band.language}
 Each book will be ${input.band.minPages}-${input.band.maxPages} pages, up to ${input.band.maxWordsPerPage} words per page — propose a lengthPages within that range that suits each premise.`);
+
+  if (input.request) {
+    sections.push(`THE PARENT'S REQUEST — this is an on-demand commission, asked for right now: "${input.request}"
+Every premise must honor this request, interpreted generously (as a subject, a character, a setting, or a theme — whatever serves it best). Offer real RANGE within it: different lanes, different angles on the same wish. Where the request conflicts with any batch guidance below (lane spread, the nonfiction shelf), the request wins.`);
+  }
 
   if (input.tasteMemo) {
     sections.push(`THE HOUSE TASTE (editor's memo distilled from this family's approvals and rejections — let it steer you):\n${input.tasteMemo}`);
