@@ -27,7 +27,15 @@ export const GET = async (
   return NextResponse.json({ story, character: character ?? null, pages });
 };
 
-const PatchSchema = z.object({ favorite: z.boolean() });
+const PatchSchema = z
+  .object({
+    favorite: z.boolean().optional(),
+    // The parent's page-1 pick for --cref; null clears it.
+    crefUrl: z.string().trim().url().max(600).startsWith("http").nullable().optional(),
+  })
+  .refine((b) => b.favorite !== undefined || b.crefUrl !== undefined, {
+    message: "nothing to update",
+  });
 
 export const PATCH = async (
   req: NextRequest,
@@ -36,11 +44,17 @@ export const PATCH = async (
   const { id } = await params;
   const body = PatchSchema.safeParse(await req.json().catch(() => null));
   if (!body.success) {
-    return NextResponse.json({ error: "body must be { favorite: boolean }" }, { status: 400 });
+    return NextResponse.json(
+      { error: "body must be { favorite?: boolean, crefUrl?: http(s) url | null }" },
+      { status: 400 },
+    );
   }
+  const patch: Partial<typeof stories.$inferInsert> = {};
+  if (body.data.favorite !== undefined) patch.favorite = body.data.favorite;
+  if (body.data.crefUrl !== undefined) patch.crefUrl = body.data.crefUrl;
   const story = db
     .update(stories)
-    .set({ favorite: body.data.favorite })
+    .set(patch)
     .where(eq(stories.id, Number(id)))
     .returning()
     .get();

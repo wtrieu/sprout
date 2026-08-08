@@ -116,7 +116,7 @@ It lives in what characters DO and what the pictures show — never name it, nev
       : ""
   }
 - "characterName": the character's short friendly name.
-- "characterDesc": a canonical appearance block of AT MOST 40 words (species/kind, colors, size, one distinctive clothing item or accessory). It will be pasted verbatim into every illustration prompt, so it must fully describe the character on its own.`);
+- "characterDesc": a canonical appearance block of AT MOST 28 words (species/kind, colors, size, one distinctive clothing item or accessory). It is pasted verbatim into every illustration prompt, where shorter = stronger — every word must earn its place.`);
 
   if (form) {
     sections.push(`THE FORM — this book uses the ${form.name} form:
@@ -135,15 +135,15 @@ Hard limit: at most ${band.maxWordsPerPage} words of story text per page.`);
 - Never render Chinese or other non-Latin script — if a foreign word appears, romanization only.`);
 
   const nonfiction = storyLanes[premise.lane]?.kind === "nonfiction";
-  sections.push(`THE PICTURES — the best picture books reward a second and third look; every page here is a full illustration brief in layers, and the worldbuilding lives in them:
-- "scene" (per page): THAT page's foreground moment — setting, what the character is doing, time of day, light, mood. Do NOT describe the character's appearance (characterDesc covers it) and do NOT name an art style. Never any text, words, or signage in the image.
-- "background" (per page): the world going on BEHIND the moment — one or two small happenings that are not the main story (a neighbour mending a roof in the distance, a line of ants moving house, weather arriving over the hills). Give the background its own quiet thread: let one tiny subplot recur across several pages and quietly resolve by the last page, so a rereading child discovers a second story living in the pictures.${
+  sections.push(`THE PICTURES — the best picture books reward a second and third look; every page here is an illustration brief in layers, and the worldbuilding lives in them. These fields ship straight to an image model, which weights early words and blurs past ~80 — write them like telegrams: concrete pictureable nouns, no narrative connective tissue.
+- "scene" (per page, AT MOST 25 words): THAT page's foreground moment — setting, what the character is doing, light, mood. Do NOT describe the character's appearance (characterDesc covers it) and do NOT name an art style. Never any text, words, or signage in the image.
+- "background" (per page, AT MOST 18 words): ONE small happening behind the moment that is not the main story, plus one findable object. Give the background its own quiet thread: let one tiny subplot recur across the pages and quietly resolve by the last page, so a rereading child discovers a second story living in the pictures.${
     nonfiction
-      ? `\n  In this nonfiction book the background layer is also where extra TRUTH lives — real anatomy, real tools, real weather, the true surroundings of the subject. Every background detail must stay true.`
+      ? `\n  In this nonfiction book the background is also where extra TRUTH lives — real anatomy, real tools, the subject's true surroundings. Every background detail must stay true.`
       : ""
   }
-- "hiddenFriend" (book-level, under 20 words): one small companion creature or object that hides somewhere in EVERY page's picture, doing its own little thing. It never appears in the text — it belongs to the pictures only, a secret between the illustrator and the child.
-- Composition safety: background figures stay small and simple (distant shapes, silhouettes — never a crowd of detailed faces); richness lives in objects, creatures, light, and world-detail. Nothing hand-intricate on the main character, no mirrors.`);
+- "hiddenFriend" (book-level, AT MOST 12 words): one small companion creature or object that hides somewhere in EVERY page's picture. It never appears in the text — a secret between the illustrator and the child.
+- Composition safety: background figures stay small and simple (distant shapes, silhouettes — never a crowd of detailed faces). Nothing hand-intricate on the main character, no mirrors.`);
 
   sections.push(`Return ONLY a JSON object, no prose before or after, exactly this shape:
 { "title": string, "characterName": string, "characterDesc": string, "hiddenFriend": string, "pages": [ { "text": string, "scene": string, "background": string } ] }
@@ -223,11 +223,19 @@ const blockingProblems = (problems: string[], pages: number, band: AgeBand): str
     ? problems.filter((p) => !p.includes("commissioned at exactly"))
     : problems;
 
+// Per-field word budgets for the illustration layers (small tolerance over
+// the numbers the prompt states). Long fields dilute the composed Midjourney
+// prompt — the image model weights early tokens and blurs past ~80 words.
+const ART_BUDGETS = { characterDesc: 32, scene: 30, background: 22, hiddenFriend: 15 };
+
+const words = (s: string | undefined): number =>
+  s ? s.split(/\s+/).filter(Boolean).length : 0;
+
 /**
  * The illustration layers are asked for by the prompt but optional in the
- * schema — a thin draft gets one repair pass to add them, and if it comes
- * back thin again we import anyway (a book without backgrounds is still a
- * book; these problems never block).
+ * schema — a thin (or bloated) draft gets one repair pass, and if it comes
+ * back imperfect we import anyway (a book with imperfect art briefs is still
+ * a book; these problems never block).
  */
 const artLayerProblems = (candidate: Candidate | null): string[] => {
   if (!candidate) return [];
@@ -236,11 +244,32 @@ const artLayerProblems = (candidate: Candidate | null): string[] => {
     problems.push(
       `missing "hiddenFriend" — the book needs its small companion hidden in every picture`,
     );
+  } else if (words(candidate.hiddenFriend) > ART_BUDGETS.hiddenFriend) {
+    problems.push(`"hiddenFriend" is ${words(candidate.hiddenFriend)} words — trim to 12 or fewer`);
+  }
+  if (words(candidate.characterDesc) > ART_BUDGETS.characterDesc) {
+    problems.push(
+      `"characterDesc" is ${words(candidate.characterDesc)} words — trim to 28 or fewer (it rides every illustration prompt)`,
+    );
   }
   const thin = candidate.pages.filter((p) => !p.background).length;
   if (thin > 0) {
     problems.push(
       `${thin} page(s) missing "background" — every page's picture needs its background layer (world life behind the moment)`,
+    );
+  }
+  const longScenes = candidate.pages.filter((p) => words(p.scene) > ART_BUDGETS.scene).length;
+  if (longScenes > 0) {
+    problems.push(
+      `${longScenes} page(s) have a "scene" over 25 words — cut each to its concrete pictureable core`,
+    );
+  }
+  const longBackgrounds = candidate.pages.filter(
+    (p) => words(p.background) > ART_BUDGETS.background,
+  ).length;
+  if (longBackgrounds > 0) {
+    problems.push(
+      `${longBackgrounds} page(s) have a "background" over 18 words — one small happening plus one findable object, telegram-style`,
     );
   }
   return problems;

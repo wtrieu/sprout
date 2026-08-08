@@ -229,7 +229,7 @@ describe("writeBookForPremise", () => {
     expect(pages.length).toBeGreaterThan(0);
     for (const page of pages) {
       expect(page.illustrationPrompt).toContain("in the background, beyond the wall");
-      expect(page.illustrationPrompt).toContain("hidden somewhere small in the scene");
+      expect(page.illustrationPrompt).toContain("tucked somewhere tiny");
       expect(page.illustrationPrompt).toContain("ladybird");
     }
     const story = db.select().from(schema.stories).all()[0];
@@ -254,6 +254,28 @@ describe("writeBookForPremise", () => {
     expect(calls.filter((c) => c.kind === "book")).toHaveLength(2);
     expect(repairPrompt).toContain("hiddenFriend");
     expect(repairPrompt).toContain("background");
+  });
+
+  it("asks for one trim pass when art fields blow their word budgets, then imports regardless", () => {
+    const ramble = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(" ");
+    const bloated = {
+      ...goodBook,
+      characterDesc: ramble(38),
+      pages: goodBook.pages.map((p) => ({ ...p, scene: ramble(40), background: ramble(30) })),
+    };
+    let repairPrompt = "";
+    const { call, calls } = makeFakeCall({
+      book: (prompt, nth) => {
+        if (nth === 1) repairPrompt = prompt;
+        return bloated; // still bloated after repair — must import anyway
+      },
+    });
+    const result = writeBookForPremise(db, premiseRow, { call, log: () => {} });
+    expect(result.ok).toBe(true);
+    expect(calls.filter((c) => c.kind === "book")).toHaveLength(2);
+    expect(repairPrompt).toContain("trim to 28 or fewer");
+    expect(repairPrompt).toContain('"scene" over 25 words');
+    expect(repairPrompt).toContain('"background" over 18 words');
   });
 
   it("adds the factAccuracy rubric only for nonfiction-lane books", () => {

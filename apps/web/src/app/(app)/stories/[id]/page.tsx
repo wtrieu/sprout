@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Star, Trash2 } from "lucide-react";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { normalizePageText } from "@/lib/stories/text";
-import { REJECT_REASONS } from "@/lib/stories/engine";
+import { REJECT_REASONS, withCref } from "@/lib/stories/engine";
 
 type Page = {
   pageIndex: number;
@@ -23,6 +23,77 @@ type Story = {
   artNotes: string | null;
   characterName: string | null;
   favorite: boolean;
+  crefUrl: string | null;
+};
+
+/**
+ * The --cref box: paste the chosen page-1 image URL once and every later
+ * page's prompt below picks it up automatically.
+ */
+const CrefInput = ({
+  storyId,
+  crefUrl,
+  onSaved,
+}: {
+  storyId: number;
+  crefUrl: string | null;
+  onSaved: () => void;
+}) => {
+  const [value, setValue] = useState(crefUrl ?? "");
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
+  const save = async () => {
+    const trimmed = value.trim();
+    setState("saving");
+    const res = await fetch(`/api/stories/${storyId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ crefUrl: trimmed === "" ? null : trimmed }),
+    });
+    if (res.ok) {
+      setState("saved");
+      setTimeout(() => setState("idle"), 1500);
+      onSaved();
+    } else {
+      setState("error");
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+      <label htmlFor="cref-url" className="text-sm font-medium text-neutral-200">
+        Page 1 image URL
+      </label>
+      <p className="mt-0.5 text-xs text-neutral-500">
+        Paste the URL of your favorite page-1 generation — every prompt below (pages 2+)
+        will automatically carry <code className="text-neutral-400">--cref</code> so the
+        character stays consistent.
+      </p>
+      <div className="mt-2 flex gap-2">
+        <input
+          id="cref-url"
+          type="url"
+          inputMode="url"
+          placeholder="https://cdn.midjourney.com/…png"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="min-w-0 flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 font-mono text-xs text-neutral-300 placeholder:text-neutral-600 focus:border-amber-500/60 focus:outline-none"
+        />
+        <button
+          onClick={save}
+          disabled={state === "saving" || value.trim() === (crefUrl ?? "")}
+          className="shrink-0 rounded-md border border-neutral-700 px-3 py-2 text-xs text-neutral-300 transition hover:border-amber-500/60 hover:text-amber-300 disabled:opacity-50"
+        >
+          {state === "saving" ? "Saving…" : state === "saved" ? "Saved ✓" : "Save"}
+        </button>
+      </div>
+      {state === "error" && (
+        <p className="mt-1 text-xs text-red-400">
+          Couldn&apos;t save — it needs to be a full http(s) URL.
+        </p>
+      )}
+    </div>
+  );
 };
 
 const CopyButton = ({ text }: { text: string }) => {
@@ -251,32 +322,42 @@ export default function StoryDetailPage({ params }: { params: Promise<{ id: stri
 
       {isDraft || isApproved ? (
         <div className="space-y-4">
-          {pages.map((p) => (
-            <div
-              key={p.pageIndex}
-              className="space-y-3 rounded-xl border border-neutral-800 bg-neutral-900 p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-xs font-medium text-neutral-500">
-                    Page {p.pageIndex + 1}
+          {isApproved && (
+            <CrefInput storyId={story.id} crefUrl={story.crefUrl} onSaved={load} />
+          )}
+          {pages.map((p) => {
+            // Page 1 seeds the look; pages 2+ reference the parent's pick.
+            const prompt =
+              p.pageIndex === 0
+                ? p.illustrationPrompt
+                : withCref(p.illustrationPrompt, story.crefUrl);
+            return (
+              <div
+                key={p.pageIndex}
+                className="space-y-3 rounded-xl border border-neutral-800 bg-neutral-900 p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-neutral-500">
+                      Page {p.pageIndex + 1}
+                    </div>
+                    <p className="mt-1 whitespace-pre-line font-serif text-lg leading-relaxed text-amber-50/90">
+                      {normalizePageText(p.text)}
+                    </p>
                   </div>
-                  <p className="mt-1 whitespace-pre-line font-serif text-lg leading-relaxed text-amber-50/90">
-                    {normalizePageText(p.text)}
-                  </p>
+                  {isApproved && (
+                    <UploadSlot storyId={story.id} page={p} onUploaded={load} />
+                  )}
                 </div>
-                {isApproved && (
-                  <UploadSlot storyId={story.id} page={p} onUploaded={load} />
-                )}
+                <div className="flex items-start gap-2">
+                  <pre className="min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap rounded-lg bg-neutral-950 px-3 py-2 font-mono text-xs leading-relaxed text-neutral-400">
+                    {prompt}
+                  </pre>
+                  <CopyButton text={prompt} />
+                </div>
               </div>
-              <div className="flex items-start gap-2">
-                <pre className="min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap rounded-lg bg-neutral-950 px-3 py-2 font-mono text-xs leading-relaxed text-neutral-400">
-                  {p.illustrationPrompt}
-                </pre>
-                <CopyButton text={p.illustrationPrompt} />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
