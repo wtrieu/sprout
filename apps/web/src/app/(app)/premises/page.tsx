@@ -29,6 +29,9 @@ const LANE_LABEL: Record<string, string> = {
   "fantasy-world": "🏰 fantasy world",
   funny: "😄 funny",
   "everyday-wonder": "🔍 everyday wonder",
+  "how-it-works": "⚙️ how it works",
+  "animal-lives": "🐾 real animals",
+  "big-ideas": "🌌 big ideas",
 };
 
 const OUTCOME_LABEL: Record<string, string> = {
@@ -49,6 +52,7 @@ export default function PremisesPage() {
   const [recent, setRecent] = useState<Premise[]>([]);
   const [passing, setPassing] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [generating, setGenerating] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const d = await fetch("/api/premises").then((r) => r.json());
@@ -81,20 +85,42 @@ export default function PremisesPage() {
     load();
   };
 
+  const generate = async () => {
+    setGenerating("starting…");
+    const res = await fetch("/api/premises/generate", { method: "POST" });
+    if (res.ok) {
+      setGenerating("engine running — fresh premises land here in a minute or two ✨");
+    } else {
+      const d = await res.json().catch(() => null);
+      setGenerating(d?.error ?? "couldn't start the engine");
+    }
+  };
+
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold">Premise inbox</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          Tonight&apos;s pitches for Jun&apos;s library. Greenlight the ones you love — the book
-          is written right away. Unreviewed premises are auto-picked after two days.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Premise inbox</h1>
+          <p className="mt-1 text-sm text-neutral-500">
+            Tonight&apos;s pitches for Jun&apos;s library. Greenlight the ones you love — the book
+            is written right away. Unreviewed premises are auto-picked after two days.
+          </p>
+        </div>
+        <button
+          disabled={generating === "starting…"}
+          onClick={generate}
+          className="rounded-md border border-amber-500/40 px-4 py-2 text-sm font-medium text-amber-400 transition hover:bg-amber-500/10 disabled:opacity-50"
+        >
+          ✨ Generate now
+        </button>
       </div>
+      {generating && <p className="text-xs text-neutral-500">{generating}</p>}
 
       <section className="space-y-3">
         {proposed.length === 0 ? (
           <p className="rounded-lg border border-dashed border-neutral-800 px-4 py-3 text-sm text-neutral-500">
-            No premises waiting — a fresh batch arrives with the nightly run.
+            No premises waiting — a fresh batch arrives with the nightly run, or tap
+            ✨ Generate now.
           </p>
         ) : (
           proposed.map((p) => (
