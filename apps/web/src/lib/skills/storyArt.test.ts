@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import * as schema from "../../db/schema";
 import type { DB } from "../../db/client";
 import { artPacks, artPackKeys, composePagePrompt, pickArtPack } from "./storyArt";
+import { CREF_WEIGHT, withCref } from "../stories/engine";
 
 const migrationsFolder = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -23,12 +24,6 @@ const makeDb = (): DB => {
 };
 
 describe("art packs", () => {
-  it("every pack carries a depth clause — richness is style-specific, never generic", () => {
-    for (const key of artPackKeys) {
-      expect(artPacks[key].depth.length).toBeGreaterThan(30);
-    }
-  });
-
   it("every suits entry names a real lane", async () => {
     const { laneKeys } = await import("../stories/lanes");
     for (const key of artPackKeys) {
@@ -50,7 +45,7 @@ describe("composePagePrompt", () => {
   const character = "a small red fox with a patched satchel";
   const scene = "a hilltop at dawn, the fox looking out over the valley";
 
-  it("orders style DNA, character, scene, layers, and depth into one prompt", () => {
+  it("orders style DNA, character, scene, and layers into one prompt", () => {
     const prompt = composePagePrompt("watercolor-soft", character, scene, {
       background: "in the valley below, a tiny train puffing between farms",
       hiddenFriend: "a snail with a striped shell",
@@ -59,23 +54,43 @@ describe("composePagePrompt", () => {
     const charAt = prompt.indexOf("red fox");
     const sceneAt = prompt.indexOf("hilltop");
     const bgAt = prompt.indexOf("in the background, in the valley below");
-    const friendAt = prompt.indexOf("hidden somewhere small in the scene, a snail");
-    const depthAt = prompt.indexOf(artPacks["watercolor-soft"].depth);
+    const friendAt = prompt.indexOf("tucked somewhere tiny, a snail");
     expect(dnaAt).toBeGreaterThanOrEqual(0);
     expect(charAt).toBeGreaterThan(dnaAt);
     expect(sceneAt).toBeGreaterThan(charAt);
     expect(bgAt).toBeGreaterThan(sceneAt);
     expect(friendAt).toBeGreaterThan(bgAt);
-    expect(depthAt).toBeGreaterThan(friendAt);
     expect(prompt).toContain("--ar 3:2");
     expect(prompt).toContain("--no text");
+  });
+
+  it("stays lean: a fully layered prompt fits Midjourney's useful window", () => {
+    const prompt = composePagePrompt("watercolor-soft", character, scene, {
+      background: "in the valley below, a tiny train puffing between farms",
+      hiddenFriend: "a snail with a striped shell",
+    });
+    const promptWords = prompt.split("--")[0].split(/\s+/).filter(Boolean).length;
+    // Style DNA + character + scene + layers, with in-budget writer fields,
+    // stays under ~90 words of actual prompt text (flags excluded).
+    expect(promptWords).toBeLessThan(90);
   });
 
   it("omits the layers cleanly when a candidate has none (older shape)", () => {
     const prompt = composePagePrompt("watercolor-soft", character, scene);
     expect(prompt).not.toContain("in the background,");
-    expect(prompt).not.toContain("hidden somewhere small");
-    expect(prompt).toContain(artPacks["watercolor-soft"].depth);
+    expect(prompt).not.toContain("tucked somewhere tiny");
+  });
+});
+
+describe("withCref", () => {
+  it("appends --cref and --cw only when a URL is set", () => {
+    const base = "style. character. scene. --ar 3:2 --no text";
+    expect(withCref(base, "https://cdn.midjourney.com/abc.png")).toBe(
+      `${base} --cref https://cdn.midjourney.com/abc.png --cw ${CREF_WEIGHT}`,
+    );
+    expect(withCref(base, null)).toBe(base);
+    expect(withCref(base, undefined)).toBe(base);
+    expect(withCref(base, "   ")).toBe(base);
   });
 });
 

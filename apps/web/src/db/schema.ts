@@ -406,6 +406,9 @@ export const stories = sqliteTable("stories", {
   characterDesc: text("character_desc"),
   // Guidance shown above the prompt pack (--cref workflow, aspect ratio).
   artNotes: text("art_notes"),
+  // The parent's chosen page-1 image URL: pasted once in the review UI, then
+  // every later page's displayed prompt carries `--cref <url>` automatically.
+  crefUrl: text("cref_url"),
   // Setting-bank key chosen in code with variety memory (null = legacy).
   setting: text("setting"),
   // Genre-lane key (lib/stories/lanes.ts); null = template-era story.

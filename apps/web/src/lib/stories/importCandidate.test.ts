@@ -215,9 +215,7 @@ describe("importCandidate", () => {
       .all();
     for (const page of pages) {
       expect(page.illustrationPrompt).toContain("in the background, far across the meadow");
-      expect(page.illustrationPrompt).toContain("hidden somewhere small in the scene");
-      // The pack's depth clause rides every prompt.
-      expect(page.illustrationPrompt).toContain("second look");
+      expect(page.illustrationPrompt).toContain("tucked somewhere tiny");
     }
   });
 
@@ -231,7 +229,7 @@ describe("importCandidate", () => {
       .where(eq(schema.storyPages.storyId, result.storyId))
       .all()[0];
     expect(page.illustrationPrompt).not.toContain("in the background,");
-    expect(page.illustrationPrompt).not.toContain("hidden somewhere small");
+    expect(page.illustrationPrompt).not.toContain("tucked somewhere tiny");
   });
 
   it("normalizePageText handles mid-line and trailing separators", () => {

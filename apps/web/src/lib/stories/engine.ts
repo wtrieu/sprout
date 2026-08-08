@@ -27,3 +27,19 @@ export const REJECT_REASONS = [
 export type RejectReason = (typeof REJECT_REASONS)[number]["key"];
 
 export const rejectReasonKeys = REJECT_REASONS.map((r) => r.key);
+
+/** Character-reference weight appended alongside --cref. */
+export const CREF_WEIGHT = 60;
+
+/**
+ * Append the page-1 character reference to a Midjourney prompt. The parent
+ * pastes their chosen page-1 image URL once (stories.crefUrl); the review UI
+ * runs every later page's prompt through this helper so the character stays
+ * consistent without hand-editing each prompt. Lives here (not storyArt.ts)
+ * because the review page is a client component and this module is the
+ * node-free home for shared story constants.
+ */
+export const withCref = (prompt: string, crefUrl: string | null | undefined): string => {
+  const url = crefUrl?.trim();
+  return url ? `${prompt} --cref ${url} --cw ${CREF_WEIGHT}` : prompt;
+};
