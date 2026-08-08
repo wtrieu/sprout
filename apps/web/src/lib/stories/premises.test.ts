@@ -9,11 +9,15 @@ import * as schema from "../../db/schema";
 import type { DB } from "../../db/client";
 import { ageBand } from "../skills/storyText";
 import {
+  EXPRESS_BATCH_SIZE,
+  PremiseBatchSchema,
   PremiseSchema,
+  buildPremisePrompt,
   expireStalePremises,
   normalizePremise,
   selectPremises,
   stalePremiseRows,
+  type PremisePromptInput,
   type SelectablePremise,
   type SelectionContext,
 } from "./premises";
@@ -220,6 +224,35 @@ describe("normalizePremise", () => {
     expect(normalizePremise({ ...base, lane: "little-quest" }, band).lesson).toBe(
       "developmental",
     );
+  });
+
+  it("steers the whole batch with a parent request, and only when one is set", () => {
+    const base: PremisePromptInput = {
+      childName: "Jun",
+      ageText: "2 years",
+      band,
+      batchSize: EXPRESS_BATCH_SIZE,
+      recentBooks: [],
+      pendingTitles: [],
+      northStars: [],
+      interests: [],
+      seedSuggestions: [],
+      milestoneFrontier: [],
+      tasteMemo: "",
+      worldBrief: "",
+    };
+    const express = buildPremisePrompt({ ...base, request: "excavators and big machines" });
+    expect(express).toContain("THE PARENT'S REQUEST");
+    expect(express).toContain("excavators and big machines");
+    expect(express).toContain("the request wins");
+    expect(express).toContain(`Exactly ${EXPRESS_BATCH_SIZE} premises`);
+    // The express batch size satisfies the batch schema's floor.
+    expect(EXPRESS_BATCH_SIZE).toBeGreaterThanOrEqual(
+      PremiseBatchSchema.shape.premises._def.minLength?.value ?? 3,
+    );
+
+    const nightly = buildPremisePrompt(base);
+    expect(nightly).not.toContain("THE PARENT'S REQUEST");
   });
 
   it("keeps bedtime-only forms inside the bedtime lane", () => {

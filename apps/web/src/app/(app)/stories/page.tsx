@@ -106,6 +106,8 @@ export default function StoriesPage() {
   const [perDay, setPerDay] = useState(4);
   const [showOlder, setShowOlder] = useState(false);
   const [premisesWaiting, setPremisesWaiting] = useState(0);
+  const [expressTopic, setExpressTopic] = useState("");
+  const [expressState, setExpressState] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [s, cfg, prem] = await Promise.all([
@@ -146,6 +148,25 @@ export default function StoriesPage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ key: "storyCandidatesPerDay", value: n }),
     });
+  };
+
+  const writeNow = async () => {
+    const topic = expressTopic.trim();
+    setExpressState("starting…");
+    const res = await fetch("/api/stories/express", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(topic ? { topic } : {}),
+    });
+    if (res.ok) {
+      setExpressState(
+        `writing${topic ? ` a book about “${topic}”` : ""} — the draft lands here in a few minutes ✨`,
+      );
+      setExpressTopic("");
+    } else {
+      const d = await res.json().catch(() => null);
+      setExpressState(d?.error ?? "couldn't start the writer");
+    }
   };
 
   const remove = async (story: Story) => {
@@ -209,6 +230,38 @@ export default function StoriesPage() {
             </select>
           </label>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+        <div className="text-sm font-medium text-neutral-200">Write a book now</div>
+        <p className="mt-0.5 text-xs text-neutral-500">
+          An on-demand book, written straight through the full pipeline — no waiting for the
+          nightly run or the premise inbox. Topic optional.
+        </p>
+        <form
+          className="mt-2 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            writeNow();
+          }}
+        >
+          <input
+            type="text"
+            value={expressTopic}
+            onChange={(e) => setExpressTopic(e.target.value)}
+            maxLength={200}
+            placeholder="Optional: what should it be about? (excavators, the moon, a-má…)"
+            className="min-w-0 flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-300 placeholder:text-neutral-600 focus:border-amber-500/60 focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={expressState === "starting…"}
+            className="shrink-0 rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-neutral-950 transition hover:bg-amber-400 disabled:opacity-50"
+          >
+            ✍️ Write now
+          </button>
+        </form>
+        {expressState && <p className="mt-2 text-xs text-neutral-500">{expressState}</p>}
       </div>
 
       <Link
