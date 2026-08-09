@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Star, Trash2 } from "lucide-react";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { normalizePageText } from "@/lib/stories/text";
-import { REJECT_REASONS, withCref } from "@/lib/stories/engine";
+import { REJECT_REASONS, withStyleRef } from "@/lib/stories/engine";
 
 type Page = {
   pageIndex: number;
@@ -23,23 +23,23 @@ type Story = {
   artNotes: string | null;
   characterName: string | null;
   favorite: boolean;
-  crefUrl: string | null;
+  styleRefUrl: string | null;
 };
 
 /**
- * The --cref box: paste the chosen page-1 image URL once and every later
+ * The --sref box: paste the chosen page-1 image URL once and every later
  * page's prompt below picks it up automatically.
  */
-const CrefInput = ({
+const StyleRefInput = ({
   storyId,
-  crefUrl,
+  styleRefUrl,
   onSaved,
 }: {
   storyId: number;
-  crefUrl: string | null;
+  styleRefUrl: string | null;
   onSaved: () => void;
 }) => {
-  const [value, setValue] = useState(crefUrl ?? "");
+  const [value, setValue] = useState(styleRefUrl ?? "");
   const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const save = async () => {
@@ -48,7 +48,7 @@ const CrefInput = ({
     const res = await fetch(`/api/stories/${storyId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ crefUrl: trimmed === "" ? null : trimmed }),
+      body: JSON.stringify({ styleRefUrl: trimmed === "" ? null : trimmed }),
     });
     if (res.ok) {
       setState("saved");
@@ -61,17 +61,17 @@ const CrefInput = ({
 
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-      <label htmlFor="cref-url" className="text-sm font-medium text-neutral-200">
+      <label htmlFor="style-ref-url" className="text-sm font-medium text-neutral-200">
         Page 1 image URL
       </label>
       <p className="mt-0.5 text-xs text-neutral-500">
         Paste the URL of your favorite page-1 generation — every prompt below (pages 2+)
-        will automatically carry <code className="text-neutral-400">--cref</code> so the
-        character stays consistent.
+        will automatically carry <code className="text-neutral-400">--sref</code> so the
+        book holds one look.
       </p>
       <div className="mt-2 flex gap-2">
         <input
-          id="cref-url"
+          id="style-ref-url"
           type="url"
           inputMode="url"
           placeholder="https://cdn.midjourney.com/…png"
@@ -81,7 +81,7 @@ const CrefInput = ({
         />
         <button
           onClick={save}
-          disabled={state === "saving" || value.trim() === (crefUrl ?? "")}
+          disabled={state === "saving" || value.trim() === (styleRefUrl ?? "")}
           className="shrink-0 rounded-md border border-neutral-700 px-3 py-2 text-xs text-neutral-300 transition hover:border-amber-500/60 hover:text-amber-300 disabled:opacity-50"
         >
           {state === "saving" ? "Saving…" : state === "saved" ? "Saved ✓" : "Save"}
@@ -323,14 +323,14 @@ export default function StoryDetailPage({ params }: { params: Promise<{ id: stri
       {isDraft || isApproved ? (
         <div className="space-y-4">
           {isApproved && (
-            <CrefInput storyId={story.id} crefUrl={story.crefUrl} onSaved={load} />
+            <StyleRefInput storyId={story.id} styleRefUrl={story.styleRefUrl} onSaved={load} />
           )}
           {pages.map((p) => {
             // Page 1 seeds the look; pages 2+ reference the parent's pick.
             const prompt =
               p.pageIndex === 0
                 ? p.illustrationPrompt
-                : withCref(p.illustrationPrompt, story.crefUrl);
+                : withStyleRef(p.illustrationPrompt, story.styleRefUrl);
             return (
               <div
                 key={p.pageIndex}

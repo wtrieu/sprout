@@ -28,18 +28,23 @@ export type RejectReason = (typeof REJECT_REASONS)[number]["key"];
 
 export const rejectReasonKeys = REJECT_REASONS.map((r) => r.key);
 
-/** Character-reference weight appended alongside --cref. */
-export const CREF_WEIGHT = 60;
+/** Style-reference weight appended alongside --sref (matches the landing pipeline). */
+export const STYLE_REF_WEIGHT = 250;
 
 /**
- * Append the page-1 character reference to a Midjourney prompt. The parent
- * pastes their chosen page-1 image URL once (stories.crefUrl); the review UI
- * runs every later page's prompt through this helper so the character stays
- * consistent without hand-editing each prompt. Lives here (not storyArt.ts)
- * because the review page is a client component and this module is the
- * node-free home for shared story constants.
+ * Append the page-1 style reference to a Midjourney prompt. The parent pastes
+ * their chosen page-1 image URL once (stories.styleRefUrl); the review UI runs
+ * every later page's prompt through this helper so the book holds one look
+ * without hand-editing each prompt. Lives here (not storyArt.ts) because the
+ * review page is a client component and this module is the node-free home for
+ * shared story constants.
+ *
+ * --sref, not --cref: character reference was introduced for V6/Niji 6 and is
+ * unsupported on the models people actually run now (Niji 7 dropped it; V7/V8
+ * replaced it with --oref). Style reference works across both current
+ * families, so this needs no version pin and no upkeep as versions ship.
  */
-export const withCref = (prompt: string, crefUrl: string | null | undefined): string => {
-  const url = crefUrl?.trim();
-  return url ? `${prompt} --cref ${url} --cw ${CREF_WEIGHT}` : prompt;
+export const withStyleRef = (prompt: string, styleRefUrl: string | null | undefined): string => {
+  const url = styleRefUrl?.trim();
+  return url ? `${prompt} --sref ${url} --sw ${STYLE_REF_WEIGHT}` : prompt;
 };

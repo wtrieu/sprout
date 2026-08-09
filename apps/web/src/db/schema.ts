@@ -404,11 +404,17 @@ export const stories = sqliteTable("stories", {
   characterName: text("character_name"),
   // Canonical appearance block, pasted verbatim into every page's art prompt.
   characterDesc: text("character_desc"),
-  // Guidance shown above the prompt pack (--cref workflow, aspect ratio).
+  // The book's recurring companion. Deliberately NOT in the page prompts —
+  // "hide this small thing" is not something a diffusion model can execute —
+  // it lives in artNotes as a selection criterion for the parent instead.
+  hiddenFriend: text("hidden_friend"),
+  // Guidance shown above the prompt pack (--sref workflow, aspect ratio).
   artNotes: text("art_notes"),
   // The parent's chosen page-1 image URL: pasted once in the review UI, then
-  // every later page's displayed prompt carries `--cref <url>` automatically.
-  crefUrl: text("cref_url"),
+  // every later page's displayed prompt carries `--sref <url>` automatically.
+  // (--sref, not --cref: character reference is a V6/Niji-6 parameter and is
+  // unsupported on the current models, while style reference works on both.)
+  styleRefUrl: text("style_ref_url"),
   // Setting-bank key chosen in code with variety memory (null = legacy).
   setting: text("setting"),
   // Genre-lane key (lib/stories/lanes.ts); null = template-era story.
@@ -514,6 +520,10 @@ export const storyPages = sqliteTable(
     pageIndex: integer("page_index").notNull(),
     text: text("text").notNull(),
     illustrationPrompt: text("illustration_prompt").notNull(),
+    // The writer's raw illustration layers, kept so illustrationPrompt can be
+    // recomposed whenever the composer changes. Null on pre-0011 rows.
+    scene: text("scene"),
+    background: text("background"),
     imagePath: text("image_path"),
     imageStatus: text("image_status", { enum: ["pending", "done", "failed"] })
       .notNull()

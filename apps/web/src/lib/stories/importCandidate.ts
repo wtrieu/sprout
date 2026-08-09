@@ -96,6 +96,7 @@ export const importCandidate = (db: DB, raw: unknown, opts: ImportOptions): Impo
         pageCount: candidate.pages.length,
         characterName: candidate.characterName,
         characterDesc: candidate.characterDesc,
+        hiddenFriend: candidate.hiddenFriend ?? null,
         artNotes: composeArtNotes(
           opts.artPackKey,
           candidate.characterName,
@@ -117,12 +118,11 @@ export const importCandidate = (db: DB, raw: unknown, opts: ImportOptions): Impo
           storyId: story.id,
           pageIndex: i,
           text: page.text,
-          illustrationPrompt: composePagePrompt(
-            opts.artPackKey,
-            candidate.characterDesc,
-            page.scene,
-            { background: page.background, hiddenFriend: candidate.hiddenFriend },
-          ),
+          scene: page.scene,
+          background: page.background ?? null,
+          illustrationPrompt: composePagePrompt(opts.artPackKey, candidate.characterDesc, page.scene, {
+            background: page.background,
+          }),
         })
         .run();
     });

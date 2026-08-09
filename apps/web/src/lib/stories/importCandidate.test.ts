@@ -88,7 +88,7 @@ describe("importCandidate", () => {
     expect(story.status).toBe("draft");
     expect(story.characterName).toBe("Bram");
     expect(story.pageCount).toBe(8);
-    expect(story.artNotes).toContain("--cref");
+    expect(story.artNotes).toContain("--sref");
 
     const pages = db
       .select()
@@ -196,7 +196,7 @@ describe("importCandidate", () => {
       hiddenFriend: "a white moth with one torn wing, always nearby",
       pages: goodCandidate.pages.map((p, i) => ({
         ...p,
-        background: `far across the meadow, a farmer stacking hay onto a growing cart, page ${i + 1}`,
+        background: `a tiny far-off hay cart, page ${i + 1}`,
       })),
     };
     const result = importCandidate(db, layered, opts());
@@ -213,9 +213,14 @@ describe("importCandidate", () => {
       .from(schema.storyPages)
       .where(eq(schema.storyPages.storyId, result.storyId))
       .all();
+    expect(story.hiddenFriend).toContain("torn wing");
     for (const page of pages) {
-      expect(page.illustrationPrompt).toContain("in the background, far across the meadow");
-      expect(page.illustrationPrompt).toContain("tucked somewhere tiny");
+      expect(page.illustrationPrompt).toContain("a tiny far-off hay cart");
+      // The hidden friend never reaches the image model.
+      expect(page.illustrationPrompt).not.toContain("torn wing");
+      // Raw layers are persisted so prompts stay recomposable.
+      expect(page.scene).toBeTruthy();
+      expect(page.background).toContain("hay cart");
     }
   });
 
@@ -228,8 +233,8 @@ describe("importCandidate", () => {
       .from(schema.storyPages)
       .where(eq(schema.storyPages.storyId, result.storyId))
       .all()[0];
-    expect(page.illustrationPrompt).not.toContain("in the background,");
-    expect(page.illustrationPrompt).not.toContain("tucked somewhere tiny");
+    expect(page.illustrationPrompt).not.toContain("::");
+    expect(page.background).toBeNull();
   });
 
   it("normalizePageText handles mid-line and trailing separators", () => {

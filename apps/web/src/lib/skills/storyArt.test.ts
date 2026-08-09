@@ -6,8 +6,16 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { describe, expect, it } from "vitest";
 import * as schema from "../../db/schema";
 import type { DB } from "../../db/client";
-import { artPacks, artPackKeys, composePagePrompt, pickArtPack } from "./storyArt";
-import { CREF_WEIGHT, withCref } from "../stories/engine";
+import {
+  artPacks,
+  artPackKeys,
+  composePagePrompt,
+  pickArtPack,
+  promptWordCount,
+  PROMPT_WORD_CEILING,
+  BACKGROUND_WEIGHT,
+} from "./storyArt";
+import { STYLE_REF_WEIGHT, withStyleRef } from "../stories/engine";
 
 const migrationsFolder = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -41,56 +49,90 @@ describe("art packs", () => {
   });
 });
 
+describe("style DNA length", () => {
+  // The DNA opens every prompt and is pure overhead against the ceiling; the
+  // per-field budgets in writeBook.ts are set assuming it stays <= 20.
+  it("every pack's style DNA is at most 20 words", () => {
+    for (const key of artPackKeys) {
+      const n = artPacks[key].styleDna.split(/\s+/).filter(Boolean).length;
+      expect(n, `${key} styleDna is ${n} words`).toBeLessThanOrEqual(20);
+    }
+  });
+});
+
 describe("composePagePrompt", () => {
   const character = "a small red fox with a patched satchel";
   const scene = "a hilltop at dawn, the fox looking out over the valley";
+  const background = "a tiny distant train between far farms";
 
-  it("orders style DNA, character, scene, and layers into one prompt", () => {
-    const prompt = composePagePrompt("watercolor-soft", character, scene, {
-      background: "in the valley below, a tiny train puffing between farms",
-      hiddenFriend: "a snail with a striped shell",
-    });
+  it("orders style DNA, character, and scene, then the background as its own concept", () => {
+    const prompt = composePagePrompt("watercolor-soft", character, scene, { background });
     const dnaAt = prompt.indexOf("watercolor");
     const charAt = prompt.indexOf("red fox");
     const sceneAt = prompt.indexOf("hilltop");
-    const bgAt = prompt.indexOf("in the background, in the valley below");
-    const friendAt = prompt.indexOf("tucked somewhere tiny, a snail");
+    const bgAt = prompt.indexOf("a tiny distant train");
     expect(dnaAt).toBeGreaterThanOrEqual(0);
     expect(charAt).toBeGreaterThan(dnaAt);
     expect(sceneAt).toBeGreaterThan(charAt);
     expect(bgAt).toBeGreaterThan(sceneAt);
-    expect(friendAt).toBeGreaterThan(bgAt);
     expect(prompt).toContain("--ar 3:2");
+    expect(prompt).toContain("--stylize");
     expect(prompt).toContain("--no text");
   });
 
-  it("stays lean: a fully layered prompt fits Midjourney's useful window", () => {
-    const prompt = composePagePrompt("watercolor-soft", character, scene, {
-      background: "in the valley below, a tiny train puffing between farms",
-      hiddenFriend: "a snail with a striped shell",
-    });
-    const promptWords = prompt.split("--")[0].split(/\s+/).filter(Boolean).length;
-    // Style DNA + character + scene + layers, with in-budget writer fields,
-    // stays under ~90 words of actual prompt text (flags excluded).
-    expect(promptWords).toBeLessThan(90);
+  it("down-weights the background with a multi-prompt weight", () => {
+    const prompt = composePagePrompt("watercolor-soft", character, scene, { background });
+    expect(prompt).toContain(`::1 a tiny distant train between far farms::${BACKGROUND_WEIGHT}`);
   });
 
-  it("omits the layers cleanly when a candidate has none (older shape)", () => {
-    const prompt = composePagePrompt("watercolor-soft", character, scene);
-    expect(prompt).not.toContain("in the background,");
+  it("never sends the hidden friend to the image model", () => {
+    // "hide this small thing" is not executable by a diffusion model; it lives
+    // in artNotes for the parent instead. Guards against it creeping back in.
+    const prompt = composePagePrompt("watercolor-soft", character, scene, { background });
     expect(prompt).not.toContain("tucked somewhere tiny");
+    expect(prompt).not.toContain("hidden somewhere small");
+  });
+
+  it("does not use a positional 'in the background' instruction", () => {
+    const prompt = composePagePrompt("watercolor-soft", character, scene, { background });
+    expect(prompt).not.toContain("in the background");
+  });
+
+  it("stays under the ceiling for every pack at full field budget", () => {
+    // Worst case: longest DNA + fields right at their writeBook.ts budgets.
+    const maxWords = (n: number) => Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
+    for (const key of artPackKeys) {
+      const prompt = composePagePrompt(key, maxWords(21), maxWords(21), {
+        background: maxWords(12),
+      });
+      const n = promptWordCount(prompt);
+      expect(n, `${key} composes to ${n} words`).toBeLessThanOrEqual(PROMPT_WORD_CEILING);
+    }
+  });
+
+  it("omits the background cleanly when a candidate has none (older shape)", () => {
+    const prompt = composePagePrompt("watercolor-soft", character, scene);
+    expect(prompt).not.toContain("::");
+    expect(prompt).toContain("--ar 3:2");
   });
 });
 
-describe("withCref", () => {
-  it("appends --cref and --cw only when a URL is set", () => {
+describe("withStyleRef", () => {
+  it("appends --sref and --sw only when a URL is set", () => {
     const base = "style. character. scene. --ar 3:2 --no text";
-    expect(withCref(base, "https://cdn.midjourney.com/abc.png")).toBe(
-      `${base} --cref https://cdn.midjourney.com/abc.png --cw ${CREF_WEIGHT}`,
+    expect(withStyleRef(base, "https://cdn.midjourney.com/abc.png")).toBe(
+      `${base} --sref https://cdn.midjourney.com/abc.png --sw ${STYLE_REF_WEIGHT}`,
     );
-    expect(withCref(base, null)).toBe(base);
-    expect(withCref(base, undefined)).toBe(base);
-    expect(withCref(base, "   ")).toBe(base);
+    expect(withStyleRef(base, null)).toBe(base);
+    expect(withStyleRef(base, undefined)).toBe(base);
+    expect(withStyleRef(base, "   ")).toBe(base);
+  });
+
+  it("uses --sref, never the unsupported --cref", () => {
+    // --cref is V6/Niji-6 only; Niji 7 dropped it and V7/V8 replaced it.
+    const out = withStyleRef("scene --ar 3:2", "https://cdn.midjourney.com/abc.png");
+    expect(out).not.toContain("--cref");
+    expect(out).not.toContain("--cw");
   });
 });
 
