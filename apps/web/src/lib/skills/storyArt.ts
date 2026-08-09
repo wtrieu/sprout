@@ -7,11 +7,30 @@
  * writer only ever supplies content, so style and character consistency
  * can't drift between pages.
  *
- * Prompt length discipline (2026-08-07): Midjourney weights early tokens and
- * goes mushy past ~80 words, so composition stays lean — style DNA + tight
- * writer layers, no per-page boilerplate. Second-look richness comes from
- * the writer's page-specific background layer (enforced by word budgets in
- * writeBook.ts), not from generic pack-level filler.
+ * Prompt length discipline (2026-08-08): the previous budgets summed to
+ * ~115-137 words and shipped books averaged 188 — 2-3x past the window where
+ * Midjourney still resolves what it is reading. Everything past that window
+ * lands as mis-scaled, mis-placed scenery, which is exactly what the
+ * background layer was coming back as. Three rules hold the line now:
+ *
+ *   1. HARD CEILING. Style DNA <= 20 words, and the composed descriptive text
+ *      stays under PROMPT_WORD_CEILING. Per-field budgets in writeBook.ts sum
+ *      under it, and artLayerProblems checks the composed total too.
+ *   2. THREE SUBJECTS. Character + foreground action + one background element.
+ *      Midjourney composes about three reliably; the old brief asked for five
+ *      (it wanted a background happening AND a findable object AND the hidden
+ *      friend on top of the character and the action).
+ *   3. SCALE LIVES IN THE WORDS. "in the background," is a positional
+ *      instruction, and Midjourney has no compositional grounding to honour
+ *      it — it just blends the tokens. The writer now supplies the background
+ *      as a scale-anchored noun phrase ("a tiny distant ...") and the clause
+ *      is additionally down-weighted with a multi-prompt weight.
+ *
+ * The hidden friend deliberately does NOT appear in page prompts: "hide this
+ * small thing somewhere" asks for negative salience, which a diffusion model
+ * cannot do — it either renders it large or drops it. It stays a book-level
+ * idea in composeArtNotes, where the parent uses it to choose between
+ * generations.
  */
 import { desc } from "drizzle-orm";
 import type { DB } from "../../db/client";
@@ -32,61 +51,61 @@ export const artPacks: Record<string, ArtPack> = {
   "watercolor-soft": {
     name: "Soft watercolor",
     styleDna:
-      "gentle children's picture book illustration, soft watercolor and gouache, warm paper texture, loose expressive brushwork, cozy pastel palette, storybook classic in the tradition of Beatrix Potter",
+      "gentle children's picture book illustration, soft watercolor and gouache, warm paper texture, loose brushwork, cozy pastel palette, Beatrix Potter tradition",
     negative: "photo, 3d render, hyperrealistic",
     suits: ["everyday-wonder", "animal-lives"],
   },
   "gouache-night": {
     name: "Gouache night",
     styleDna:
-      "children's picture book illustration, velvety gouache night scene, deep indigo and warm lamplight amber, soft glowing highlights, quiet bedtime mood, thick matte paint texture",
+      "children's picture book illustration, velvety gouache night scene, deep indigo and warm lamplight amber, soft glow, quiet bedtime mood",
     negative: "photo, 3d render, harsh contrast, neon",
     suits: ["bedtime-winddown"],
   },
   "paper-collage": {
     name: "Paper collage",
     styleDna:
-      "children's picture book illustration, cut paper collage style like Eric Carle, layered textured paper shapes, bold simple forms, visible paper grain, bright friendly colors",
+      "children's picture book illustration, cut paper collage like Eric Carle, layered textured paper shapes, bold simple forms, visible grain",
     negative: "photo, 3d render, thin outlines, realistic shading",
   },
   "crayon-storybook": {
     name: "Crayon storybook",
     styleDna:
-      "children's picture book illustration, waxy crayon and colored pencil texture, wobbly charming linework, childlike warmth, cream paper background, sunny naive palette",
+      "children's picture book illustration, waxy crayon and colored pencil texture, wobbly charming linework, cream paper, sunny naive palette",
     negative: "photo, 3d render, clean vector lines",
     suits: ["funny"],
   },
   "anime-meadow": {
     name: "Anime meadow",
     styleDna:
-      "beautiful anime background art, Kyoto Animation style children's book scene, soft diffused lighting, painterly detail, gentle color grading, dreamy pastoral warmth",
+      "beautiful anime background art, Kyoto Animation style children's book scene, soft diffused lighting, painterly detail, dreamy pastoral warmth",
     negative: "photo, manga panels, screentone, adult characters",
     suits: ["little-quest", "everyday-wonder"],
   },
   linocut: {
     name: "Linocut print",
     styleDna:
-      "children's picture book illustration, hand-carved linocut print style, bold organic block lines, two-tone ink with one warm accent color, visible print texture, folk-art charm",
+      "children's picture book illustration, hand-carved linocut print, bold organic block lines, two-tone ink with one warm accent, folk-art charm",
     negative: "photo, 3d render, fine detail, gradients",
     suits: ["folk-tale"],
   },
   "felt-wool": {
     name: "Felt & wool",
     styleDna:
-      "children's picture book illustration, needle-felted wool diorama style, soft fuzzy felt textures, handcrafted miniature scene, warm tactile colors, gentle studio lighting",
+      "children's picture book illustration, needle-felted wool diorama, soft fuzzy felt texture, handcrafted miniature scene, warm tactile colors",
     negative: "photo of real animals, 3d render, plastic, glossy",
   },
   "pencil-wash": {
     name: "Pencil & wash",
     styleDna:
-      "children's picture book illustration, delicate graphite pencil linework with loose watercolor wash, muted tender palette, lots of soft white space, quiet classic storybook feeling like Winnie the Pooh",
+      "children's picture book illustration, graphite pencil linework with loose watercolor wash, muted tender palette, soft white space, Winnie the Pooh",
     negative: "photo, 3d render, heavy saturation, hard outlines",
     suits: ["everyday-wonder", "bedtime-winddown"],
   },
   "retro-flat": {
     name: "Retro flat",
     styleDna:
-      "children's picture book illustration, mid-century retro flat style, simple geometric shapes, limited warm palette of 4 colors, subtle print grain, playful vintage golden-books charm",
+      "children's picture book illustration, mid-century retro flat style, simple geometric shapes, four warm colors, subtle print grain, golden-books charm",
     negative: "photo, 3d render, gradients, realistic shading",
     suits: ["funny", "how-it-works"],
   },
@@ -94,14 +113,14 @@ export const artPacks: Record<string, ArtPack> = {
   "ink-wash": {
     name: "Ink-wash storybook",
     styleDna:
-      "children's picture book illustration, East Asian ink wash painting style, soft sumi and shuimo brush strokes, generous misty negative space, one warm accent color, gentle flowing composition, serene classical storybook mood",
+      "children's picture book illustration, East Asian ink wash painting, soft sumi brush strokes, misty negative space, one warm accent color",
     negative: "photo, 3d render, hard outlines, saturated colors, busy detail",
     suits: ["myth-retelling", "folk-tale"],
   },
   "paper-cut-folk": {
     name: "Paper-cut folk",
     styleDna:
-      "children's picture book illustration, traditional paper-cut folk art style, layered silhouette shapes with delicate cut-out patterns, warm red and gold accents on cream, festive lantern-light warmth, handcrafted charm",
+      "children's picture book illustration, traditional paper-cut folk art, layered silhouette shapes, delicate cut-out patterns, red and gold on cream",
     negative: "photo, 3d render, realistic shading, thin sketch lines",
     suits: ["myth-retelling", "folk-tale"],
   },
@@ -109,21 +128,21 @@ export const artPacks: Record<string, ArtPack> = {
   "vintage-naturalist": {
     name: "Vintage naturalist",
     styleDna:
-      "children's picture book illustration in the style of a golden-age natural history plate, fine ink linework with soft watercolor tinting, cream archival paper, margins dotted with small companion studies, antique field-guide charm",
+      "children's picture book illustration as a golden-age natural history plate, fine ink linework, soft watercolor tinting, cream archival paper",
     negative: "photo, 3d render, cartoon proportions, neon",
     suits: ["animal-lives", "big-ideas", "history-vignette", "everyday-wonder"],
   },
   "busy-world": {
     name: "Busy world",
     styleDna:
-      "cheerful busy children's picture book illustration in the tradition of Richard Scarry, many small charming animal characters each mid-errand, cutaway views showing the insides of things, bright friendly colors, warm organized chaos",
+      "cheerful children's picture book illustration in the Richard Scarry tradition, small animal characters mid-errand, cutaway views, bright friendly colors",
     negative: "photo, 3d render, empty backgrounds, realistic shading",
     suits: ["how-it-works", "funny", "little-quest"],
   },
   "luminous-dark": {
     name: "Luminous dark",
     styleDna:
-      "children's picture book illustration, deep luminous gouache on near-dark indigo, scene lit from within by starlight, lanterns, or soft bioluminescent glow, vast gentle scale, small warm figures against enormous quiet wonder",
+      "children's picture book illustration, luminous gouache on dark indigo, lit from within by starlight, small warm figures, vast gentle scale",
     negative: "photo, 3d render, harsh neon, horror shadows",
     suits: ["big-ideas", "myth-retelling", "bedtime-winddown"],
   },
@@ -166,11 +185,42 @@ export const pickArtPack = (
 export type PageArtExtras = {
   /** The world going on behind the moment (page-level, from the writer). */
   background?: string;
-  /** The book's recurring hidden companion (book-level, from the writer). */
-  hiddenFriend?: string;
 };
 
+/**
+ * Multi-prompt weight on the background clause. Midjourney reads `a::1 b::0.4`
+ * as two concepts and gives the second far less pull, which is the one direct
+ * lever there is against background scenery muscling into the foreground.
+ *
+ * Tradeoff: `::` makes the segments independently interpreted, so too low a
+ * weight reads as a separate blended image rather than depth in one scene.
+ * 0.4 is the compromise; set to 0 to disable the split entirely and go back to
+ * one continuous prompt.
+ */
+export const BACKGROUND_WEIGHT = 0.4;
+
+/**
+ * Stylize: the packs carry a deliberate, specific look, so we want Midjourney
+ * obeying it rather than embellishing it. Low stylize = follow the prompt.
+ */
+const STYLIZE = 50;
+
+/**
+ * Ceiling for the composed descriptive text (flags excluded). Midjourney's
+ * attention falls off past roughly this point; the per-field budgets in
+ * writeBook.ts are set to sum under it.
+ */
+export const PROMPT_WORD_CEILING = 75;
+
 const clause = (s: string): string => s.trim().replace(/\.$/, "");
+
+/** Descriptive words in a composed prompt — flags and weights excluded. */
+export const promptWordCount = (prompt: string): number =>
+  prompt
+    .split(" --")[0]
+    .replace(/::[\d.]*/g, " ")
+    .split(/\s+/)
+    .filter(Boolean).length;
 
 /** One page's full, copy-paste-ready Midjourney prompt. */
 export const composePagePrompt = (
@@ -180,10 +230,18 @@ export const composePagePrompt = (
   extras: PageArtExtras = {},
 ): string => {
   const pack = artPacks[packKey] ?? artPacks["watercolor-soft"];
-  const parts = [pack.styleDna, clause(characterDesc), clause(scene)];
-  if (extras.background) parts.push(`in the background, ${clause(extras.background)}`);
-  if (extras.hiddenFriend) parts.push(`tucked somewhere tiny, ${clause(extras.hiddenFriend)}`);
-  return `${parts.join(". ")}. --ar 3:2 --no ${SHARED_NEGATIVE}, ${pack.negative}`;
+  const main = [pack.styleDna, clause(characterDesc), clause(scene)].join(". ");
+  const background = extras.background?.trim();
+  // The background rides as its own down-weighted concept rather than as a
+  // trailing "in the background, ..." clause — see the header note on why the
+  // positional phrasing did not survive contact with the model.
+  const body =
+    background && BACKGROUND_WEIGHT > 0
+      ? `${main}::1 ${clause(background)}::${BACKGROUND_WEIGHT}`
+      : background
+        ? `${main}. ${clause(background)}`
+        : main;
+  return `${body} --ar 3:2 --stylize ${STYLIZE} --no ${SHARED_NEGATIVE}, ${pack.negative}`;
 };
 
 /** User-facing guidance shown above the prompt pack in the review UI. */
@@ -196,15 +254,16 @@ export const composeArtNotes = (
   const lines = [
     `Style: ${pack.name}. All prompts are ready to paste into Midjourney (Niji mode recommended).`,
     `1. Generate page 1 first and pick your favorite — this sets the book's look.`,
-    `2. Paste that image's URL into the "Page 1 image URL" box on this screen — every later page's prompt automatically picks it up as --cref, so ${characterName} stays consistent.`,
-    `3. Keep --ar 3:2 on all pages. Upscale your picks before saving.`,
-    `4. Upload each page's image on this screen when you're happy with it.`,
+    `2. Paste that image's URL into the "Page 1 image URL" box on this screen — every later page's prompt automatically picks it up as --sref, so the whole book holds one look.`,
+    `3. Keep ${characterName}'s appearance line untouched at the front of each prompt; that plus --sref is what keeps them recognisable page to page.`,
+    `4. Keep --ar 3:2 on all pages. Upscale your picks before saving.`,
+    `5. Upload each page's image on this screen when you're happy with it.`,
   ];
   if (hiddenFriend) {
     lines.splice(
       1,
       0,
-      `This book's hidden friend: ${hiddenFriend} — it should appear somewhere small on every page. When choosing between generations, prefer images where you can find it.`,
+      `This book's hidden friend: ${hiddenFriend} — it is deliberately NOT in the prompts (asking Midjourney to hide something small only makes it big). Prefer generations with a quiet corner you could later imagine it into, and mention it when you read the book aloud.`,
     );
   }
   return lines.join("\n");

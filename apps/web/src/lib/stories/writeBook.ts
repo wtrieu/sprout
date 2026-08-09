@@ -19,7 +19,12 @@ import {
   validatePages,
   type AgeBand,
 } from "../skills/storyText";
-import { pickArtPack } from "../skills/storyArt";
+import {
+  composePagePrompt,
+  pickArtPack,
+  promptWordCount,
+  PROMPT_WORD_CEILING,
+} from "../skills/storyArt";
 import { CandidateSchema, importCandidate, type Candidate } from "./importCandidate";
 import { laneContract, storyLanes } from "./lanes";
 import { imageryOverlapNote } from "./overlap";
@@ -116,7 +121,7 @@ It lives in what characters DO and what the pictures show — never name it, nev
       : ""
   }
 - "characterName": the character's short friendly name.
-- "characterDesc": a canonical appearance block of AT MOST 28 words (species/kind, colors, size, one distinctive clothing item or accessory). It is pasted verbatim into every illustration prompt, where shorter = stronger — every word must earn its place.`);
+- "characterDesc": a canonical appearance block of AT MOST 18 words (species/kind, one silhouette-defining shape, 3 colors at most, one distinctive accessory). It is pasted verbatim into every illustration prompt, where shorter = stronger. Aim for a character a child could recognise as a solid black silhouette, and keep the palette to three colors so the illustrator can hold them steady across pages.`);
 
   if (form) {
     sections.push(`THE FORM — this book uses the ${form.name} form:
@@ -135,15 +140,17 @@ Hard limit: at most ${band.maxWordsPerPage} words of story text per page.`);
 - Never render Chinese or other non-Latin script — if a foreign word appears, romanization only.`);
 
   const nonfiction = storyLanes[premise.lane]?.kind === "nonfiction";
-  sections.push(`THE PICTURES — the best picture books reward a second and third look; every page here is an illustration brief in layers, and the worldbuilding lives in them. These fields ship straight to an image model, which weights early words and blurs past ~80 — write them like telegrams: concrete pictureable nouns, no narrative connective tissue.
-- "scene" (per page, AT MOST 25 words): THAT page's foreground moment — setting, what the character is doing, light, mood. Do NOT describe the character's appearance (characterDesc covers it) and do NOT name an art style. Never any text, words, or signage in the image.
-- "background" (per page, AT MOST 18 words): ONE small happening behind the moment that is not the main story, plus one findable object. Give the background its own quiet thread: let one tiny subplot recur across the pages and quietly resolve by the last page, so a rereading child discovers a second story living in the pictures.${
+  sections.push(`THE PICTURES — every page here is an illustration brief that ships straight to an image model. That model holds about THREE subjects and stops resolving what it reads past ~70 words total, and your fields share that budget with the style and character blocks. So: concrete pictureable nouns, telegram style, no narrative connective tissue, and no more than you can actually get drawn.
+- "scene" (per page, AT MOST 18 words): THAT page's foreground moment — setting, what the character is doing, light. That is TWO subjects (the character, and what they are doing) and it is already most of your budget. Do NOT describe the character's appearance (characterDesc covers it) and do NOT name an art style. Never any text, words, or signage in the image.
+- "background" (per page, AT MOST 10 words): exactly ONE thing, written as a scale-anchored noun phrase — it MUST open with its own size and distance ("a tiny distant lighthouse", "a small far-off boat", "one thumbnail-sized bird high above"). Do not write "in the background" — the model cannot honour a positional instruction, only the scale words you bake into the phrase itself. One thing, not a scene: a second element here is what makes the picture come back wrong.
+  Give the background its own quiet thread: let that one small thing recur across the pages and quietly resolve by the last page, so a rereading child discovers a second story living in the pictures.${
     nonfiction
       ? `\n  In this nonfiction book the background is also where extra TRUTH lives — real anatomy, real tools, the subject's true surroundings. Every background detail must stay true.`
       : ""
   }
-- "hiddenFriend" (book-level, AT MOST 12 words): one small companion creature or object that hides somewhere in EVERY page's picture. It never appears in the text — a secret between the illustrator and the child.
-- Composition safety: background figures stay small and simple (distant shapes, silhouettes — never a crowd of detailed faces). Nothing hand-intricate on the main character, no mirrors.`);
+- "hiddenFriend" (book-level, AT MOST 12 words): one small companion creature or object that belongs to this book. It never appears in the text, and it is NOT sent to the image model (asking it to hide something small only makes it large) — it is a note for the reader, so write it as something a parent could point at and name.
+- Composition: give each page one clear focal point with room to breathe, and vary the shot page to page (wide, close, from above) so turning the page feels like something changed. End pages that turn on a surprise with the question, not the answer.
+- Composition safety: keep the background element small and simple (a distant shape or silhouette — never a crowd of detailed faces). Nothing hand-intricate on the main character, no mirrors.`);
 
   sections.push(`Return ONLY a JSON object, no prose before or after, exactly this shape:
 { "title": string, "characterName": string, "characterDesc": string, "hiddenFriend": string, "pages": [ { "text": string, "scene": string, "background": string } ] }
@@ -179,7 +186,7 @@ RUBRIC — judge each:
 3. readAloud: mouth-feel and rhythm read aloud — do any sentences stumble?
 4. ageFit: right for this reading level — not babyish, not over their head?
 5. lessonSubtlety: per the lesson dial above.
-6. pictures: read scene/background/hiddenFriend as the illustration brief they are — do the backgrounds build a world with small discoverable happenings (and a background thread that pays off), or do they just restate the foreground? Is the hidden friend genuinely hideable on every page?${
+6. pictures: read scene/background as the illustration brief they are, for an image model that holds ~3 subjects and ~70 words. Is each "scene" one clear focal moment rather than a list? Is each "background" exactly ONE thing, opening with its own scale and distance ("a tiny distant …") rather than a second scene competing with the foreground? Does that one small thing recur across the pages and pay off by the last one, instead of just restating the foreground? Flag any background that packs in two or more elements — that is the single most common way these pictures come back wrong.${
     storyLanes[opts.premise.lane]?.kind === "nonfiction"
       ? `\n7. factAccuracy: this is a NONFICTION book — is every stated fact (in text AND in the picture layers) true? Simplification is fine; invention is not. A false or misleading fact alone justifies "revise", with the correction in "fixes".`
       : ""
@@ -223,10 +230,13 @@ const blockingProblems = (problems: string[], pages: number, band: AgeBand): str
     ? problems.filter((p) => !p.includes("commissioned at exactly"))
     : problems;
 
-// Per-field word budgets for the illustration layers (small tolerance over
-// the numbers the prompt states). Long fields dilute the composed Midjourney
-// prompt — the image model weights early tokens and blurs past ~80 words.
-const ART_BUDGETS = { characterDesc: 32, scene: 30, background: 22, hiddenFriend: 15 };
+// Per-field word budgets for the illustration layers (a few words' tolerance
+// over the numbers the prompt states). These are chosen to SUM under
+// PROMPT_WORD_CEILING once a <=20-word style DNA is prepended:
+//   20 (DNA) + 21 + 21 + 12 = 74 <= 75.
+// Field-by-field checks are not enough on their own, so the composed total is
+// checked too — that is the number that actually reaches Midjourney.
+const ART_BUDGETS = { characterDesc: 21, scene: 21, background: 12, hiddenFriend: 15 };
 
 const words = (s: string | undefined): number =>
   s ? s.split(/\s+/).filter(Boolean).length : 0;
@@ -237,19 +247,19 @@ const words = (s: string | undefined): number =>
  * back imperfect we import anyway (a book with imperfect art briefs is still
  * a book; these problems never block).
  */
-const artLayerProblems = (candidate: Candidate | null): string[] => {
+const artLayerProblems = (candidate: Candidate | null, artPackKey?: string): string[] => {
   if (!candidate) return [];
   const problems: string[] = [];
   if (!candidate.hiddenFriend) {
     problems.push(
-      `missing "hiddenFriend" — the book needs its small companion hidden in every picture`,
+      `missing "hiddenFriend" — the book needs its small companion for the reader's notes`,
     );
   } else if (words(candidate.hiddenFriend) > ART_BUDGETS.hiddenFriend) {
     problems.push(`"hiddenFriend" is ${words(candidate.hiddenFriend)} words — trim to 12 or fewer`);
   }
   if (words(candidate.characterDesc) > ART_BUDGETS.characterDesc) {
     problems.push(
-      `"characterDesc" is ${words(candidate.characterDesc)} words — trim to 28 or fewer (it rides every illustration prompt)`,
+      `"characterDesc" is ${words(candidate.characterDesc)} words — trim to 18 or fewer (it rides every illustration prompt)`,
     );
   }
   const thin = candidate.pages.filter((p) => !p.background).length;
@@ -261,7 +271,7 @@ const artLayerProblems = (candidate: Candidate | null): string[] => {
   const longScenes = candidate.pages.filter((p) => words(p.scene) > ART_BUDGETS.scene).length;
   if (longScenes > 0) {
     problems.push(
-      `${longScenes} page(s) have a "scene" over 25 words — cut each to its concrete pictureable core`,
+      `${longScenes} page(s) have a "scene" over 18 words — cut each to its concrete pictureable core`,
     );
   }
   const longBackgrounds = candidate.pages.filter(
@@ -269,11 +279,46 @@ const artLayerProblems = (candidate: Candidate | null): string[] => {
   ).length;
   if (longBackgrounds > 0) {
     problems.push(
-      `${longBackgrounds} page(s) have a "background" over 18 words — one small happening plus one findable object, telegram-style`,
+      `${longBackgrounds} page(s) have a "background" over 10 words — ONE scale-anchored noun phrase ("a tiny distant lighthouse"), nothing more`,
     );
+  }
+  const unscaled = candidate.pages
+    .map((p, i) => ({ i, bg: p.background }))
+    .filter(({ bg }) => bg && !SCALE_WORD_RE.test(bg));
+  if (unscaled.length > 0) {
+    problems.push(
+      `${unscaled.length} page(s) have a "background" with no scale/distance word (page ${unscaled
+        .map(({ i }) => i + 1)
+        .join(", ")}) — each must open with how small and how far ("a tiny distant …", "one small far-off …")`,
+    );
+  }
+  // The number that actually reaches Midjourney. Per-field budgets can each
+  // pass while the composed prompt still overruns, so check the real thing.
+  if (artPackKey) {
+    const over = candidate.pages
+      .map((p, i) => ({
+        i,
+        n: promptWordCount(
+          composePagePrompt(artPackKey, candidate.characterDesc, p.scene, {
+            background: p.background,
+          }),
+        ),
+      }))
+      .filter(({ n }) => n > PROMPT_WORD_CEILING);
+    if (over.length > 0) {
+      problems.push(
+        `${over.length} page(s) compose to a Midjourney prompt over ${PROMPT_WORD_CEILING} words (worst: ${Math.max(
+          ...over.map(({ n }) => n),
+        )}) — trim "scene" and "background" on page ${over.map(({ i }) => i + 1).join(", ")}`,
+      );
+    }
   }
   return problems;
 };
+
+/** A background phrase has to say how small and how far, not just what. */
+const SCALE_WORD_RE =
+  /\b(tiny|small|little|distant|far|far-off|faraway|thumbnail|speck|miniature|minute|remote|horizon|high above|way off)\b/i;
 
 /**
  * The full B→C pipeline for one premise. The caller is responsible for having
@@ -322,7 +367,7 @@ export const writeBookForPremise = (
   );
   let raw = callClaudeForJson(prompt, { model: models.writer }, call);
   let { candidate, problems } = parseAndValidate(raw, formKey, band, pageCount);
-  let artProblems = artLayerProblems(candidate);
+  let artProblems = artLayerProblems(candidate, artPackKey);
 
   if (!candidate || problems.length > 0 || artProblems.length > 0) {
     const flagged = [...problems, ...artProblems];
@@ -338,7 +383,7 @@ ${JSON.stringify(raw)}
 Return the corrected JSON object only, same shape, exactly ${pageCount} pages.`;
     raw = callClaudeForJson(repairPrompt, { model: models.writer }, call);
     ({ candidate, problems } = parseAndValidate(raw, formKey, band, pageCount));
-    artProblems = artLayerProblems(candidate);
+    artProblems = artLayerProblems(candidate, artPackKey);
     if (artProblems.length > 0) {
       log(`art layers still thin after repair (importing anyway): ${artProblems.join("; ")}`);
     }

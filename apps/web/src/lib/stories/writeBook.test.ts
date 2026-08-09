@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import * as schema from "../../db/schema";
 import type { DB } from "../../db/client";
+import { promptWordCount, PROMPT_WORD_CEILING } from "../skills/storyArt";
 import { writeBookForPremise, type JudgeVerdict } from "./writeBook";
 import type { CallClaude } from "./claudeCli";
 
@@ -30,13 +31,12 @@ const dob = new Date(Date.now() - 730 * 86400 * 1000).toISOString().slice(0, 10)
 const goodBook = {
   title: "The Snail's Leaf",
   characterName: "Nib",
-  characterDesc:
-    "a small garden snail with a swirly caramel shell, soft grey body, and a tiny red knitted cap",
+  characterDesc: "a small garden snail with a swirly caramel shell, grey body, tiny red cap",
   hiddenFriend: "a ladybird with one missing spot, always mid-errand",
   pages: Array.from({ length: 8 }, (_, i) => ({
     text: `Nib slid along the garden wall, slow and steady. (page ${i + 1})`,
     scene: `a garden wall in morning light, the snail gliding along the top, dew shining, page ${i + 1}`,
-    background: `beyond the wall, a robin gathering straw for a slowly growing nest, page ${i + 1}`,
+    background: `a tiny distant robin on a far nest, page ${i + 1}`,
   })),
 };
 
@@ -220,7 +220,7 @@ describe("writeBookForPremise", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("composes background and hidden friend into every page's illustration prompt", () => {
+  it("composes the background into every page's prompt, and keeps the hidden friend out of it", () => {
     const { call } = makeFakeCall({});
     const result = writeBookForPremise(db, premiseRow, { call, log: () => {} });
     expect(result.ok).toBe(true);
@@ -228,12 +228,17 @@ describe("writeBookForPremise", () => {
     const pages = db.select().from(schema.storyPages).all();
     expect(pages.length).toBeGreaterThan(0);
     for (const page of pages) {
-      expect(page.illustrationPrompt).toContain("in the background, beyond the wall");
-      expect(page.illustrationPrompt).toContain("tucked somewhere tiny");
-      expect(page.illustrationPrompt).toContain("ladybird");
+      expect(page.illustrationPrompt).toContain("a tiny distant robin");
+      // The hidden friend is a note for the parent, never a prompt instruction.
+      expect(page.illustrationPrompt).not.toContain("ladybird");
+      expect(promptWordCount(page.illustrationPrompt)).toBeLessThanOrEqual(PROMPT_WORD_CEILING);
+      // Raw layers persist so the prompt can be recomposed later.
+      expect(page.scene).toBeTruthy();
+      expect(page.background).toBeTruthy();
     }
     const story = db.select().from(schema.stories).all()[0];
     expect(story.artNotes).toContain("hidden friend");
+    expect(story.hiddenFriend).toContain("ladybird");
   });
 
   it("repairs a draft missing the illustration layers, and imports even if still thin", () => {
@@ -273,9 +278,10 @@ describe("writeBookForPremise", () => {
     const result = writeBookForPremise(db, premiseRow, { call, log: () => {} });
     expect(result.ok).toBe(true);
     expect(calls.filter((c) => c.kind === "book")).toHaveLength(2);
-    expect(repairPrompt).toContain("trim to 28 or fewer");
-    expect(repairPrompt).toContain('"scene" over 25 words');
-    expect(repairPrompt).toContain('"background" over 18 words');
+    expect(repairPrompt).toContain("trim to 18 or fewer");
+    expect(repairPrompt).toContain('"scene" over 18 words');
+    expect(repairPrompt).toContain('"background" over 10 words');
+    expect(repairPrompt).toContain(`over ${PROMPT_WORD_CEILING} words`);
   });
 
   it("adds the factAccuracy rubric only for nonfiction-lane books", () => {
