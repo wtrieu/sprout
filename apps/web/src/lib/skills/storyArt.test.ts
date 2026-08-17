@@ -13,7 +13,6 @@ import {
   pickArtPack,
   promptWordCount,
   PROMPT_WORD_CEILING,
-  BACKGROUND_WEIGHT,
 } from "./storyArt";
 import { STYLE_REF_WEIGHT, withStyleRef } from "../stories/engine";
 
@@ -65,7 +64,7 @@ describe("composePagePrompt", () => {
   const scene = "a hilltop at dawn, the fox looking out over the valley";
   const background = "a tiny distant train between far farms";
 
-  it("orders style DNA, character, and scene, then the background as its own concept", () => {
+  it("orders style DNA, character, and scene, then the background last", () => {
     const prompt = composePagePrompt("watercolor-soft", character, scene, { background });
     const dnaAt = prompt.indexOf("watercolor");
     const charAt = prompt.indexOf("red fox");
@@ -80,9 +79,12 @@ describe("composePagePrompt", () => {
     expect(prompt).toContain("--no text");
   });
 
-  it("down-weights the background with a multi-prompt weight", () => {
+  it("joins the background as a plain clause, never a V6-era multi-prompt weight", () => {
+    // Multi-prompts (`::`) only exist through V6.1 — V7/V8 read the tokens as
+    // literal text, so the prompt must stay one continuous sentence.
     const prompt = composePagePrompt("watercolor-soft", character, scene, { background });
-    expect(prompt).toContain(`::1 a tiny distant train between far farms::${BACKGROUND_WEIGHT}`);
+    expect(prompt).toContain(`${scene}. a tiny distant train between far farms --ar`);
+    expect(prompt).not.toContain("::");
   });
 
   it("never sends the hidden friend to the image model", () => {
