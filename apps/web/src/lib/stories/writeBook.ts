@@ -131,7 +131,7 @@ It lives in what characters DO and what the pictures show — never name it, nev
 
   sections.push(`THE PROTAGONIST: the premise decides who leads (child, animal, moon rabbit, sailor…). Invent them fully.${
     opts.avoidCharacters.length > 0
-      ? ` Recent books already starred these characters — pick a clearly different lead and a different name: ${opts.avoidCharacters.join("; ")}.`
+      ? ` Recent books already starred these characters — your lead must differ from EVERY one of them on all three axes: a different name, a different silhouette (hair/shape/species), and a clearly different color palette (if red and yellow appear below, your character wears neither): ${opts.avoidCharacters.join("; ")}.`
       : ""
   }
 - "characterName": the character's short friendly name.
