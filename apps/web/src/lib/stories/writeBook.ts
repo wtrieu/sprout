@@ -21,9 +21,12 @@ import {
 } from "../skills/storyText";
 import {
   composePagePrompt,
+  isCharacterShot,
   pickArtPack,
   promptWordCount,
   PROMPT_WORD_CEILING,
+  shotKeys,
+  shots,
 } from "../skills/storyArt";
 import { CandidateSchema, importCandidate, type Candidate } from "./importCandidate";
 import { laneContract, storyLanes } from "./lanes";
@@ -141,7 +144,12 @@ Hard limit: at most ${band.maxWordsPerPage} words of story text per page.`);
 
   const nonfiction = storyLanes[premise.lane]?.kind === "nonfiction";
   sections.push(`THE PICTURES — every page here is an illustration brief that ships straight to an image model. That model holds about THREE subjects and stops resolving what it reads past ~70 words total, and your fields share that budget with the style and character blocks. So: concrete pictureable nouns, telegram style, no narrative connective tissue, and no more than you can actually get drawn.
-- "scene" (per page, AT MOST 18 words): THAT page's foreground moment — setting, what the character is doing, light. That is TWO subjects (the character, and what they are doing) and it is already most of your budget. Do NOT describe the character's appearance (characterDesc covers it) and do NOT name an art style. Never any text, words, or signage in the image.
+- LITERAL NOUNS ONLY: the image model paints every noun it reads. Never a simile or metaphor ("soft like pillows" paints actual pillows) and never a negation ("no leaves on the tree" paints leaves) — name only what is physically in the picture.
+- "shot" (per page): the camera, exactly one of "wide" | "closeup" | "behind" | "pov" | "detail".
+  CHARACTER shots put the character in frame: "wide" (a small figure in a big scene), "closeup" (near and expressive — spend these on the emotional beats), "behind" (seen from behind, facing into the scene — good for journeys and thresholds).
+  WORLD shots leave the character OUT of frame: "pov" (exactly what the character is looking at) and "detail" (one small thing seen very close). World shots are the book's worldbuilding room.
+  Rules: page 1 and the final page are CHARACTER shots. At least half the pages are character shots — a young reader anchors on seeing their character. Use at least one world shot, and never the same shot three pages running: cutting away and coming back is what makes turning the page feel like something changed.
+- "scene" (per page): THAT page's foreground moment — setting, action, light. AT MOST 18 words on character shots; on world shots you may run to 30 and spend the room on the world. On character shots do NOT describe the character's appearance (characterDesc covers it); on world shots do not mention the character at all — they are not in the frame. Do NOT name an art style. Never any text, words, or signage in the image.
 - "background" (per page, AT MOST 10 words): exactly ONE thing, written as a scale-anchored noun phrase — it MUST open with its own size and distance ("a tiny distant lighthouse", "a small far-off boat", "one thumbnail-sized bird high above"). Do not write "in the background" — the model cannot honour a positional instruction, only the scale words you bake into the phrase itself. One thing, not a scene: a second element here is what makes the picture come back wrong.
   Give the background its own quiet thread: let that one small thing recur across the pages and quietly resolve by the last page, so a rereading child discovers a second story living in the pictures.${
     nonfiction
@@ -149,11 +157,11 @@ Hard limit: at most ${band.maxWordsPerPage} words of story text per page.`);
       : ""
   }
 - "hiddenFriend" (book-level, AT MOST 12 words): one small companion creature or object that belongs to this book. It never appears in the text, and it is NOT sent to the image model (asking it to hide something small only makes it large) — it is a note for the reader, so write it as something a parent could point at and name.
-- Composition: give each page one clear focal point with room to breathe, and vary the shot page to page (wide, close, from above) so turning the page feels like something changed. End pages that turn on a surprise with the question, not the answer.
+- Composition: give each page one clear focal point with room to breathe. End pages that turn on a surprise with the question, not the answer.
 - Composition safety: keep the background element small and simple (a distant shape or silhouette — never a crowd of detailed faces). Nothing hand-intricate on the main character, no mirrors.`);
 
   sections.push(`Return ONLY a JSON object, no prose before or after, exactly this shape:
-{ "title": string, "characterName": string, "characterDesc": string, "hiddenFriend": string, "pages": [ { "text": string, "scene": string, "background": string } ] }
+{ "title": string, "characterName": string, "characterDesc": string, "hiddenFriend": string, "pages": [ { "text": string, "shot": string, "scene": string, "background": string } ] }
 Exactly ${opts.pageCount} pages.`);
 
   return sections.join("\n\n");
@@ -186,7 +194,7 @@ RUBRIC — judge each:
 3. readAloud: mouth-feel and rhythm read aloud — do any sentences stumble?
 4. ageFit: right for this reading level — not babyish, not over their head?
 5. lessonSubtlety: per the lesson dial above.
-6. pictures: read scene/background as the illustration brief they are, for an image model that holds ~3 subjects and ~70 words. Is each "scene" one clear focal moment rather than a list? Is each "background" exactly ONE thing, opening with its own scale and distance ("a tiny distant …") rather than a second scene competing with the foreground? Does that one small thing recur across the pages and pay off by the last one, instead of just restating the foreground? Flag any background that packs in two or more elements — that is the single most common way these pictures come back wrong.${
+6. pictures: read scene/background as the illustration brief they are, for an image model that holds ~3 subjects and ~70 words. Is each "scene" one clear focal moment rather than a list? Is each "background" exactly ONE thing, opening with its own scale and distance ("a tiny distant …") rather than a second scene competing with the foreground? Does that one small thing recur across the pages and pay off by the last one, instead of just restating the foreground? Flag any background that packs in two or more elements — that is the single most common way these pictures come back wrong. Also flag: any simile, metaphor, or negation in scene/background (the image model paints every noun it reads — "soft like pillows" puts pillows in the picture); any world shot ("pov"/"detail") whose scene mentions the character (they are not in the frame); and a shot sequence that fails to vary or parks the emotional beats on world shots instead of character shots.${
     storyLanes[opts.premise.lane]?.kind === "nonfiction"
       ? `\n7. factAccuracy: this is a NONFICTION book — is every stated fact (in text AND in the picture layers) true? Simplification is fine; invention is not. A false or misleading fact alone justifies "revise", with the correction in "fixes".`
       : ""
@@ -230,13 +238,29 @@ const blockingProblems = (problems: string[], pages: number, band: AgeBand): str
     ? problems.filter((p) => !p.includes("commissioned at exactly"))
     : problems;
 
-// Per-field word budgets for the illustration layers (a few words' tolerance
-// over the numbers the prompt states). These are chosen to SUM under
-// PROMPT_WORD_CEILING once a <=20-word style DNA is prepended:
-//   20 (DNA) + 21 + 21 + 12 = 74 <= 75.
+// Per-field word budgets for the illustration layers (a couple of words'
+// tolerance over the numbers the prompt states). These are chosen to SUM under
+// PROMPT_WORD_CEILING once a <=20-word style DNA and a <=3-word camera clause
+// are prepended:
+//   character shots: 20 (DNA) + 20 (char) + 3 (camera) + 20 (scene) + 12 = 75.
+//   world shots:     20 (DNA) + 2 (camera) + 33 (scene) + 12 = 67 — the
+//   character block's words become worldbuilding room (scene may run to 30).
 // Field-by-field checks are not enough on their own, so the composed total is
 // checked too — that is the number that actually reaches Midjourney.
-const ART_BUDGETS = { characterDesc: 21, scene: 21, background: 12, hiddenFriend: 15 };
+const ART_BUDGETS = {
+  characterDesc: 20,
+  scene: 20,
+  sceneWorldShot: 33,
+  background: 12,
+  hiddenFriend: 15,
+};
+
+/**
+ * Similes, comparisons, and negations all put the named object IN the picture
+ * ("soft like pillows" paints pillows; "no hat" paints a hat) — a diffusion
+ * model renders nouns, it does not process analogy or absence.
+ */
+const FIGURATIVE_RE = /\blike\b|\bas if\b|\bas though\b|\bwithout\b|\bno\s+\w/i;
 
 const words = (s: string | undefined): number =>
   s ? s.split(/\s+/).filter(Boolean).length : 0;
@@ -268,10 +292,67 @@ const artLayerProblems = (candidate: Candidate | null, artPackKey?: string): str
       `${thin} page(s) missing "background" — every page's picture needs its background layer (world life behind the moment)`,
     );
   }
-  const longScenes = candidate.pages.filter((p) => words(p.scene) > ART_BUDGETS.scene).length;
+  // Shot grammar. Missing/invalid shots are flagged for repair; the grammar
+  // itself is only judged once every page has a valid one (the repair fixes
+  // the vocabulary first, then the sequence).
+  const invalidShots = candidate.pages.filter((p) => !p.shot || !(p.shot in shots)).length;
+  if (invalidShots > 0) {
+    problems.push(
+      `${invalidShots} page(s) missing "shot" (or using an unknown value) — every page names its camera, exactly one of ${shotKeys.map((k) => `"${k}"`).join(" | ")}`,
+    );
+  } else {
+    const pageShots = candidate.pages.map((p) => p.shot!);
+    const charPages = pageShots.filter((s) => isCharacterShot(s)).length;
+    if (!isCharacterShot(pageShots[0])) {
+      problems.push(
+        `page 1 must be a CHARACTER shot (wide/closeup/behind) — it introduces the character and seeds the book's look`,
+      );
+    }
+    if (!isCharacterShot(pageShots[pageShots.length - 1])) {
+      problems.push(`the final page must be a CHARACTER shot — the goodbye belongs to the character`);
+    }
+    if (charPages < Math.ceil(pageShots.length / 2)) {
+      problems.push(
+        `only ${charPages} of ${pageShots.length} pages show the character — at least half must be character shots (a young reader anchors on seeing them)`,
+      );
+    }
+    if (charPages === pageShots.length && pageShots.length >= 6) {
+      problems.push(
+        `every page is a character shot — use at least one world shot ("pov" or "detail") so the book gets its cutaways`,
+      );
+    }
+    if (pageShots.some((s, i) => i >= 2 && s === pageShots[i - 1] && s === pageShots[i - 2])) {
+      problems.push(
+        `the same shot runs three or more pages in a row — vary the camera so each page turn feels like a change`,
+      );
+    }
+  }
+  const longScenes = candidate.pages.filter(
+    (p) => isCharacterShot(p.shot) && words(p.scene) > ART_BUDGETS.scene,
+  ).length;
   if (longScenes > 0) {
     problems.push(
       `${longScenes} page(s) have a "scene" over 18 words — cut each to its concrete pictureable core`,
+    );
+  }
+  const longWorldScenes = candidate.pages.filter(
+    (p) => !isCharacterShot(p.shot) && words(p.scene) > ART_BUDGETS.sceneWorldShot,
+  ).length;
+  if (longWorldScenes > 0) {
+    problems.push(
+      `${longWorldScenes} world-shot page(s) have a "scene" over 30 words — even worldbuilding pages must stay drawable`,
+    );
+  }
+  const figurative = candidate.pages
+    .map((p, i) => ({ i, hit: FIGURATIVE_RE.test(p.scene) || (p.background ? FIGURATIVE_RE.test(p.background) : false) }))
+    .filter(({ hit }) => hit);
+  if (FIGURATIVE_RE.test(candidate.characterDesc)) {
+    figurative.unshift({ i: -1, hit: true });
+  }
+  if (figurative.length > 0) {
+    const where = figurative.map(({ i }) => (i === -1 ? "characterDesc" : `page ${i + 1}`)).join(", ");
+    problems.push(
+      `simile, comparison, or negation in the illustration fields (${where}) — the image model paints every noun it reads ("soft like pillows" paints pillows; "no hat" paints a hat), so name only what is physically in the picture`,
     );
   }
   const longBackgrounds = candidate.pages.filter(
@@ -301,6 +382,7 @@ const artLayerProblems = (candidate: Candidate | null, artPackKey?: string): str
         n: promptWordCount(
           composePagePrompt(artPackKey, candidate.characterDesc, p.scene, {
             background: p.background,
+            shot: p.shot,
           }),
         ),
       }))

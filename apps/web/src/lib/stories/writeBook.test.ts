@@ -28,6 +28,10 @@ const makeDb = (): DB => {
 // dob ≈ 24 months ago → 18-30mo band (8-10 pages, 32 words/page).
 const dob = new Date(Date.now() - 730 * 86400 * 1000).toISOString().slice(0, 10);
 
+// A legal shot sequence: opens and closes on the character, >= half character
+// shots, two world shots, never the same shot twice running.
+const shotCycle = ["wide", "pov", "behind", "detail", "closeup", "wide", "behind", "closeup"];
+
 const goodBook = {
   title: "The Snail's Leaf",
   characterName: "Nib",
@@ -35,7 +39,8 @@ const goodBook = {
   hiddenFriend: "a ladybird with one missing spot, always mid-errand",
   pages: Array.from({ length: 8 }, (_, i) => ({
     text: `Nib slid along the garden wall, slow and steady. (page ${i + 1})`,
-    scene: `a garden wall in morning light, the snail gliding along the top, dew shining, page ${i + 1}`,
+    shot: shotCycle[i],
+    scene: `a garden wall in morning light, dew shining on the mossy top, page ${i + 1}`,
     background: `a tiny distant robin on a far nest, page ${i + 1}`,
   })),
 };
@@ -235,10 +240,80 @@ describe("writeBookForPremise", () => {
       // Raw layers persist so the prompt can be recomposed later.
       expect(page.scene).toBeTruthy();
       expect(page.background).toBeTruthy();
+      expect(page.shot).toBe(shotCycle[page.pageIndex]);
     }
+    // World shots leave the character out of frame; character shots carry the
+    // camera clause + the verbatim appearance block.
+    const povPage = pages.find((p) => p.shot === "pov")!;
+    expect(povPage.illustrationPrompt).not.toContain("swirly caramel");
+    const behindPage = pages.find((p) => p.shot === "behind")!;
+    expect(behindPage.illustrationPrompt).toContain("seen from behind,");
+    expect(behindPage.illustrationPrompt).toContain("swirly caramel");
     const story = db.select().from(schema.stories).all()[0];
     expect(story.artNotes).toContain("hidden friend");
+    // Books with world shots warn the parent those prompts omit the character.
+    expect(story.artNotes).toContain("deliberately NOT in those prompts");
     expect(story.hiddenFriend).toContain("ladybird");
+  });
+
+  it("asks for a repair when the shot sequence breaks the grammar", () => {
+    const allCloseups = {
+      ...goodBook,
+      pages: goodBook.pages.map((p) => ({ ...p, shot: "closeup" })),
+    };
+    let repairPrompt = "";
+    const { call, calls } = makeFakeCall({
+      book: (prompt, nth) => {
+        if (nth === 1) repairPrompt = prompt;
+        return allCloseups; // unrepentant — must still import
+      },
+    });
+    const result = writeBookForPremise(db, premiseRow, { call, log: () => {} });
+    expect(result.ok).toBe(true);
+    expect(calls.filter((c) => c.kind === "book")).toHaveLength(2);
+    expect(repairPrompt).toContain("world shot");
+    expect(repairPrompt).toContain("three or more pages in a row");
+  });
+
+  it("flags similes and negations in the illustration fields — they paint the named object", () => {
+    const figurative = {
+      ...goodBook,
+      pages: goodBook.pages.map((p, i) =>
+        i === 2 ? { ...p, scene: "a mossy wall top, soft like pillows, in morning light" } : p,
+      ),
+    };
+    let repairPrompt = "";
+    const { call, calls } = makeFakeCall({
+      book: (prompt, nth) => {
+        if (nth === 1) repairPrompt = prompt;
+        return goodBook; // repaired clean
+      },
+    });
+    const result = writeBookForPremise(db, premiseRow, { call, log: () => {} });
+    expect(result.ok).toBe(true);
+    expect(calls.filter((c) => c.kind === "book")).toHaveLength(1);
+
+    // Now the figurative draft: one repair pass names the offending page.
+    const { call: call2, calls: calls2 } = makeFakeCall({
+      book: (prompt, nth) => {
+        if (nth === 1) repairPrompt = prompt;
+        return nth === 0 ? figurative : goodBook;
+      },
+    });
+    db.update(schema.premises)
+      .set({ status: "greenlit", storyId: null })
+      .where(eq(schema.premises.id, premiseRow.id))
+      .run();
+    const fresh = db
+      .select()
+      .from(schema.premises)
+      .where(eq(schema.premises.id, premiseRow.id))
+      .get()!;
+    const result2 = writeBookForPremise(db, fresh, { call: call2, log: () => {} });
+    expect(result2.ok).toBe(true);
+    expect(calls2.filter((c) => c.kind === "book")).toHaveLength(2);
+    expect(repairPrompt).toContain("paints every noun");
+    expect(repairPrompt).toContain("page 3");
   });
 
   it("repairs a draft missing the illustration layers, and imports even if still thin", () => {

@@ -524,6 +524,10 @@ export const storyPages = sqliteTable(
     // recomposed whenever the composer changes. Null on pre-0011 rows.
     scene: text("scene"),
     background: text("background"),
+    // Camera for the page (shot-grammar key in lib/skills/storyArt.ts). World
+    // shots (pov/detail) compose WITHOUT the character block. Null = legacy
+    // page, treated as a character shot with no camera clause.
+    shot: text("shot"),
     imagePath: text("image_path"),
     imageStatus: text("image_status", { enum: ["pending", "done", "failed"] })
       .notNull()

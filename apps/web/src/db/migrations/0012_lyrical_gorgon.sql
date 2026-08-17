@@ -1,0 +1,1 @@
+ALTER TABLE `story_pages` ADD `shot` text;
