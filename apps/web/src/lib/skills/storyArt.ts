@@ -23,8 +23,11 @@
  *   3. SCALE LIVES IN THE WORDS. "in the background," is a positional
  *      instruction, and Midjourney has no compositional grounding to honour
  *      it — it just blends the tokens. The writer now supplies the background
- *      as a scale-anchored noun phrase ("a tiny distant ...") and the clause
- *      is additionally down-weighted with a multi-prompt weight.
+ *      as a scale-anchored noun phrase ("a tiny distant ..."), which is the
+ *      only working lever: the `::0.4` multi-prompt down-weight this module
+ *      once applied was removed (2026-08-16) because multi-prompts only exist
+ *      through V6.1 — the V7/V8/Niji models actually in use don't parse `::`,
+ *      so the tokens landed as literal junk text in the prompt.
  *
  * The hidden friend deliberately does NOT appear in page prompts: "hide this
  * small thing somewhere" asks for negative salience, which a diffusion model
@@ -188,18 +191,6 @@ export type PageArtExtras = {
 };
 
 /**
- * Multi-prompt weight on the background clause. Midjourney reads `a::1 b::0.4`
- * as two concepts and gives the second far less pull, which is the one direct
- * lever there is against background scenery muscling into the foreground.
- *
- * Tradeoff: `::` makes the segments independently interpreted, so too low a
- * weight reads as a separate blended image rather than depth in one scene.
- * 0.4 is the compromise; set to 0 to disable the split entirely and go back to
- * one continuous prompt.
- */
-export const BACKGROUND_WEIGHT = 0.4;
-
-/**
  * Stylize: the packs carry a deliberate, specific look, so we want Midjourney
  * obeying it rather than embellishing it. Low stylize = follow the prompt.
  */
@@ -214,13 +205,9 @@ export const PROMPT_WORD_CEILING = 75;
 
 const clause = (s: string): string => s.trim().replace(/\.$/, "");
 
-/** Descriptive words in a composed prompt — flags and weights excluded. */
+/** Descriptive words in a composed prompt — flags excluded. */
 export const promptWordCount = (prompt: string): number =>
-  prompt
-    .split(" --")[0]
-    .replace(/::[\d.]*/g, " ")
-    .split(/\s+/)
-    .filter(Boolean).length;
+  prompt.split(" --")[0].split(/\s+/).filter(Boolean).length;
 
 /** One page's full, copy-paste-ready Midjourney prompt. */
 export const composePagePrompt = (
@@ -230,17 +217,17 @@ export const composePagePrompt = (
   extras: PageArtExtras = {},
 ): string => {
   const pack = artPacks[packKey] ?? artPacks["watercolor-soft"];
-  const main = [pack.styleDna, clause(characterDesc), clause(scene)].join(". ");
+  // The background rides last as a plain clause. Its only defense against
+  // muscling into the foreground is the scale-anchored phrasing the writer is
+  // held to ("a tiny distant ...") — see the header note on why the old
+  // multi-prompt down-weight is gone.
   const background = extras.background?.trim();
-  // The background rides as its own down-weighted concept rather than as a
-  // trailing "in the background, ..." clause — see the header note on why the
-  // positional phrasing did not survive contact with the model.
-  const body =
-    background && BACKGROUND_WEIGHT > 0
-      ? `${main}::1 ${clause(background)}::${BACKGROUND_WEIGHT}`
-      : background
-        ? `${main}. ${clause(background)}`
-        : main;
+  const body = [
+    pack.styleDna,
+    clause(characterDesc),
+    clause(scene),
+    ...(background ? [clause(background)] : []),
+  ].join(". ");
   return `${body} --ar 3:2 --stylize ${STYLIZE} --no ${SHARED_NEGATIVE}, ${pack.negative}`;
 };
 
