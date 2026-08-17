@@ -28,8 +28,16 @@ export type RejectReason = (typeof REJECT_REASONS)[number]["key"];
 
 export const rejectReasonKeys = REJECT_REASONS.map((r) => r.key);
 
-/** Style-reference weight appended alongside --sref (matches the landing pipeline). */
-export const STYLE_REF_WEIGHT = 250;
+/**
+ * Style-reference weight appended alongside --sref. Midjourney's default is
+ * 100; the landing pipeline runs 250, but that number is tuned for
+ * scenery-only art where soaking up everything from the reference is the
+ * point. Story pages have a character and per-page content to protect — at
+ * 250 the page-1 reference's palette, props, and composition were bleeding
+ * into every later page, so this stays at the default: enough to hold the
+ * book's look without re-painting page 1 everywhere.
+ */
+export const STYLE_REF_WEIGHT = 100;
 
 /**
  * Append the page-1 style reference to a Midjourney prompt. The parent pastes

@@ -184,10 +184,52 @@ export const pickArtPack = (
   return finalPool[Math.floor(rand() * finalPool.length)];
 };
 
+/**
+ * The shot grammar (2026-08-16). Midjourney's strength profile is lopsided:
+ * environments, light, and single-focal-point scenes are what it does best;
+ * repeated face fidelity across generations is what it does worst. The shot
+ * grammar leans into that — a book alternates CHARACTER shots (the character
+ * in frame) with WORLD shots (what the character sees), so the character
+ * appears where drift is least visible and the world pages get the whole
+ * word budget for worldbuilding.
+ *
+ * Two of the character shots are deliberate consistency cheats: "wide" keeps
+ * the character a small figure (drift is imperceptible at distance) and
+ * "behind" trades face fidelity for silhouette + palette, which the
+ * <=18-word characterDesc (one silhouette shape, three colors) is already
+ * optimized to hold steady. There is no first-person "own paws" shot on
+ * purpose — that is a known Midjourney anatomy weak spot; "pov" means the
+ * character's view with no body in frame at all.
+ *
+ * Camera clauses are 0-3 words: they ride inside the same attention budget
+ * as everything else (see PROMPT_WORD_CEILING and the budgets in
+ * writeBook.ts).
+ */
+export const shots = {
+  /** Character small in a big scene — drift hides at distance. */
+  wide: { clause: "wide shot", showsCharacter: true },
+  /** Near and expressive — spend on the emotional beats. */
+  closeup: { clause: "close-up", showsCharacter: true },
+  /** Silhouette + palette read as "same character" without face fidelity. */
+  behind: { clause: "seen from behind", showsCharacter: true },
+  /** What the character is looking at — no body in frame. */
+  pov: { clause: "", showsCharacter: false },
+  /** One small thing seen very close — character not in frame. */
+  detail: { clause: "extreme close-up", showsCharacter: false },
+} as const;
+export type Shot = keyof typeof shots;
+export const shotKeys = Object.keys(shots) as Shot[];
+
+/** Whether a page's stored shot puts the character in frame (legacy null = yes). */
+export const isCharacterShot = (shot: string | null | undefined): boolean =>
+  !shot || !(shot in shots) || shots[shot as Shot].showsCharacter;
+
 /** The layered extras composed into a page prompt beyond the foreground scene. */
 export type PageArtExtras = {
   /** The world going on behind the moment (page-level, from the writer). */
   background?: string;
+  /** Shot-grammar key; unknown/absent = legacy character shot, no camera clause. */
+  shot?: string | null;
 };
 
 /**
@@ -217,6 +259,12 @@ export const composePagePrompt = (
   extras: PageArtExtras = {},
 ): string => {
   const pack = artPacks[packKey] ?? artPacks["watercolor-soft"];
+  const shot = extras.shot && extras.shot in shots ? shots[extras.shot as Shot] : null;
+  // World shots (pov/detail) omit the character block entirely — the
+  // character is not in frame, and the ~18 words it would have cost become
+  // worldbuilding room for the scene.
+  const showsCharacter = shot ? shot.showsCharacter : true;
+  const sceneClause = shot?.clause ? `${shot.clause}, ${clause(scene)}` : clause(scene);
   // The background rides last as a plain clause. Its only defense against
   // muscling into the foreground is the scale-anchored phrasing the writer is
   // held to ("a tiny distant ...") — see the header note on why the old
@@ -224,8 +272,8 @@ export const composePagePrompt = (
   const background = extras.background?.trim();
   const body = [
     pack.styleDna,
-    clause(characterDesc),
-    clause(scene),
+    ...(showsCharacter ? [clause(characterDesc)] : []),
+    sceneClause,
     ...(background ? [clause(background)] : []),
   ].join(". ");
   return `${body} --ar 3:2 --stylize ${STYLIZE} --no ${SHARED_NEGATIVE}, ${pack.negative}`;
@@ -236,15 +284,21 @@ export const composeArtNotes = (
   packKey: string,
   characterName: string,
   hiddenFriend?: string,
+  hasWorldShots?: boolean,
 ): string => {
   const pack = artPacks[packKey] ?? artPacks["watercolor-soft"];
   const lines = [
     `Style: ${pack.name}. All prompts are ready to paste into Midjourney (Niji mode recommended).`,
-    `1. Generate page 1 first and pick your favorite — this sets the book's look.`,
-    `2. Paste that image's URL into the "Page 1 image URL" box on this screen — every later page's prompt automatically picks it up as --sref, so the whole book holds one look.`,
-    `3. Keep ${characterName}'s appearance line untouched at the front of each prompt; that plus --sref is what keeps them recognisable page to page.`,
-    `4. Keep --ar 3:2 on all pages. Upscale your picks before saving.`,
-    `5. Upload each page's image on this screen when you're happy with it.`,
+    `1. Generate page 1 first and pick your favorite — this sets the book's look. Explore with Draft Mode on (--draft: faster, half cost), then Enhance the winner.`,
+    `2. Paste that image's URL into the "Page 1 image URL" box on this screen — every later page's prompt automatically picks it up as --sref, so the whole book holds one look. The sref carries EVERYTHING aesthetic from that image (palette and props included), so prefer a page-1 pick whose style would still read without its subject.`,
+    `3. Keep ${characterName}'s appearance line untouched at the front of each character prompt; that plus --sref is what keeps them recognisable page to page.`,
+    ...(hasWorldShots
+      ? [
+          `4. Some pages are the world seen through ${characterName}'s eyes — ${characterName} is deliberately NOT in those prompts. Don't add them back; the cutaways are what make the character pages land.`,
+        ]
+      : []),
+    `${hasWorldShots ? 5 : 4}. Keep --ar 3:2 on all pages. Upscale your picks before saving.`,
+    `${hasWorldShots ? 6 : 5}. Upload each page's image on this screen when you're happy with it.`,
   ];
   if (hiddenFriend) {
     lines.splice(

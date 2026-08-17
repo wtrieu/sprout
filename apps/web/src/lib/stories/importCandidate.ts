@@ -9,7 +9,7 @@ import { z } from "zod";
 import type { DB } from "../../db/client";
 import { stories, storyPages } from "../../db/schema";
 import { ageBand, validatePages } from "../skills/storyText";
-import { composeArtNotes, composePagePrompt } from "../skills/storyArt";
+import { composeArtNotes, composePagePrompt, isCharacterShot } from "../skills/storyArt";
 import { normalizePageText } from "./text";
 
 export { normalizePageText };
@@ -28,6 +28,10 @@ export const CandidateSchema = z.object({
         // 70 words/page at the top band — allow room without letting a wall
         // of text through (word budgets are enforced in validatePages).
         text: z.string().min(1).max(650),
+        // Camera key (storyArt.ts shot grammar). Kept loose here on purpose:
+        // an invalid value is an art-layer problem (repaired, never blocking),
+        // not a parse failure that would cost us the whole book.
+        shot: z.string().optional(),
         // Visual description only — style words and character appearance are
         // composed in code (storyArt.ts).
         scene: z.string().min(10).max(500),
@@ -101,6 +105,7 @@ export const importCandidate = (db: DB, raw: unknown, opts: ImportOptions): Impo
           opts.artPackKey,
           candidate.characterName,
           candidate.hiddenFriend,
+          candidate.pages.some((p) => !isCharacterShot(p.shot)),
         ),
         setting: opts.settingKey ?? null,
         lane: opts.lane ?? null,
@@ -120,8 +125,10 @@ export const importCandidate = (db: DB, raw: unknown, opts: ImportOptions): Impo
           text: page.text,
           scene: page.scene,
           background: page.background ?? null,
+          shot: page.shot ?? null,
           illustrationPrompt: composePagePrompt(opts.artPackKey, candidate.characterDesc, page.scene, {
             background: page.background,
+            shot: page.shot,
           }),
         })
         .run();

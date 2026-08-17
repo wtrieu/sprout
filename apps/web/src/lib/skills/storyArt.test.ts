@@ -10,9 +10,12 @@ import {
   artPacks,
   artPackKeys,
   composePagePrompt,
+  isCharacterShot,
   pickArtPack,
   promptWordCount,
   PROMPT_WORD_CEILING,
+  shotKeys,
+  shots,
 } from "./storyArt";
 import { STYLE_REF_WEIGHT, withStyleRef } from "../stories/engine";
 
@@ -100,16 +103,61 @@ describe("composePagePrompt", () => {
     expect(prompt).not.toContain("in the background");
   });
 
-  it("stays under the ceiling for every pack at full field budget", () => {
-    // Worst case: longest DNA + fields right at their writeBook.ts budgets.
+  it("stays under the ceiling for every pack at full field budget, on every shot", () => {
+    // Worst case: longest DNA + fields right at their writeBook.ts budgets,
+    // with the longest camera clause ("seen from behind") on character shots
+    // and the fattened scene budget on world shots.
     const maxWords = (n: number) => Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
     for (const key of artPackKeys) {
-      const prompt = composePagePrompt(key, maxWords(21), maxWords(21), {
-        background: maxWords(12),
-      });
-      const n = promptWordCount(prompt);
-      expect(n, `${key} composes to ${n} words`).toBeLessThanOrEqual(PROMPT_WORD_CEILING);
+      for (const shot of [undefined, ...shotKeys]) {
+        const scene = maxWords(shot && !shots[shot].showsCharacter ? 33 : 20);
+        const prompt = composePagePrompt(key, maxWords(20), scene, {
+          background: maxWords(12),
+          shot,
+        });
+        const n = promptWordCount(prompt);
+        expect(n, `${key}/${shot ?? "legacy"} composes to ${n} words`).toBeLessThanOrEqual(
+          PROMPT_WORD_CEILING,
+        );
+      }
     }
+  });
+
+  it("omits the character block on world shots and keeps it on character shots", () => {
+    for (const shot of shotKeys) {
+      const prompt = composePagePrompt("watercolor-soft", character, scene, { background, shot });
+      if (shots[shot].showsCharacter) {
+        expect(prompt, shot).toContain("red fox");
+      } else {
+        // The character is not in frame — its ~18 words become world room.
+        expect(prompt, shot).not.toContain("red fox");
+      }
+      expect(prompt, shot).toContain("hilltop");
+    }
+  });
+
+  it("prepends the shot's camera clause to the scene", () => {
+    const behind = composePagePrompt("watercolor-soft", character, scene, { shot: "behind" });
+    expect(behind).toContain(`seen from behind, ${scene}`);
+    const detail = composePagePrompt("watercolor-soft", character, scene, { shot: "detail" });
+    expect(detail).toContain(`extreme close-up, ${scene}`);
+    // pov has no clause — the scene IS the view.
+    const pov = composePagePrompt("watercolor-soft", character, scene, { shot: "pov" });
+    expect(pov).toContain(`${scene}`);
+    expect(pov).not.toContain("close-up");
+  });
+
+  it("treats an unknown or missing shot as a legacy character page", () => {
+    const legacy = composePagePrompt("watercolor-soft", character, scene, { background });
+    const unknown = composePagePrompt("watercolor-soft", character, scene, {
+      background,
+      shot: "aerial",
+    });
+    expect(unknown).toBe(legacy);
+    expect(legacy).toContain("red fox");
+    expect(isCharacterShot(null)).toBe(true);
+    expect(isCharacterShot("aerial")).toBe(true);
+    expect(isCharacterShot("pov")).toBe(false);
   });
 
   it("omits the background cleanly when a candidate has none (older shape)", () => {

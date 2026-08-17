@@ -85,6 +85,13 @@
       "when": 1786228456147,
       "tag": "0011_soft_reference",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1786939275405,
+      "tag": "0012_lyrical_gorgon",
+      "breakpoints": true
     }
   ]
 }
