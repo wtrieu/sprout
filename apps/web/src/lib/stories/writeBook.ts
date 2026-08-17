@@ -78,12 +78,19 @@ export type BookMaterial = {
 
 // Name + a snippet of the appearance block so the writer avoids repeating the
 // species too, not just the name. Includes tonight's fresh imports.
+//
+// Window of 12, not 6: the 2026-08-17 batch rewrite produced two books both
+// starring a "Lin" with near-identical dress because the 6-book window rolled
+// past the first one mid-batch. 12 covers a full rewrite batch and the queue
+// a parent realistically holds, at ~12 short lines of prompt cost.
+const AVOID_CHARACTER_WINDOW = 12;
+
 const recentCharacters = (db: DB): string[] =>
   db
     .all<{ name: string; desc: string | null }>(
       sql`SELECT character_name as name, character_desc as desc FROM stories
           WHERE character_name IS NOT NULL AND status != 'rejected'
-          ORDER BY id DESC LIMIT 6`,
+          ORDER BY id DESC LIMIT ${AVOID_CHARACTER_WINDOW}`,
     )
     .map((r) => (r.desc ? `${r.name} (${r.desc.split(/\s+/).slice(0, 6).join(" ")}…)` : r.name));
 
