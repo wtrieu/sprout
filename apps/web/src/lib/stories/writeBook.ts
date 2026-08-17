@@ -92,7 +92,11 @@ const recentCharacters = (db: DB): string[] =>
           WHERE character_name IS NOT NULL AND status != 'rejected'
           ORDER BY id DESC LIMIT ${AVOID_CHARACTER_WINDOW}`,
     )
-    .map((r) => (r.desc ? `${r.name} (${r.desc.split(/\s+/).slice(0, 6).join(" ")}…)` : r.name));
+    // 12 words of the appearance block, not 6: characterDesc runs species →
+    // shape → colors → accessory, so a 6-word cut ended right before the
+    // colors and writers kept converging on the same red/yellow toddler
+    // palette while dutifully varying the name and hair.
+    .map((r) => (r.desc ? `${r.name} (${r.desc.split(/\s+/).slice(0, 12).join(" ")}…)` : r.name));
 
 export const buildBookPrompt = (opts: {
   childName: string;
