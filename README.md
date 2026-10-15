@@ -9,32 +9,39 @@ Self-hosted family companion on the Mac mini. Two halves, one age engine:
   follows conversation history. Low touch: a nightly crawler ingests and
   auto-classifies new material, a weekly digest email arrives Sunday morning, and
   newly discovered sources queue for one-click approval.
-- **Storybook & activities** — locally generated bedtime stories (qwen3 text +
-  FLUX.2-klein illustrations, fullscreen reader + printable PDF) and weekly
-  age-appropriate activity ideas that only use materials you own.
+- **Storybook & activities** — bedtime stories commissioned through a
+  premise-first engine you curate (drafted on a Claude Max subscription,
+  FLUX.2-klein illustrations rendered locally, fullscreen reader + printable
+  PDF) and weekly age-appropriate activity ideas that only use materials you
+  own.
 
 ## Synthesis features
 
-All of the below run locally on qwen3 via decomposed, skill-based pipelines
-(`apps/web/src/lib/skills/` — see `docs/local-llm-orchestration.md`).
-Optionally set `ANTHROPIC_API_KEY` (+ `CLAUDE_MODEL`) to run the same pipelines
-on Claude for a quality lift:
+The research-side features below run locally on qwen3 via decomposed,
+skill-based pipelines (`apps/web/src/lib/skills/` — see
+`docs/local-llm-orchestration.md`); optionally set `ANTHROPIC_API_KEY` (+
+`CLAUDE_MODEL`) to run the same pipelines on Claude for a quality lift. The
+story features run on a Claude Max subscription over the headless CLI (local
+generation never reached bedtime quality) — see `docs/ARCHITECTURE.md`:
 
 - **Visit prep** (`/visit-prep`) — one-page pediatrician-appointment brief:
   WHO percentiles, milestone talking points, questions synthesized from recent
   chat history and typed-in concerns. Printable.
-- **Story arcs** (`/stories`) — a connected mini-series where each story gently
-  models a skill from the child's current milestone bucket.
+- **Premise inbox** (`/premises`) — the nightly engine proposes story premises
+  across nine genre lanes; you greenlight or pass, and greenlit premises are
+  written into full drafts (`/stories`) within minutes. Unreviewed premises are
+  auto-picked after a window so the shelf never runs dry.
 - **Research briefs** (`/research`) — deep dive on one topic: corpus sweep +
   live PubMed search, synthesized with citations.
 - **Journal** (`/journal`) — persistent facts about the child: quick notes,
   current loves, milestone checklist, measurement history. Auto-fed nightly by
   extracting stated facts from chat questions; personalizes stories,
   activities, visit briefs, and the digest.
-- **Daily surprise story** — the nightly pipeline plans one story per day
-  (skipped if you made one yourself): least-recently-used style and character,
-  a frontier milestone theme, seasonal flavor. Disable with
-  `SPROUT_DAILY_STORY=false`.
+- **Interests & taste** (`/interests`) — durable "north-stars" and decaying
+  interests, proposed nightly from your chat journal and never auto-added,
+  steer premise generation. One-tap reject/pass chips feed a weekly taste
+  distillation that tunes the editor. Cadence is set by the
+  `storyCandidatesPerDay` setting on the Stories page.
 - **Story craft forms** — story text is written against authored read-aloud
   forms (rhythmic prose, refrain, cumulative list; rhyming lullabies when a
   frontier model is configured), with age-banded word budgets and an
@@ -105,10 +112,16 @@ batch time.
 
 | Job | Schedule (launchd) | Manual |
 |---|---|---|
-| Nightly pipeline (crawl → classify/embed → render images) | 02:30 daily | `pnpm --filter web run job:nightly` |
+| Nightly pipeline (crawl → journal/interest extraction → classify/embed → render images) | 02:30 daily | `pnpm --filter web run job:nightly` |
+| Story engine (premise-first, stages A/B/C) | 05:00 daily | `pnpm --filter web run job:stories` |
 | Weekly activities | Sun 06:00 | `pnpm --filter web run job:activities` |
 | Weekly digest email | Sun 06:30 | `pnpm --filter web run job:digest` |
 | Drain queue only | — | `pnpm --filter web run job:run` |
+
+The story engine bills a Claude Max subscription via the headless CLI (the
+`ANTHROPIC_API_KEY` is stripped from its env so it can never fall back to
+metered API billing) — see `scripts/nightly-story-candidates.ts` and
+`docs/ARCHITECTURE.md`.
 
 Install launchd agents (after fixing paths/env in the plists):
 
@@ -132,8 +145,12 @@ apps/web/            # Next.js app (UI, API routes, DB, lib)
 services/imagegen/   # Python (uv) FLUX worker — drain-and-exit
 scripts/             # seeds + job entrypoints (run via pnpm --filter web)
 infra/               # launchd plists + cloudflared config
+docs/                # architecture, orchestration, and landing-page notes
 data/                # sqlite db + generated images (gitignored)
 ```
+
+See `docs/ARCHITECTURE.md` for how the two halves, the shared age engine, and
+the sequential job lanes fit together.
 
 ## Content licensing notes
 
