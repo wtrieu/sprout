@@ -80,9 +80,27 @@ Rules the code enforces:
 **Shipped:** PR1 (#96, merged 2026-10-19) — maps, node ladders, verified
 readings, visited state, skip. Everything under "Remaining work" is still to
 do. The owner's PR1 feedback (below) reorders it: the v2 track (PR-A → PR-D)
-comes **before** PR2 and PR3.
+comes **before** PR2 and PR3. **Next up: build PR-A** — its spec under
+"Remaining work" is complete and agreed; no design questions remain for it.
 
-To pick this up in a fresh session:
+To pick this up in a fresh session, paste this prompt:
+
+> Read `docs/atlas.md` top to bottom, then `apps/web/src/lib/atlas/rungs.ts`,
+> `draftMap.ts`, `llm.ts`, `runner.ts`, `scripts/atlas.ts` and
+> `apps/web/src/lib/email.ts`. Build PR-A exactly as specified under
+> "PR-A — preloaded one-pagers and quizzes": migration 0014, the onepager
+> model and no-judge rule in `ensureRung`, the quiz in the one-pager draft
+> schema, `lib/atlas/preload.ts` with sharded workers and the atomic
+> notification claim, `lib/atlas/email.ts`, the `preload` subcommand, the
+> preload route, the three UI changes, and the tests listed there. Tests
+> first for `rungs`, `preload` and `email`. Run `pnpm typecheck`,
+> `pnpm lint` and `pnpm --filter web exec vitest run --passWithNoTests`
+> before every push. Branch `claude/atlas-preload` from `main`; never push
+> to `main`; open a PR when green. Do not start PR-B or PR-C in the same PR.
+> If anything in the spec contradicts the code, follow the code and note
+> the deviation in the PR description.
+
+Then:
 
 1. Read this file top to bottom, then skim `apps/web/src/lib/atlas/` (start
    with `rungs.ts` and `picker.ts`) and `scripts/atlas.ts`.
@@ -226,12 +244,56 @@ the gate to "mastered". Unseen nodes are `?` slots.
   character and achievements). No public profile; everything stays behind
   Cloudflare Access.
 
+### Sprite: decision and workflow
+
+**Decided (owner, 2026-10-19):** layered parts composed in code. The
+proof is `docs/atlas-sprite-lab.html` (also published as a private
+artifact): 12 hand-placed 16×20 grids in six slots compose into 1,728
+characters with a two-frame idle. The owner's verdict: a good start,
+light on detail. Style still open between 16-bit RPG and chunkier; the
+sprite itself is PR-D work, but the spec below lets art start any time.
+
+Workflow for producing and refining the parts:
+
+1. **Fix the spec before any art.** Canvas `32×40` (16×20 is too light for
+   a readable face and hands), one indexed palette of ≤32 colors, one
+   front-facing anchor pose with the arms slightly off the body so held
+   items never overlap the torso. Write down the layer order (aura-back,
+   cape, body, outfit, hair, item, aura-front) and the **anchor pixels**
+   every part must respect: head-top row, shoulder row, left and right
+   hand pixel, foot row. Animations: idle 2 frames, celebrate 4, per layer.
+2. **Draw the base body first.** It defines the silhouette and the
+   anchors; export it as a template PNG with the anchor pixels marked in a
+   reserved color. Every other part is drawn on a copy of that template.
+3. **Produce parts.** Three sources, all ending in the same format:
+   Aseprite by hand (the standard pixel tool; fastest for fixes);
+   Midjourney for candidates from the parts-sheet prompt, then cleaned up
+   in Aseprite — snap to the grid, re-index to the palette, align to the
+   anchors (Midjourney never holds a grid, so the cleanup is the real
+   work); Claude for grid-as-code parts like the lab, which is good for
+   quick variants and bad for faces.
+4. **Store parts as data, not code.** `apps/web/public/sprite/<style>/
+   <slot>/<id>-<anim>-<frame>.png` with transparent background plus a
+   `manifest.json` (slot, z-order, anchor offsets, palette-swap groups for
+   skin and hair, which achievement or class grants it). The runtime
+   composes on a canvas exactly as the lab does, with palette swaps via
+   indexed colors.
+5. **Validate every part mechanically.** A script checks size, that every
+   color is in the palette, that the anchor pixels are untouched, and
+   that no part paints outside its slot's allowed region. This is what
+   lets a Midjourney-derived part and a hand-drawn part coexist.
+6. **Refine on contact sheets.** Render 50 random combinations plus a
+   fixed "golden" set, check for clipping between layers, color clashes
+   and readability at 1× and 3×, fix per part, re-render. The golden set
+   becomes a regression snapshot.
+7. **Animate last.** Same frame count per slot per animation; a part that
+   lacks an animation falls back to its idle frame, so animations can land
+   one slot at a time.
+
 ### Open questions
 
-- **Sprite art source and style.** Layered parts composed in code vs.
-  licensed pack vs. generated with an external model; 8-bit / 16-bit /
-  chunky. Being pressure-tested with a chat-built layered demo and sample
-  Claude / Midjourney prompts.
+- **Sprite style** (16-bit RPG vs. chunky) and which parts sheet to
+  commission first. Everything else is decided.
 
 ## Remaining work
 
