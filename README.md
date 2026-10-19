@@ -55,8 +55,9 @@ against Wikipedia, Open Library, or the live page before it is shown; rejects
 are logged, never displayed. The atlas remembers what you've read and suggests
 what's next door. Generation runs detached on the same headless `claude -p`
 path as stories (`scripts/atlas.ts`, never local qwen3), so a rung takes about
-a minute and a map a few. Design notes in `docs/atlas.md`. Coming next: a
-weekly frontier email and "Save for <child>" with a kid version.
+a minute and a map a few. Design notes, status, and the remaining-work spec (weekly frontier email,
+"Save for <child>" with a kid version, capture) live in `docs/atlas.md` —
+start there when picking Atlas back up.
 
 ## Stack
 
