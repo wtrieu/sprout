@@ -72,10 +72,142 @@ Rules the code enforces:
 - Rejected readings are the tuning data for the verifier thresholds
   (`THRESHOLDS` in `verify.ts`): `select kind,title,reject_reason from atlas_readings where status='rejected'`.
 
-## Roadmap
 
-1. **PR1 (this):** maps, node ladders, verified readings, visited state, skip.
-2. **PR2:** weekly frontier note — `lib/atlas/{frontier,email}.ts`, `job:atlas note`,
-   `infra/launchd/com.sprout.atlas.plist` (Wed 06:30), cards on `/atlas` and `/home`,
-   settings `atlasActiveMapId` / `atlasDelivery`.
-3. **PR3:** Save for the child with the kid version, bookmarks page, Add to Atlas seeds.
+## Status and how to resume
+
+**Shipped:** PR1 (#96, merged 2026-10-19) — maps, node ladders, verified
+readings, visited state, skip. Everything under "Remaining work" is still to
+do. The owner has PR1 feedback pending; fold it into PR2 unless it is a bug,
+in which case it goes first as its own small PR.
+
+To pick this up in a fresh session:
+
+1. Read this file top to bottom, then skim `apps/web/src/lib/atlas/` (start
+   with `rungs.ts` and `picker.ts`) and `scripts/atlas.ts`.
+2. Check the live data on the Mac mini before designing anything:
+   `select kind,title,reject_reason from atlas_readings where status='rejected'`
+   tells you whether the verifier thresholds need tuning. PR1 could not test
+   live verification — the cloud session's egress blocked Wikipedia, Open
+   Library and SEP, so every live proposal there was rejected with
+   `fetch failed`.
+3. Branch from `main` as `claude/atlas-<slug>`, run the three quality gates
+   before every push, never push to `main` (`.claude/loops/OPERATIONS.md`).
+4. Deploying a merge on the mini: `git pull && pnpm install &&
+   pnpm --filter web db:migrate && launchctl kickstart -k gui/$(id -u)/com.sprout.web`.
+
+### Owner feedback on PR1
+
+_(to be filled in by the owner, or copied here from the PR thread by the
+next session)_
+
+## Remaining work
+
+### PR2 — weekly frontier note (~800 LOC)
+
+One unvisited node a week, next to where the reader left off, pre-drafted
+overnight and delivered as its own midweek email with the whole one-pager
+inside. The table already exists (`atlas_frontier_picks`).
+
+- **`lib/atlas/frontier.ts`** — `weekStartOf(now)` (ISO Monday),
+  `activeMapId(db)` (setting `atlasActiveMapId` ?? oldest `ready` map),
+  `currentPick(db, weekStart)` (latest row for the week),
+  `runWeeklyFrontier(db, { llm, fetchImpl, send, now, force, log })`:
+  1. no ready map → log, exit 0;
+  2. a pick exists for this week and not `force` → "already delivered";
+  3. `pickFrontierNode(nodes, { pickedIds: all prior pick nodeIds })`
+     (`picker.ts` already orders child → sibling → next-branch → fallback);
+     null → "map complete";
+  4. `ensureRung(onepager)` then `ensureRung(deepdive)` so "Go deeper"
+     lands on a ready page (never auto-generate from a GET);
+  5. insert the pick row; deliver per `atlasDelivery`.
+- **`lib/atlas/email.ts`** — `renderFrontierEmail({ childName, map, branch,
+  node, rung, readings, links, progress })` → `{ subject: "Atlas · <node>",
+  html }`. Eyebrow "This week in Atlas · <map> › <branch>", h1, bold hook,
+  `mdToHtml(bodyMd)` (re-exported from `lib/email.ts`), "Read next" from
+  verified readings only, four plain `<a>` buttons, footer
+  "<visited>/<total> visited". Minimal inline styles, max-width 640px.
+- **Email links** (GET pages behind Cloudflare Access, base `SPROUT_BASE_URL`):
+  Open → `/atlas/<map>/<node>?from=note` (the visit beacon already stamps
+  `openedAt` on the pick); Go deeper → `?rung=deepdive&from=note`; Save for
+  the child → `?action=save&from=note` (PR3 panel; omit the link until then);
+  Skip this branch → `?action=skip&from=note` (the confirm bar already
+  pre-opens on this param).
+- **Settings** (`lib/settings.ts` whitelist): `atlasActiveMapId:
+  z.number().int().nullable()` default null; `atlasDelivery:
+  z.enum(["email","digest","app"])` default `"email"`. `digest` = prepend a
+  "This week in Atlas" section in `lib/digest.ts` `runWeeklyDigest` (~15
+  lines, optional); `app` = cards only.
+- **`scripts/atlas.ts note [--force]`** subcommand; `infra/launchd/
+  com.sprout.atlas.plist` cloned from `com.sprout.stories.plist` (PATH must
+  include `~/.local/bin`) plus the digest plist's `RESEND_API_KEY`,
+  `DIGEST_FROM`, `DIGEST_TO`, and `SPROUT_BASE_URL`; `StartCalendarInterval`
+  Weekday 3, 06:30; logs `/tmp/sprout-atlas.log`. README jobs-table row.
+  Also add the one-line `import "./env"` to `scripts/weekly-digest.ts`,
+  which the other scripts have and it lacks.
+- **Routes:** `GET /api/atlas/frontier` (current pick + node + readiness),
+  `POST /api/atlas/frontier/run { force? }` (spawns `note`; the manual "send
+  this week's note" button for the test fortnight), `PATCH /api/atlas/maps/[id]
+  { active: true }`.
+- **UI:** frontier card at the top of `/atlas` and a ~25-line server-side
+  card on `(app)/home/page.tsx`.
+- **Tests:** `frontier.test.ts` over the in-memory migrated DB with a canned
+  llm and a capturing `send`: pick row written, both rungs ready, four links
+  in the HTML, idempotent second run, `app` delivery sends nothing,
+  `--force` never repeats a node.
+- **Verify:** `EMAIL_DRY_RUN=true pnpm --filter web run job:atlas note` logs
+  the pick reason and `[email dry-run] subject: Atlas · …`; a second run says
+  already delivered; on the mini fill the plist, `launchctl load -w`,
+  `launchctl start com.sprout.atlas`, check the inbox.
+
+### PR3 — Save for the child, kid version, capture (~800 LOC)
+
+Tables already exist (`atlas_bookmarks`, `atlas_seeds`).
+
+- **`lib/atlas/kid.ts`** — `generateKidVersion(db, bookmarkId, deps)`:
+  read `children.name` and `ageInMonths(dob)` (never hardcode a name — code
+  elsewhere still says "Jun" in places); `ageBand(months)` from
+  `lib/skills/storyText.ts` supplies the `language` guidance; include
+  `NONFICTION_FLOOR` from `lib/stories/lanes.ts`. Budgets for `kid_md` by
+  band: <18 mo 60 words, <30 90, <48 130, else 180; `today` ≤ 40 words.
+  Prompt: re-explain THIS NODE (source of truth: the one-pager) for <name>,
+  <formatAge>, as words a parent would say aloud; include the parent's note;
+  then ONE question or tiny activity for today using ordinary things at
+  home. Validate budgets + Latin script; store `kidMd`, `kidToday`,
+  `kidAgeMonths`, flip `kidStatus`. `storyTopicForBookmark(node, bookmark)`
+  returns the topic a later "Make it a story" button would POST to
+  `/api/stories/express`; mark it `// HOOK(atlas-story)` and render the
+  button disabled.
+- **`lib/atlas/seeds.ts`** — `detectSeedKind(text)` (url / title / idea),
+  `placePendingSeeds(db, mapId, deps)`: one call per pending seed given the
+  map's node titles → `{ action: "attach" | "new_map" | "dismiss",
+  parentId?, title?, blurb?, kind?, reason }`; attach = insert a child node
+  with `seedId`, mark the seed `attached`; a URL seed also proposes a `web`
+  reading verified by `verifyReadings`. Hook into `scripts/atlas.ts note`
+  (before the pick; a freshly attached seed wins the week with reason
+  `seed`) and into `draft-map`.
+- **Routes:** `GET/POST /api/atlas/bookmarks` (`{ nodeId, note ≤600?,
+  targetAgeYears 1–25? | null }` → 201 + spawn `kid`), `PATCH/DELETE
+  /api/atlas/bookmarks/[id]` (`{ note?, targetAgeYears?, regenerateKid? }`),
+  `GET/POST /api/atlas/seeds` (`{ text 2–500 }`), `DELETE /api/atlas/seeds/[id]`,
+  and `scripts/atlas.ts kid --bookmark <id>`.
+- **UI:** Save panel on the node page (pre-opened by `?action=save`),
+  `/atlas/bookmarks` (note, target age, kid version with drafting state,
+  disabled "Make it a story"), "Add to Atlas" box + pending count on `/atlas`,
+  bookmark icon on the map outline. Optional drive-by: replace the hardcoded
+  "Jun" copy in `(app)/premises/page.tsx` with `child.name` (leave the
+  `why_for_jun` column alone).
+- **Tests:** `kid.test.ts` budgets by band + Latin-script check;
+  `seeds.test.ts` kind detection, placement validation, URL seed → verified
+  reading; `storyTopicForBookmark`.
+
+### Known gaps and follow-ups (not scheduled)
+
+- Readings rejected for *network* reasons are only retried by "Regenerate";
+  a cheap re-verify pass for `fetch failed` rows would be kinder.
+- The Mac mini's PATH/keychain for `claude` under the web process is the
+  same dependency stories have; a failed spawn shows as a `failed` row with
+  the error text, not a silent stall.
+- Judge latency: a rung is 60–90 s with the editor-judge on. `ATLAS_JUDGE=false`
+  drops it to roughly half.
+- `lib/stories/claudeCli.ts` is now shared by stories and Atlas; a later
+  cleanup could move it to `lib/claudeCli.ts` and re-export.
