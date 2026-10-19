@@ -77,8 +77,8 @@ Rules the code enforces:
 
 **Shipped:** PR1 (#96, merged 2026-10-19) — maps, node ladders, verified
 readings, visited state, skip. Everything under "Remaining work" is still to
-do. The owner has PR1 feedback pending; fold it into PR2 unless it is a bug,
-in which case it goes first as its own small PR.
+do. The owner's PR1 feedback (below) reorders it: the v2 track (PR-A → PR-D)
+comes **before** PR2 and PR3.
 
 To pick this up in a fresh session:
 
@@ -95,10 +95,132 @@ To pick this up in a fresh session:
 4. Deploying a merge on the mini: `git pull && pnpm install &&
    pnpm --filter web db:migrate && launchctl kickstart -k gui/$(id -u)/com.sprout.web`.
 
-### Owner feedback on PR1
+## Owner feedback on PR1 and the v2 direction (2026-10-19)
 
-_(to be filled in by the owner, or copied here from the PR thread by the
-next session)_
+Three problems with PR1, in the owner's words: (1) click-and-wait — the
+field submission and every page are generated on demand, and a one-line
+blurb does not hold attention for 60–90 s; (2) text is not always the best
+way to learn — diagrams, side-by-sides and maps belong in the page; (3)
+nothing tracks what has been learned, and there is no reason to come back.
+The fix for (3) is a game layer, and it is the owner's priority: the feel
+is Khan Academy mastery levels + Brilliant's skill tree + Dungeon Crawler
+Carl's system-that-notices-you + Balatro's collection grid with mastery
+stickers + RuneScape's levels and capes — a character that ends up unique
+to the learner because combinations of what they've learned produce things.
+
+### Decisions
+
+| Axis | Decision |
+|---|---|
+| Order | PR-A (speed) → PR-B (visuals) → PR-C (game foundation) → PR-D (engine), then PR2, PR3. |
+| Preload | Every one-pager is drafted as soon as a map is created, on a cheaper model than the deep-dive writer and **without** the editor-judge. A map may take a few minutes; the owner is notified (email **and** browser notification) when it is ready. Eli10 and deep dive stay on demand. |
+| Visuals | Model-drawn diagrams, side-by-sides and maps (geographic or concept, by context), labeled as model-drawn; real images only (e.g. Wikimedia), never generated art. Atlas may be less strict than the medical half of the app. |
+| Players | Per-person progress from the start: shared maps, separate progress, separate characters. Built for the owner and their wife first; extended family / other users later. Sharing map, character and achievements between players is an option, never forced. |
+| "Learned" | Quizzes are **in** (reversed from the first pass): a node is mastered by reading + a quiz, not by a trust-based "mark complete". No flashcards or spaced-recall prompts. |
+| Mastery | Three layers, levels never drop (below). No hard locks anywhere: unexplored nodes are fog, always clickable. |
+| Achievements | A small hand-written base plus a nightly model pass over the activity log that grants one-off hidden achievements, titles and class offers. The action vocabulary must be extensible (new verbs = data, not code). |
+| Persona | The learner picks one of two system voices (below). Family-friendly: the child may see the screen. |
+| Classes | Offered at total-level gates (below). Change title, look, persona treatment, suggestion tilt and one habit perk; never lock content. |
+| Sprite | Open — see "Open questions". Lean on Claude / Midjourney-class tools; the storybook image worker stays tabled. Still sprite with gear/effects is the v1 floor; animations follow. |
+| Tabled | Eurekas (real-world actions that accelerate a branch), audio narration (own branch, next phase), the local image generator. |
+
+### Mastery: three layers
+
+1. **Branches are the skills.** Each branch (Ethics, Metaphysics, …) levels
+   1–99; XP is scaled to the branch's node count so a small branch and a
+   large one both mean "fully mastered" at 99. 99 earns the branch's skill
+   cape.
+2. **Fields are the maps.** A field shows its own total, e.g.
+   `Philosophy 412 / 594`. Maxing every branch earns the field cape; several
+   field capes earn a trimmed / polymath cape.
+3. **Disciplines are the account-wide spine.** A small fixed set of
+   cross-field skills — Reasoning, Evidence, Language, Systems, Creativity —
+   that every node is tagged to at draft time, so they level as a byproduct.
+   The account-wide total level is the sum of disciplines, which stays
+   stable and comparable as fields are added, and rewards transfer (logic in
+   Philosophy and in Math both feed Reasoning).
+
+Per node, the ladder is the mastery tier (Balatro stickers): eli10 →
+one-pager → deep dive, each stamped on the collection grid, with the quiz as
+the gate to "mastered". Unseen nodes are `?` slots.
+
+### The engine (Dungeon Crawler Carl)
+
+- **Actions are the raw material.** PR1 has four (open, read a rung, skip,
+  complete). Planned additions, all logged as typed events: pass a quiz,
+  write a one-line takeaway, add a seed (PR3 capture), save for the child
+  (PR3), discuss with the other player, read a suggested book, start a
+  second field. The event log is the single input to every reward.
+- **Hidden achievements** fire on specific, sometimes absurd behavior
+  ("three Stoics before 6 am → *Dawn Ascetic*"). The nightly pass reads the
+  week's events + the learner's history and grants at most a few; a base
+  rule set covers the obvious milestones deterministically.
+- **Combination beats raw power.** Cross-field discipline mixes are the
+  source of rare wildcard classes.
+
+### Persona (pick one at character creation)
+
+1. **The obsessive cartographer** — a fussy archivist who has spent forever
+   charting the field and cannot finish alone; your finds fill its map. It
+   is thrilled by rare finds, complains about half-documented entries,
+   grumbles at unexplored regions. Humor points at its obsessions and at the
+   material, never at you. Loot = *expedition supplies* it sends for good
+   finds. (Blathers in Animal Crossing.)
+2. **The protégé** — a naive entity (young AI, apprentice creature) you are
+   teaching; its skill tree is what you've taught it. It misapplies concepts
+   in funny ways and gets things right only when you did. Flips the
+   positioning (you are the expert being watched) and uses the protégé
+   effect (Betty's Brain). Loot = *gifts* it brings back from adventures
+   using what you taught it.
+
+### Classes
+
+- Offers arrive at total-level gates the learner can see coming; contents
+  are built from what they actually did, and an offer waits if there is not
+  enough signal yet.
+- Three options: two reflecting the learner's pattern, one rare wildcard
+  unlocked by a hidden achievement. Offered at session end alongside loot,
+  never mid-lesson; soft deadline with a default.
+- A class = **domain affinity** (quantitative / historical / creative …) ×
+  **engagement style** (scouts widely / goes deep / connects / questions),
+  e.g. "Quantitative Tinkerer", "Historical Skeptic". Later gates offer
+  specializations.
+- Changes: title and look (avatar, map styling, frames); persona treatment
+  (nicknames, which expeditions/quests it sends); a suggestion tilt plus
+  class-only side quests; one perk that nudges a good habit (Scout sees
+  further past the fog, Scholar earns bonus mastery from reviews). No
+  learning-style matching — vary emphasis and context, not format.
+- Titles and class history are permanent on the profile; effects respec at
+  the next tier, or early with a rare item.
+
+### Delivery order
+
+- **PR-A — speed.** Preload all one-pagers on map creation (cheaper writer,
+  no judge), ready-notification by email + web push, node page shows the
+  one-pager instantly.
+- **PR-B — visuals.** Diagram / side-by-side / map blocks in rungs
+  (model-drawn, labeled) and verified real images.
+- **PR-C — game foundation.** Players and per-player progress, the event
+  log, quizzes, node tiers, branch/field/discipline levels, the map as a
+  skill tree with fog, the collection grid. Persona choice and voice.
+- **PR-D — engine.** Nightly achievement pass, class offers, loot, the
+  sprite.
+- Then PR2 (weekly frontier note) and PR3 (save for the child, capture),
+  both re-based on the event log.
+
+### Open questions
+
+- **Quiz shape.** Drafted with the one-pager during preload (one extra
+  call per node) vs. on demand; size (3 questions?); pass bar; whether a
+  failed quiz costs anything or just withholds the stamp.
+- **Sprite art source and style.** Layered parts composed in code vs.
+  licensed pack vs. generated with an external model; 8-bit / 16-bit /
+  chunky.
+- **Session.** Offers and loot land "at session end" — needs a definition
+  (N minutes idle, or an explicit "done for today").
+- **Loot contents.** Cosmetics only, or also respec items and fog-reveals.
+- **Sharing scope.** Between household players only, or a public read-only
+  profile link.
 
 ## Remaining work
 
