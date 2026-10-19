@@ -10,6 +10,7 @@ import type { DB } from "../../db/client";
 import type { AtlasLlm } from "./llm";
 import {
   MAX_NODES,
+  MIN_KEEP_CHILDREN,
   MapOutlineSchema,
   buildChildrenPrompt,
   draftMap,
@@ -72,6 +73,16 @@ describe("normalizeMapDraft", () => {
   it("keeps a branch with no children rather than dropping it", () => {
     const draft = normalizeMapDraft(outlineOf(6), [[], [], [], [], [], []]);
     expect(draft.branches).toHaveLength(6);
+  });
+
+  it("never trims a branch below the per-branch floor, even past the cap", () => {
+    const outline = outlineOf(16);
+    const draft = normalizeMapDraft(outline, childrenOf(16, 6)); // 16 + 96 = 112 nodes
+    expect(draft.branches.every((b) => b.children.length === MIN_KEEP_CHILDREN)).toBe(true);
+    const total = draft.branches.reduce((n, b) => n + 1 + b.children.length, 0);
+    expect(total).toBe(16 + 16 * MIN_KEEP_CHILDREN); // 64 > MAX_NODES, by design
+    // Trimming drops the lowest-ranked children, so the first three survive.
+    expect(draft.branches[0].children.map((c) => c.title)).toEqual(["Child 0-0", "Child 0-1", "Child 0-2"]);
   });
 });
 

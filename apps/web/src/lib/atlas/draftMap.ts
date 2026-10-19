@@ -17,7 +17,14 @@ import { atlasMaps, atlasNodes, type AtlasNodeKind } from "../../db/schema";
 import { atlasModels, cliLlm, type AtlasLlm } from "./llm";
 import { normalizeTitle } from "./verify";
 
-export const MAX_NODES = 50;
+/** Soft cap on nodes per map: trimming stops at the per-branch floor below. */
+export const MAX_NODES = 60;
+/**
+ * Trimming never takes a branch under this many children — a 14-branch
+ * philosophy map once lost Aristotle to a hard cap, and the owner's bar is
+ * "beats the bookstore book", not "fits in 50 rows".
+ */
+export const MIN_KEEP_CHILDREN = 3;
 export const MIN_BRANCHES = 6;
 export const MAX_BRANCHES = 16;
 export const MIN_CHILDREN = 1;
@@ -92,9 +99,9 @@ Rules:
 - Plain text in every string: no markdown, no quotation marks around titles.`;
 
 /**
- * Dedupe titles across the whole map (first occurrence wins), trim to
- * MAX_NODES by dropping the lowest-ranked children of the largest branches,
- * and assign positions.
+ * Dedupe titles across the whole map (first occurrence wins), trim toward
+ * MAX_NODES by dropping the lowest-ranked children of the largest branches
+ * (never below MIN_KEEP_CHILDREN per branch), and assign positions.
  */
 export const normalizeMapDraft = (
   outline: MapOutline,
@@ -123,8 +130,9 @@ export const normalizeMapDraft = (
 
   const total = () => branches.reduce((n, b) => n + 1 + b.children.length, 0);
   while (total() > MAX_NODES) {
-    const largest = branches.reduce((a, b) => (b.children.length > a.children.length ? b : a));
-    if (largest.children.length === 0) break;
+    const trimmable = branches.filter((b) => b.children.length > MIN_KEEP_CHILDREN);
+    if (trimmable.length === 0) break;
+    const largest = trimmable.reduce((a, b) => (b.children.length > a.children.length ? b : a));
     largest.children.pop();
   }
 
