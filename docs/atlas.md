@@ -179,8 +179,8 @@ the gate to "mastered". Unseen nodes are `?` slots.
   are built from what they actually did, and an offer waits if there is not
   enough signal yet.
 - Three options: two reflecting the learner's pattern, one rare wildcard
-  unlocked by a hidden achievement. Offered at session end alongside loot,
-  never mid-lesson; soft deadline with a default.
+  unlocked by a hidden achievement. Never mid-lesson: an offer queues and is
+  revealed on the next map screen, like loot; soft deadline with a default.
 - A class = **domain affinity** (quantitative / historical / creative …) ×
   **engagement style** (scouts widely / goes deep / connects / questions),
   e.g. "Quantitative Tinkerer", "Historical Skeptic". Later gates offer
@@ -208,19 +208,27 @@ the gate to "mastered". Unseen nodes are `?` slots.
 - Then PR2 (weekly frontier note) and PR3 (save for the child, capture),
   both re-based on the event log.
 
+### Quizzes, loot, sharing (settled 2026-10-19)
+
+- **Quiz:** drafted with the one-pager during preload (one extra call per
+  node), three questions, all correct for the stamp, retry freely, no cost
+  on failure. Levels never drop.
+- **Loot lands on achievements, not sessions.** There is no "session";
+  every achievement carries a loot box, queued and revealed on the next map
+  screen (never mid-lesson). Contents: cosmetics (frames, map styles, sprite
+  gear) plus a few functional items — respec tokens, fog-reveals, and
+  early access to a **rare node** (a node the draft marks rare; its blurb
+  and one-pager open before its neighbors do).
+- **Sharing:** between the household's players only (each sees the other's
+  character and achievements). No public profile; everything stays behind
+  Cloudflare Access.
+
 ### Open questions
 
-- **Quiz shape.** Drafted with the one-pager during preload (one extra
-  call per node) vs. on demand; size (3 questions?); pass bar; whether a
-  failed quiz costs anything or just withholds the stamp.
 - **Sprite art source and style.** Layered parts composed in code vs.
   licensed pack vs. generated with an external model; 8-bit / 16-bit /
-  chunky.
-- **Session.** Offers and loot land "at session end" — needs a definition
-  (N minutes idle, or an explicit "done for today").
-- **Loot contents.** Cosmetics only, or also respec items and fog-reveals.
-- **Sharing scope.** Between household players only, or a public read-only
-  profile link.
+  chunky. Being pressure-tested with a chat-built layered demo and sample
+  Claude / Midjourney prompts.
 
 ## Remaining work
 
