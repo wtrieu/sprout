@@ -9,6 +9,7 @@ const navItems = [
   { href: "/stories", label: "Stories" },
   { href: "/activities", label: "Activities" },
   { href: "/visit-prep", label: "Visit prep" },
+  { href: "/atlas", label: "Atlas" },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {

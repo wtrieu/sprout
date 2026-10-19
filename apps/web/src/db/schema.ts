@@ -6,6 +6,7 @@ import {
   blob,
   index,
   uniqueIndex,
+  type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 
 // ---------------------------------------------------------------------------
@@ -641,3 +642,229 @@ export const activities = sqliteTable("activities", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// ---------------------------------------------------------------------------
+// Module C — Atlas: the parent's own curiosity atlas. A map is a field
+// (philosophy) drafted as a two-level tree of nodes; each node carries a
+// ladder of rungs (like I'm 10 / one-pager / deep dive) generated on demand
+// and cached, plus readings that were machine-verified to exist before they
+// are ever shown. Nothing here is child-facing until a bookmark asks for it.
+// ---------------------------------------------------------------------------
+
+export const atlasStatuses = ["drafting", "ready", "failed"] as const;
+export type AtlasStatus = (typeof atlasStatuses)[number];
+
+export const atlasMaps = sqliteTable("atlas_maps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  blurb: text("blurb"),
+  // What the drafter was told: a preset brief and/or the owner's own words.
+  brief: text("brief"),
+  // The row doubles as the job status the UI polls while drafting.
+  status: text("status", { enum: atlasStatuses }).notNull().default("drafting"),
+  error: text("error"),
+  model: text("model"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  readyAt: integer("ready_at", { mode: "timestamp" }),
+});
+
+export const atlasNodeKinds = ["branch", "school", "thinker", "concept", "text"] as const;
+export type AtlasNodeKind = (typeof atlasNodeKinds)[number];
+
+// Two levels only: branches (parentId null) and their children. Depth is
+// derived from parentId, never stored.
+export const atlasNodes = sqliteTable(
+  "atlas_nodes",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    mapId: integer("map_id")
+      .notNull()
+      .references(() => atlasMaps.id, { onDelete: "cascade" }),
+    parentId: integer("parent_id").references((): AnySQLiteColumn => atlasNodes.id, {
+      onDelete: "cascade",
+    }),
+    position: integer("position").notNull(),
+    title: text("title").notNull(),
+    // One line: the live question this node answers.
+    blurb: text("blurb").notNull(),
+    kind: text("kind", { enum: atlasNodeKinds }).notNull().default("concept"),
+    // "Skip this branch": the subtree drops out of frontier selection.
+    skipped: integer("skipped", { mode: "boolean" }).notNull().default(false),
+    skippedAt: integer("skipped_at", { mode: "timestamp" }),
+    // First open / most recent open — the atlas's memory of where you've been.
+    visitedAt: integer("visited_at", { mode: "timestamp" }),
+    lastOpenedAt: integer("last_opened_at", { mode: "timestamp" }),
+    visitCount: integer("visit_count").notNull().default(0),
+    // Set when an owner-captured seed created this node (no FK: seeds also
+    // point back at nodes, and the pair would be circular).
+    seedId: integer("seed_id"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index("atlas_nodes_map_parent_idx").on(t.mapId, t.parentId, t.position)],
+);
+
+export const atlasRungLevels = ["eli10", "onepager", "deepdive"] as const;
+export type AtlasRungLevel = (typeof atlasRungLevels)[number];
+
+// One row per (node, level). The row IS the generation status: it is inserted
+// as `drafting` before the headless run spawns and flipped to ready/failed
+// when the run lands, so the UI only ever polls this table.
+export const atlasRungs = sqliteTable(
+  "atlas_rungs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    nodeId: integer("node_id")
+      .notNull()
+      .references(() => atlasNodes.id, { onDelete: "cascade" }),
+    level: text("level", { enum: atlasRungLevels }).notNull(),
+    status: text("status", { enum: atlasStatuses }).notNull().default("drafting"),
+    // One-line hook shown above the body (and as the email's bold line).
+    hook: text("hook"),
+    // Markdown restricted to the subset lib/markdown.ts renders. Never
+    // contains links: every link comes from atlas_readings.
+    bodyMd: text("body_md"),
+    wordCount: integer("word_count"),
+    model: text("model"),
+    // Editor-judge verdict JSON (one-pager and deep dive only).
+    judgeVerdict: text("judge_verdict"),
+    error: text("error"),
+    startedAt: integer("started_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    readyAt: integer("ready_at", { mode: "timestamp" }),
+    readAt: integer("read_at", { mode: "timestamp" }),
+    readCount: integer("read_count").notNull().default(0),
+  },
+  (t) => [uniqueIndex("atlas_rungs_node_level_idx").on(t.nodeId, t.level)],
+);
+
+export const atlasReadingKinds = ["wikipedia", "book", "web"] as const;
+export type AtlasReadingKind = (typeof atlasReadingKinds)[number];
+
+// Every reading the model ever proposed, with its verification outcome.
+// Only status='verified' rows are shown anywhere; rejected rows are the
+// "logged, never shown" record used to tune the verifier.
+export const atlasReadings = sqliteTable(
+  "atlas_readings",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    nodeId: integer("node_id")
+      .notNull()
+      .references(() => atlasNodes.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: atlasReadingKinds }).notNull(),
+    title: text("title").notNull(),
+    author: text("author"),
+    // Canonical URL from the verifier (always set on verified rows); the
+    // model's proposed URL, if any, on rejected rows.
+    url: text("url"),
+    // The model's one-line reason this reading is worth the time.
+    why: text("why"),
+    status: text("status", { enum: ["verified", "rejected"] }).notNull(),
+    verifiedVia: text("verified_via", {
+      enum: ["wikipedia_summary", "openlibrary", "url_title"],
+    }),
+    rejectReason: text("reject_reason"),
+    proposedBy: text("proposed_by", { enum: ["onepager", "deepdive", "seed"] }).notNull(),
+    // First sentence of the Wikipedia extract, when available.
+    snippet: text("snippet"),
+    position: integer("position").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index("atlas_readings_node_status_idx").on(t.nodeId, t.status)],
+);
+
+export const atlasFrontierReasons = ["child", "sibling", "next-branch", "fallback", "seed"] as const;
+export type AtlasFrontierReason = (typeof atlasFrontierReasons)[number];
+
+// The weekly frontier note's log: one node per week, never repeated.
+// Idempotency per week is enforced in code (a plain index, not unique) so a
+// forced re-run can add a second row; the latest row for a week is current.
+export const atlasFrontierPicks = sqliteTable(
+  "atlas_frontier_picks",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    mapId: integer("map_id")
+      .notNull()
+      .references(() => atlasMaps.id, { onDelete: "cascade" }),
+    nodeId: integer("node_id")
+      .notNull()
+      .references(() => atlasNodes.id, { onDelete: "cascade" }),
+    weekStart: text("week_start").notNull(), // ISO date of the Monday
+    reason: text("reason", { enum: atlasFrontierReasons }).notNull(),
+    deliveredVia: text("delivered_via", { enum: ["email", "digest", "app"] }),
+    emailSentAt: integer("email_sent_at", { mode: "timestamp" }),
+    resendId: text("resend_id"),
+    // Stamped when the parent clicks through from the note.
+    openedAt: integer("opened_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    index("atlas_frontier_picks_week_idx").on(t.weekStart),
+    index("atlas_frontier_picks_node_idx").on(t.nodeId),
+  ],
+);
+
+// "Save for <child>": the node, why it mattered to the parent, an optional
+// target age (time capsule), and the kid version generated at save time.
+export const atlasBookmarks = sqliteTable(
+  "atlas_bookmarks",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    nodeId: integer("node_id")
+      .notNull()
+      .references(() => atlasNodes.id, { onDelete: "cascade" }),
+    childId: integer("child_id")
+      .notNull()
+      .references(() => children.id),
+    note: text("note"),
+    targetAgeYears: integer("target_age_years"),
+    kidStatus: text("kid_status", { enum: atlasStatuses }).notNull().default("drafting"),
+    kidMd: text("kid_md"),
+    // The one question or tiny activity for today.
+    kidToday: text("kid_today"),
+    kidAgeMonths: integer("kid_age_months"),
+    kidError: text("kid_error"),
+    // HOOK(atlas-story): set when a later "Make it a story" button commissions
+    // a nonfiction book from this bookmark. Unused until then.
+    storyId: integer("story_id").references(() => stories.id),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("atlas_bookmarks_node_idx").on(t.nodeId)],
+);
+
+export const atlasSeedKinds = ["title", "url", "idea"] as const;
+export type AtlasSeedKind = (typeof atlasSeedKinds)[number];
+
+// "Add to Atlas": something the owner brought (a title, a link, a half-formed
+// idea). The next draft attaches it to the right place or starts a new map.
+export const atlasSeeds = sqliteTable(
+  "atlas_seeds",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    text: text("text").notNull(),
+    kind: text("kind", { enum: atlasSeedKinds }).notNull(),
+    url: text("url"),
+    status: text("status", { enum: ["pending", "attached", "new_map", "dismissed"] })
+      .notNull()
+      .default("pending"),
+    // The placer's reason, or the proposed new map title.
+    resolution: text("resolution"),
+    nodeId: integer("node_id").references(() => atlasNodes.id, { onDelete: "set null" }),
+    mapId: integer("map_id").references(() => atlasMaps.id, { onDelete: "set null" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    resolvedAt: integer("resolved_at", { mode: "timestamp" }),
+  },
+  (t) => [index("atlas_seeds_status_idx").on(t.status)],
+);

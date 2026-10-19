@@ -46,6 +46,18 @@ on Claude for a quality lift:
   decisions, flags stale guidance, reviews pending source suggestions
   (report-only, in `data/audits/`). Requires the API key.
 
+## Atlas (the parent's own curiosity module)
+
+`/atlas` is for the grown-up. Pick a field (Philosophy ships as a preset), the
+app drafts a two-level map of it, and every node carries a ladder: *like I'm
+10*, a one-pager, a deep dive with further reading. Every reading is verified
+against Wikipedia, Open Library, or the live page before it is shown; rejects
+are logged, never displayed. The atlas remembers what you've read and suggests
+what's next door. Generation runs detached on the same headless `claude -p`
+path as stories (`scripts/atlas.ts`, never local qwen3), so a rung takes about
+a minute and a map a few. Design notes in `docs/atlas.md`. Coming next: a
+weekly frontier email and "Save for <child>" with a kid version.
+
 ## Stack
 
 Next.js 15 (App Router) · TypeScript · SQLite + Drizzle · Tailwind v4 · Ollama
@@ -109,6 +121,7 @@ batch time.
 | Weekly activities | Sun 06:00 | `pnpm --filter web run job:activities` |
 | Weekly digest email | Sun 06:30 | `pnpm --filter web run job:digest` |
 | Drain queue only | — | `pnpm --filter web run job:run` |
+| Atlas drafts (map outline, rungs) | on demand, detached from the app | `pnpm --filter web run job:atlas rung --node <id> --level onepager` |
 
 Install launchd agents (after fixing paths/env in the plists):
 
