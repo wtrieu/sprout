@@ -66,7 +66,9 @@ Rules the code enforces:
 
 - Env: `ATLAS_MODEL_WRITER` (default `claude-fable-5`), `ATLAS_MODEL_JUDGE`
   (default `claude-sonnet-5`), `ATLAS_JUDGE=false` to skip the editor-judge
-  on one-pagers and deep dives (faster, less checked).
+  on deep dives (faster, less checked). PR-A adds `ATLAS_MODEL_ONEPAGER`
+  (default `claude-sonnet-5`; one-pagers are never judged) and
+  `ATLAS_PRELOAD_WORKERS` (default 3).
 - By hand: `pnpm --filter web run job:atlas draft-map --map <id>` and
   `pnpm --filter web run job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]`.
 - Rejected readings are the tuning data for the verifier thresholds
@@ -113,7 +115,7 @@ to the learner because combinations of what they've learned produce things.
 | Axis | Decision |
 |---|---|
 | Order | PR-A (speed) → PR-B (visuals) → PR-C (game foundation) → PR-D (engine), then PR2, PR3. |
-| Preload | Every one-pager is drafted as soon as a map is created, on a cheaper model than the deep-dive writer and **without** the editor-judge. A map may take a few minutes; the owner is notified (email **and** browser notification) when it is ready. Eli10 and deep dive stay on demand. |
+| Preload | Every one-pager (with its quiz) is drafted as soon as a map is created, on Sonnet and **without** the editor-judge. A map may take some minutes; the owner gets one email when it is ready (push notifications deferred). Eli10 and deep dive stay on demand. |
 | Visuals | Model-drawn diagrams, side-by-sides and maps (geographic or concept, by context), labeled as model-drawn; real images only (e.g. Wikimedia), never generated art. Atlas may be less strict than the medical half of the app. |
 | Players | Per-person progress from the start: shared maps, separate progress, separate characters. Built for the owner and their wife first; extended family / other users later. Sharing map, character and achievements between players is an option, never forced. |
 | "Learned" | Quizzes are **in** (reversed from the first pass): a node is mastered by reading + a quiz, not by a trust-based "mark complete". No flashcards or spaced-recall prompts. |
@@ -195,9 +197,10 @@ the gate to "mastered". Unseen nodes are `?` slots.
 
 ### Delivery order
 
-- **PR-A — speed.** Preload all one-pagers on map creation (cheaper writer,
-  no judge), ready-notification by email + web push, node page shows the
-  one-pager instantly.
+- **PR-A — speed.** Preload all one-pagers and their quizzes on map
+  creation (Sonnet, no judge), one "map is ready" email (push
+  notifications deferred: they need a service worker, VAPID keys and an
+  installed app on iOS), node page shows the one-pager instantly.
 - **PR-B — visuals.** Diagram / side-by-side / map blocks in rungs
   (model-drawn, labeled) and verified real images.
 - **PR-C — game foundation.** Players and per-player progress, the event
@@ -231,6 +234,89 @@ the gate to "mastered". Unseen nodes are `?` slots.
   Claude / Midjourney prompts.
 
 ## Remaining work
+
+### PR-A — preloaded one-pagers and quizzes (~500 LOC)
+
+Goal: after "Start a map", the owner gets one email when every one-pager
+(and its quiz) is ready, and from then on every node opens instantly.
+Eli10 and deep dive stay on demand.
+
+- **Models.** `atlasModels()` gains `onepager: ATLAS_MODEL_ONEPAGER ??
+  "claude-sonnet-5"`. A one-pager is always written on that model and is
+  never judged, whatever triggered it (preload or the node page); deep
+  dives keep `writer` + judge, eli10 keeps `writer`, no judge. `ensureRung`
+  picks the model and the judge flag from `level`, so the route and the
+  preload share one path.
+- **Quiz in the same call.** For `onepager`, `RungDraftSchema` adds
+  `quiz: 3 × { question, choices[4], answer: 0–3, why }` (choices
+  distinct, `why` ≤ 240 chars, one sentence). `validateQuiz` lints it and
+  rides the existing one-repair-pass; a broken quiz after repair fails the
+  rung like a broken body does. Stored as `atlas_rungs.quiz_json`
+  (nullable text, **migration 0014**). PR-C builds the answering UI and
+  the mastery stamp; PR-A only drafts and stores.
+- **`lib/atlas/preload.ts`** — `preloadMap(db, mapId, { shard, shards,
+  llm, fetchImpl, send, log })`:
+  1. nodes of the map ordered by id, keep those with `id % shards ===
+     shard`, skipping branch nodes if branches have no rungs (they do: a
+     branch is a node like any other — keep them in);
+  2. for each: if the one-pager is `drafting` and not stale, skip; else
+     `ensureRung(onepager)` (ready rows are a no-op);
+  3. for each ready one-pager with `quiz_json` null (the live Philosophy
+     map): one quiz-only call, `buildQuizPrompt(context, onepagerMd)` →
+     `QuizSchema`, store. This is the backfill for maps drafted before
+     PR-A;
+  4. when this shard is done: if no rung of the map is still `drafting`
+     and every node has a ready-or-failed one-pager, atomically claim the
+     notification: `update atlas_maps set notified_at = now where id = ?
+     and notified_at is null` — the shard whose update returns a row sends
+     the email, so two shards finishing together cannot send twice.
+  `callClaude` is `spawnSync`, so one process is serial; the web process
+  spawns `ATLAS_PRELOAD_WORKERS` (default 3) detached shards. At ~30–45 s
+  per one-pager on Sonnet without the judge, a 45-node map lands in
+  roughly 10–15 min with three workers, 30–45 min with one.
+- **Map status.** The map flips to `ready` after the outline exactly as
+  today (browsable fog within ~2 min); preload progress is derived from
+  rung rows, no new status enum. New column `atlas_maps.notified_at`
+  (migration 0014). `draftMap` spawns the shards as its last step; the
+  `POST /api/atlas/maps/[id]/preload` route re-spawns them by hand (the
+  "Prepare the rest" button, and the backfill for existing maps). Rung
+  reaping is unchanged: each rung row is marked `drafting` only when its
+  turn comes, so `RUNG_STALE_MS` still describes one rung.
+- **`lib/atlas/email.ts`** — `renderMapReadyEmail({ map, branchCount,
+  nodeCount, readyCount, failedCount, starts, baseUrl })` → `{ subject:
+  "Atlas · <map> is ready", html }`: blurb, counts, three suggested first
+  nodes (first unvisited child of the first three branches, each with
+  its hook) linking to `/atlas/<map>/<node>`, and one link to the map.
+  Minimal inline styles, max-width 640px, `mdToHtml` for the blurb.
+  `sendEmail` from `lib/email.ts`; `EMAIL_DRY_RUN=true` logs instead.
+  The web process spawns the shards with its own env, so
+  `com.sprout.web.plist` must carry `RESEND_API_KEY`, `DIGEST_FROM`,
+  `DIGEST_TO` and `SPROUT_BASE_URL` (copy from the digest plist) or the
+  ready mail is a dry-run line in `/tmp/sprout-web.log`.
+- **`scripts/atlas.ts preload --map <id> [--shard k --shards n]`**;
+  README jobs-table row. `rung` is unchanged.
+- **UI.** `/atlas/[mapId]`: a "Preparing · 12 / 43 one-pagers" line under
+  the title while any one-pager is missing or drafting, polling every 5 s
+  as it does for a drafting map; a "Prepare the rest" button when some
+  are failed or missing and nothing is drafting. `/atlas/[mapId]/[nodeId]`:
+  when the one-pager is neither ready nor drafting, POST it automatically
+  on mount (today it waits for a click); the status line reads "Writing
+  this page… (about a minute)" instead of the generic drafting text.
+  `/atlas` cards show "ready · 43 pages" vs "preparing · 12 / 43".
+- **Tests.** `rungs.test.ts`: a one-pager uses the onepager model and
+  makes no judge call; the quiz is validated and stored; a bad quiz
+  triggers the repair pass. `preload.test.ts` over the in-memory DB with a
+  canned llm and a capturing `send`: shards partition the nodes exactly
+  once; a second run drafts nothing; quiz backfill fills only null rows;
+  two shards finishing "together" produce one email; a map with a failed
+  one-pager still notifies and the email says so. `email.test.ts`: subject,
+  three start links, map link.
+- **Verify.** Locally: `EMAIL_DRY_RUN=true pnpm --filter web run job:atlas
+  preload --map 1` logs each rung and ends with `[email dry-run] subject:
+  Atlas · Philosophy is ready`; a second run logs only skips. On the mini:
+  fill the web plist env, `launchctl kickstart -k`, press "Prepare the
+  rest" on the Philosophy map, watch `select level,status,count(*) from
+  atlas_rungs group by 1,2`, check the inbox.
 
 ### PR2 — weekly frontier note (~800 LOC)
 
