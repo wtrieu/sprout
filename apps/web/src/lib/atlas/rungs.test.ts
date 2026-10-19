@@ -10,10 +10,13 @@ import type { DB } from "../../db/client";
 import type { AtlasLlm } from "./llm";
 import {
   assembleDeepdive,
+  buildQuizPrompt,
   buildRungPrompt,
   ensureRung,
+  validateQuiz,
   validateRungBody,
   wordCount,
+  type QuizQuestion,
 } from "./rungs";
 import type { FetchLike } from "./verify";
 
@@ -79,6 +82,29 @@ const words = (n: number, prefix = "w") =>
   Array.from({ length: n }, (_, i) => `${prefix}${i}`).join(" ");
 
 const ONEPAGER = `### The question\n${words(120)}\n\n### The move\n${words(120, "m")}\n\n### Where it bites\n${words(110, "b")}`;
+const QUIZ: QuizQuestion[] = [
+  {
+    question: "What is the only thing a Stoic says you control?",
+    choices: ["Your judgments", "Your reputation", "Your health", "Your family"],
+    answer: 0,
+    why: "The dichotomy of control puts only your own judgments on your side of the line.",
+  },
+  {
+    question: "What does apatheia mean here?",
+    choices: ["Not caring", "Freedom from misjudged passion", "Pleasure", "Silence"],
+    answer: 1,
+    why: "It is freedom from passions built on bad judgments, not numbness.",
+  },
+  {
+    question: "Which exercise is Stoic?",
+    choices: ["Premeditating setbacks", "Fasting for purity", "Oracle reading", "Debate for sport"],
+    answer: 0,
+    why: "Premeditatio malorum rehearses losses so they find you prepared.",
+  },
+];
+const BAD_QUIZ: QuizQuestion[] = QUIZ.map((q, i) =>
+  i === 0 ? { ...q, choices: ["Same", "Same", "Other", "More"] } : q,
+);
 const DEEPDIVE = ["Origins", "Figures", "Debates", "Influence", "Misreadings"]
   .map((h, i) => `### ${h}\n${words(200, `d${i}`)}`)
   .join("\n\n");
@@ -86,13 +112,19 @@ const ELI10 = words(150, "k");
 
 /** Routes on prompt content, so call order is a consequence rather than a script. */
 const fakeLlm =
-  (calls: string[], overrides: { onepagerBody?: string } = {}): AtlasLlm =>
+  (
+    calls: string[],
+    overrides: { onepagerBody?: string; quiz?: QuizQuestion[]; repairedQuiz?: QuizQuestion[] } = {},
+    models: string[] = [],
+  ): AtlasLlm =>
   (prompt, zschema, opts) => {
     calls.push(opts.label ?? "?");
+    models.push(opts.model);
     let out: unknown;
     if (prompt.includes('"verdict": "approve" | "revise"')) {
       out = { verdict: "approve", problems: [], fixes: [] };
     } else if (prompt.includes("Write the ONE-PAGER")) {
+      const repairing = prompt.includes("an editor flagged problems");
       out = {
         hook: "The only thing in your power is your own mind.",
         body_md: overrides.onepagerBody ?? ONEPAGER,
@@ -100,6 +132,7 @@ const fakeLlm =
           { kind: "wikipedia", title: "Stoicism", why: "the overview" },
           { kind: "book", title: "Meditations", author: "Marcus Aurelius", why: "the diary" },
         ],
+        quiz: repairing ? (overrides.repairedQuiz ?? overrides.quiz ?? QUIZ) : (overrides.quiz ?? QUIZ),
       };
     } else if (prompt.includes("Write the DEEP DIVE")) {
       out = {
@@ -211,6 +244,27 @@ describe("mechanical checks", () => {
     expect(buildRungPrompt("deepdive", { context: ctx, onepagerMd: "ONE" })).toContain("ONE");
     expect(buildRungPrompt("eli10", { context: ctx, onepagerMd: "ONE" })).toContain("never by making things up");
   });
+
+  it("asks for the quiz only in the one-pager prompt, and in the backfill prompt", () => {
+    const ctx = "MAP: Philosophy\nTHIS NODE (school): Stoicism — ?";
+    expect(buildRungPrompt("onepager", { context: ctx })).toContain("QUIZ:");
+    expect(buildRungPrompt("deepdive", { context: ctx, onepagerMd: "ONE" })).not.toContain("QUIZ:");
+    expect(buildRungPrompt("eli10", { context: ctx, onepagerMd: "ONE" })).not.toContain("QUIZ:");
+    const backfill = buildQuizPrompt({ context: ctx, onepagerMd: "ONE" });
+    expect(backfill).toContain("QUIZ:");
+    expect(backfill).toContain("ONE");
+  });
+
+  it("lints the quiz: exactly three questions, distinct choices, one-sentence why", () => {
+    expect(validateQuiz(QUIZ)).toEqual([]);
+    expect(validateQuiz(null).join(" | ")).toContain("exactly 3");
+    expect(validateQuiz(QUIZ.slice(0, 2)).join(" | ")).toContain("exactly 3");
+    expect(validateQuiz(BAD_QUIZ).join(" | ")).toContain("distinct");
+    const twoSentences = QUIZ.map((q, i) =>
+      i === 1 ? { ...q, why: "First sentence. Second sentence." } : q,
+    );
+    expect(validateQuiz(twoSentences).join(" | ")).toContain("single sentence");
+  });
 });
 
 describe("ensureRung", () => {
@@ -228,7 +282,8 @@ describe("ensureRung", () => {
       verifyOptions: { gapMs: 0 },
     });
     expect(res.ok).toBe(true);
-    expect(calls).toEqual(["onepager draft", "onepager judge", "deepdive draft", "deepdive judge"]);
+    // The one-pager is never judged; only the deep dive sees the editor.
+    expect(calls).toEqual(["onepager draft", "deepdive draft", "deepdive judge"]);
 
     const rungs = db.select().from(schema.atlasRungs).where(eq(schema.atlasRungs.nodeId, nodeId)).all();
     expect(rungs.map((r) => `${r.level}:${r.status}`).sort()).toEqual(["deepdive:ready", "onepager:ready"]);
@@ -236,7 +291,7 @@ describe("ensureRung", () => {
     const onepager = rungs.find((r) => r.level === "onepager")!;
     expect(onepager.hook).toMatch(/your own mind/);
     expect(onepager.wordCount).toBeGreaterThanOrEqual(300);
-    expect(onepager.judgeVerdict).toContain('"approve"');
+    expect(onepager.judgeVerdict).toBeNull();
 
     const deepdive = rungs.find((r) => r.level === "deepdive")!;
     expect(deepdive.bodyMd).toContain("### Further reading");
@@ -290,7 +345,7 @@ describe("ensureRung", () => {
       verifyOptions: { gapMs: 0 },
     });
     expect(res.ok).toBe(true);
-    expect(calls).toEqual(["onepager draft", "onepager judge", "eli10 draft"]);
+    expect(calls).toEqual(["onepager draft", "eli10 draft"]);
     if (!res.ok) return;
     expect(res.rung.bodyMd).not.toMatch(/^###/m);
     expect(res.rung.judgeVerdict).toBeNull();
@@ -300,6 +355,64 @@ describe("ensureRung", () => {
       .where(eq(schema.atlasReadings.nodeId, nodeId))
       .all();
     expect(readings.every((r) => r.proposedBy === "onepager")).toBe(true);
+  });
+
+  it("writes the one-pager on the onepager model, never judges it, and stores the quiz", async () => {
+    const db = makeDb();
+    const { nodeId } = seed(db);
+    const calls: string[] = [];
+    const modelsSeen: string[] = [];
+    const res = await ensureRung(db, nodeId, "onepager", {
+      llm: fakeLlm(calls, {}, modelsSeen),
+      fetchImpl: fakeFetch().impl,
+      log: quiet,
+      judge: true, // even with the judge forced on, a one-pager is never judged
+      verifyOptions: { gapMs: 0 },
+    });
+    expect(res.ok).toBe(true);
+    expect(calls).toEqual(["onepager draft"]);
+    expect(modelsSeen).toEqual(["claude-sonnet-5"]);
+    if (!res.ok) return;
+    expect(res.rung.model).toBe("claude-sonnet-5");
+    expect(res.rung.judgeVerdict).toBeNull();
+    expect(JSON.parse(res.rung.quizJson ?? "null")).toEqual(QUIZ);
+  });
+
+  it("repairs a bad quiz in the same pass as the body and stores the fixed one", async () => {
+    const db = makeDb();
+    const { nodeId } = seed(db);
+    const calls: string[] = [];
+    const res = await ensureRung(db, nodeId, "onepager", {
+      llm: fakeLlm(calls, { quiz: BAD_QUIZ, repairedQuiz: QUIZ }),
+      fetchImpl: fakeFetch().impl,
+      log: quiet,
+      verifyOptions: { gapMs: 0 },
+    });
+    expect(res.ok).toBe(true);
+    expect(calls).toEqual(["onepager draft", "onepager repair"]);
+    if (!res.ok) return;
+    expect(JSON.parse(res.rung.quizJson ?? "null")).toEqual(QUIZ);
+  });
+
+  it("fails the rung when the quiz stays broken after repair, like a broken body", async () => {
+    const db = makeDb();
+    const { nodeId } = seed(db);
+    const calls: string[] = [];
+    const res = await ensureRung(db, nodeId, "onepager", {
+      llm: fakeLlm(calls, { quiz: BAD_QUIZ, repairedQuiz: BAD_QUIZ }),
+      fetchImpl: fakeFetch().impl,
+      log: quiet,
+      verifyOptions: { gapMs: 0 },
+    });
+    expect(res.ok).toBe(false);
+    expect(calls).toEqual(["onepager draft", "onepager repair"]);
+    const row = db
+      .select()
+      .from(schema.atlasRungs)
+      .where(eq(schema.atlasRungs.nodeId, nodeId))
+      .get()!;
+    expect(row.status).toBe("failed");
+    expect(row.error).toMatch(/distinct/);
   });
 
   it("marks the rung failed, with the reason, when a draft stays broken after repair", async () => {

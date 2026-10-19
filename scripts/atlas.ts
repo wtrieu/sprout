@@ -6,6 +6,7 @@
  *
  *   pnpm --filter web run job:atlas draft-map --map <id>
  *   pnpm --filter web run job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]
+ *   pnpm --filter web run job:atlas preload --map <id> [--shard k --shards n]
  *
  * Exit codes: 0 done · 1 usage or unexpected error · 2 the work itself failed
  * (the map/rung row carries the reason for the UI).
@@ -13,7 +14,9 @@
 import "./env";
 import { db } from "../apps/web/src/db/client";
 import { draftMap } from "../apps/web/src/lib/atlas/draftMap";
+import { preloadMap } from "../apps/web/src/lib/atlas/preload";
 import { ensureRung, isRungLevel } from "../apps/web/src/lib/atlas/rungs";
+import { spawnPreloadShards } from "../apps/web/src/lib/atlas/runner";
 
 const args = process.argv.slice(2);
 const sub = args[0];
@@ -29,6 +32,7 @@ const usage = (): never => {
       "usage:",
       "  job:atlas draft-map --map <id>",
       "  job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]",
+      "  job:atlas preload --map <id> [--shard <k> --shards <n>]",
     ].join("\n"),
   );
   process.exit(1);
@@ -42,7 +46,21 @@ const main = async (): Promise<number> => {
       if (!Number.isInteger(mapId)) usage();
       console.log(`atlas draft-map #${mapId} starting ${startedAt}`);
       const res = draftMap(db, mapId);
-      return res.ok ? 0 : 2;
+      if (!res.ok) return 2;
+      // The map is browsable fog now; the one-pagers (and the ready email)
+      // land in the background.
+      const shards = spawnPreloadShards(mapId);
+      console.log(`spawned ${shards} preload shards for map #${mapId}`);
+      return 0;
+    }
+    case "preload": {
+      const mapId = Number(flag("map"));
+      const shard = Number(flag("shard") ?? 0);
+      const shards = Number(flag("shards") ?? 1);
+      if (!Number.isInteger(mapId)) usage();
+      console.log(`atlas preload #${mapId} shard ${shard}/${shards} starting ${startedAt}`);
+      const res = await preloadMap(db, mapId, { shard, shards });
+      return res.failed > 0 ? 2 : 0;
     }
     case "rung": {
       const nodeId = Number(flag("node"));
