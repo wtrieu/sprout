@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractHtmlTitle,
   normalizeTitle,
   titleSimilarity,
   verifyReading,
@@ -135,6 +136,30 @@ describe("verifyReading: book", () => {
     });
     const nobody = await verifyReading({ kind: "book", title: "Meditations", author: "Kant" }, impl);
     expect(nobody).toMatchObject({ ok: false, reason: expect.stringContaining("no open library match") });
+  });
+});
+
+describe("extractHtmlTitle", () => {
+  it("prefers og:title in either attribute order, else falls back to <title>", () => {
+    expect(
+      extractHtmlTitle(
+        `<head><meta property="og:title" content="Stoicism (SEP)"><title>ignored</title></head>`,
+      ),
+    ).toBe("Stoicism (SEP)");
+    expect(
+      extractHtmlTitle(`<head><meta content='Epicurus' property='og:title'/></head>`),
+    ).toBe("Epicurus");
+    expect(extractHtmlTitle(`<head><meta name="description" content="x"><title>\n  Plain\n  Title </title></head>`)).toBe(
+      "Plain Title",
+    );
+    expect(extractHtmlTitle(`<p>no head</p>`)).toBeNull();
+  });
+
+  it("stays fast on hostile input", () => {
+    const hostile = `<meta ${"a ".repeat(50_000)}`; // never closes
+    const started = Date.now();
+    expect(extractHtmlTitle(hostile)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(500);
   });
 });
 

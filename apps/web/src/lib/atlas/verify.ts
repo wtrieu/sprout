@@ -204,12 +204,37 @@ const verifyBook = async (
   return { ok: false, reason: "no open library match on title/author" };
 };
 
-const extractHtmlTitle = (html: string): string | null => {
-  const og = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
-  if (og?.[1]) return og[1];
-  const og2 = html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
-  if (og2?.[1]) return og2[1];
-  const t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+/**
+ * One quoted attribute value from a single tag. Each pattern has one
+ * quantified class with no overlap, so matching stays linear on hostile
+ * input (the page is untrusted bytes).
+ */
+const attrValue = (tag: string, name: "property" | "name" | "content"): string | null => {
+  const re =
+    name === "property"
+      ? /\bproperty\s*=\s*["']([^"']*)["']/i
+      : name === "name"
+        ? /\bname\s*=\s*["']([^"']*)["']/i
+        : /\bcontent\s*=\s*["']([^"']*)["']/i;
+  const m = tag.match(re);
+  return m?.[1] ?? null;
+};
+
+/** og:title if present (attributes in any order), else the <title> text. */
+export const extractHtmlTitle = (html: string): string | null => {
+  // Walk <meta …> tags one at a time rather than spanning the document with
+  // a single regex: `[^>]*` runs once per tag and cannot cross a `>`.
+  const metaRe = /<meta\b[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = metaRe.exec(html))) {
+    const tag = m[0];
+    const prop = attrValue(tag, "property") ?? attrValue(tag, "name");
+    if (prop?.toLowerCase() === "og:title") {
+      const content = attrValue(tag, "content");
+      if (content && content.trim()) return content.trim();
+    }
+  }
+  const t = html.match(/<title\b[^>]*>([^<]*)<\/title>/i);
   return t?.[1]?.replace(/\s+/g, " ").trim() || null;
 };
 
