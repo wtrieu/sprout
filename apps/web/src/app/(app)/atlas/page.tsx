@@ -12,6 +12,7 @@ type MapRow = {
   createdAt: string;
   nodeCount: number;
   visitedCount: number;
+  onepagerReadyCount: number;
 };
 
 /**
@@ -112,6 +113,17 @@ export default function AtlasPage() {
               <div className="shrink-0 text-right text-xs text-neutral-500">
                 {m.status === "ready" && (
                   <span>
+                    {m.nodeCount > 0 && (
+                      <span className="block">
+                        {m.onepagerReadyCount >= m.nodeCount ? (
+                          <>ready · {m.nodeCount} pages</>
+                        ) : (
+                          <span className="text-amber-400/80">
+                            preparing · {m.onepagerReadyCount} / {m.nodeCount}
+                          </span>
+                        )}
+                      </span>
+                    )}
                     {m.visitedCount}/{m.nodeCount} visited
                   </span>
                 )}

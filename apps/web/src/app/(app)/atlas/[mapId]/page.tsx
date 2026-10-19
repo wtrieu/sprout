@@ -62,8 +62,17 @@ export default function AtlasMapPage() {
     setNodes(d.nodes ?? []);
   }, [mapId]);
 
+  // One-pagers are preloaded as soon as the map exists; the map is
+  // "preparing" until every node has one.
+  const onepagerReady = nodes.filter((n) => n.rungs.onepager === "ready").length;
+  const onepagerDrafting = nodes.some((n) => n.rungs.onepager === "drafting");
+  const onepagerMissing = nodes.some((n) => n.rungs.onepager === null);
+  const onepagerFailed = nodes.some((n) => n.rungs.onepager === "failed");
+  const preparing = map?.status === "ready" && (onepagerMissing || onepagerDrafting);
+
   const drafting =
     map?.status === "drafting" ||
+    preparing ||
     nodes.some((n) => Object.values(n.rungs).some((s) => s === "drafting"));
 
   useEffect(() => {
@@ -71,6 +80,13 @@ export default function AtlasMapPage() {
     const t = setInterval(load, drafting ? 5000 : 15000);
     return () => clearInterval(t);
   }, [load, drafting]);
+
+  const preloadRest = async () => {
+    setBusy(true);
+    await fetch(`/api/atlas/maps/${mapId}/preload`, { method: "POST" });
+    setBusy(false);
+    load();
+  };
 
   const setSkipped = async (n: NodeRow, skipped: boolean) => {
     setBusy(true);
@@ -111,6 +127,23 @@ export default function AtlasMapPage() {
             {visited}/{nodes.length} visited · amber dots are places you&apos;ve been
           </p>
         )}
+        {preparing && (
+          <p className="mt-2 text-xs text-amber-400/80">
+            Preparing · {onepagerReady} / {nodes.length} one-pagers
+          </p>
+        )}
+        {map.status === "ready" &&
+          nodes.length > 0 &&
+          (onepagerFailed || onepagerMissing) &&
+          !onepagerDrafting && (
+            <button
+              disabled={busy}
+              onClick={preloadRest}
+              className="mt-2 rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-amber-500/50 disabled:opacity-50"
+            >
+              Prepare the rest
+            </button>
+          )}
       </div>
 
       {map.status === "drafting" && (

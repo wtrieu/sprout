@@ -7,9 +7,13 @@
  *
  * ensureRung() is the one entry point: idempotent (a ready rung is returned
  * as-is unless forced), it drafts → validates (+1 repair) → judges (+1
- * revision, one-pager and deep dive only) → verifies the proposed readings →
- * stores. The rung row is the job status the UI polls, so it is flipped to
- * `drafting` first and to `ready`/`failed` last.
+ * revision, deep dive only) → verifies the proposed readings → stores. The
+ * rung row is the job status the UI polls, so it is flipped to `drafting`
+ * first and to `ready`/`failed` last.
+ *
+ * Per level: the one-pager is written on the (cheaper) onepager model with
+ * its quiz in the same call and is NEVER judged, whatever triggered it; the
+ * deep dive keeps writer + judge; eli10 keeps writer, no judge.
  *
  * Body markdown is constrained to the subset lib/markdown.ts renders and may
  * never contain a link: every link shown anywhere comes from atlas_readings.
@@ -70,10 +74,27 @@ export const ReadingProposalSchema = z.object({
   why: z.string().trim().max(240).nullish(),
 });
 
+export const QUIZ_QUESTIONS = 3;
+
+export const QuizQuestionSchema = z.object({
+  question: z.string().trim().min(8).max(300),
+  choices: z.array(z.string().trim().min(1).max(160)).length(4),
+  answer: z.number().int().min(0).max(3),
+  why: z.string().trim().min(1).max(240),
+});
+export type QuizQuestion = z.infer<typeof QuizQuestionSchema>;
+
+/** The quiz-only backfill call (maps drafted before quizzes existed). */
+export const QuizSchema = z.object({
+  quiz: z.array(QuizQuestionSchema).max(5),
+});
+
 export const RungDraftSchema = z.object({
   hook: z.string().trim().max(240).nullish(),
   body_md: z.string().min(40),
   readings: z.array(ReadingProposalSchema).max(6).nullish(),
+  // One-pager only; lint beyond the shape lives in validateQuiz.
+  quiz: z.array(QuizQuestionSchema).max(5).nullish(),
 });
 export type RungDraft = z.infer<typeof RungDraftSchema>;
 
@@ -153,6 +174,11 @@ const readingsRules = (ask: string) => `READINGS: also propose ${ask}. Each is {
 - "why" is one short line on what this reading gives that the page above does not.
 They are machine-verified against the real source and anything that does not resolve is silently dropped, so prefer the exact title the source itself uses over a paraphrase.`;
 
+const QUIZ_RULES = `QUIZ: also write a quiz of exactly ${QUIZ_QUESTIONS} multiple-choice questions a reader of this page should now be able to answer. Each is { "question": string, "choices": [exactly 4 distinct strings], "answer": 0-3 (the index of the correct choice), "why": string }.
+- Test the ideas on the page, never trivia the page does not state.
+- Wrong choices are plausible misreadings, not jokes.
+- "why" is one sentence, under 240 characters, on why the answer is right.`;
+
 export const buildRungPrompt = (
   level: AtlasRungLevel,
   input: { context: string; onepagerMd?: string | null },
@@ -167,9 +193,11 @@ Write the ONE-PAGER for THIS NODE: ${b.min}–${b.max} words, 2 to 4 "###" headi
 
 ${readingsRules("2 to 4 readings: at least one Wikipedia article, at most one book, optionally one web entry")}
 
+${QUIZ_RULES}
+
 ${FORMAT_RULES}
 
-Return: { "hook": string (one line, under 20 words, the sharpest way in), "body_md": string, "readings": [ ... ] }`;
+Return: { "hook": string (one line, under 20 words, the sharpest way in), "body_md": string, "readings": [ ... ], "quiz": [ ... ] }`;
   }
   if (level === "deepdive") {
     return `${VOICE}
@@ -200,6 +228,18 @@ ${FORMAT_RULES}
 
 Return: { "body_md": string }`;
 };
+
+/** The quiz-only call, for one-pagers written before quizzes existed. */
+export const buildQuizPrompt = (input: { context: string; onepagerMd: string }): string => `You wrote the one-pager below for a personal atlas of ideas kept by one curious adult. Now write its quiz.
+
+${input.context}
+
+THE ONE-PAGER:
+${input.onepagerMd}
+
+${QUIZ_RULES}
+
+Return JSON only: { "quiz": [ { "question": string, "choices": [string, string, string, string], "answer": 0-3, "why": string } ] }`;
 
 export const buildJudgePrompt = (
   level: AtlasRungLevel,
@@ -290,6 +330,28 @@ export const validateRungBody = (
     problems.push("do not write a Further reading section; it is assembled from the readings field");
   }
   if (NON_LATIN_RE.test(body)) problems.push("Latin script only: romanize names and terms");
+  return problems;
+};
+
+/**
+ * Lint a one-pager's quiz beyond what the zod shape enforces. Rides the same
+ * one-repair-pass as the body: a quiz still broken after repair fails the
+ * rung like a broken body does.
+ */
+export const validateQuiz = (quiz: readonly QuizQuestion[] | null | undefined): string[] => {
+  if (!quiz || quiz.length !== QUIZ_QUESTIONS) {
+    return [`quiz must have exactly ${QUIZ_QUESTIONS} questions (got ${quiz?.length ?? 0})`];
+  }
+  const problems: string[] = [];
+  quiz.forEach((q, i) => {
+    const distinct = new Set(q.choices.map((c) => c.trim().toLowerCase()));
+    if (distinct.size !== q.choices.length) {
+      problems.push(`quiz question ${i + 1}: the 4 choices must all be distinct`);
+    }
+    if (/[.!?]['")\]]?\s+\S/.test(q.why.trim())) {
+      problems.push(`quiz question ${i + 1}: "why" must be a single sentence`);
+    }
+  });
   return problems;
 };
 
@@ -399,7 +461,7 @@ export type RungDeps = {
   log?: (msg: string) => void;
   /** Regenerate even when a ready rung exists. */
   force?: boolean;
-  /** Editor-judge pass for one-pager/deep dive. Default on; ATLAS_JUDGE=false disables. */
+  /** Editor-judge pass for the deep dive. Default on; ATLAS_JUDGE=false disables. */
   judge?: boolean;
   verifyOptions?: VerifyOptions;
 };
@@ -429,7 +491,10 @@ export const ensureRung = async (
   }
 
   const models = atlasModels();
-  const row = markRungDrafting(db, nodeId, level, models.writer);
+  // The one-pager is always written on its own model and never judged,
+  // whatever triggered it (preload or the node page).
+  const model = level === "onepager" ? models.onepager : models.writer;
+  const row = markRungDrafting(db, nodeId, level, model);
   const fail = (message: string): EnsureRungResult => {
     const failed = db
       .update(atlasRungs)
@@ -449,23 +514,27 @@ export const ensureRung = async (
   try {
     const context = contextBlock(ctx);
     const prompt = buildRungPrompt(level, { context, onepagerMd });
-    log(`rung ${level} for "${ctx.node.title}" model=${models.writer}`);
-    let draft = llm(prompt, RungDraftSchema, { model: models.writer, label: `${level} draft` });
+    const lint = (d: RungDraft, tolerance: number): string[] => [
+      ...validateRungBody(level, d.body_md, { tolerance }),
+      ...(level === "onepager" ? validateQuiz(d.quiz) : []),
+    ];
+    log(`rung ${level} for "${ctx.node.title}" model=${model}`);
+    let draft = llm(prompt, RungDraftSchema, { model, label: `${level} draft` });
 
-    const problems = validateRungBody(level, draft.body_md, { tolerance: SOFT_TOLERANCE });
+    const problems = lint(draft, SOFT_TOLERANCE);
     if (problems.length > 0) {
       log(`draft flagged, one repair pass: ${problems.join("; ")}`);
       const repaired = llm(repairPrompt(prompt, draft, problems), RungDraftSchema, {
-        model: models.writer,
+        model,
         label: `${level} repair`,
       });
-      const again = validateRungBody(level, repaired.body_md, { tolerance: HARD_TOLERANCE });
+      const again = lint(repaired, HARD_TOLERANCE);
       if (again.length > 0) throw new Error(`craft checks failed after repair: ${again.join("; ")}`);
       draft = repaired;
     }
 
     let verdict: RungJudge | null = null;
-    if (level !== "eli10" && judgeEnabled(deps)) {
+    if (level === "deepdive" && judgeEnabled(deps)) {
       const judged: RungJudge = (() => {
         try {
           return llm(buildJudgePrompt(level, { context, bodyMd: draft.body_md }), RungJudgeSchema, {
@@ -483,10 +552,10 @@ export const ensureRung = async (
       if (judged.verdict === "revise" && judged.fixes.length > 0) {
         try {
           const revised = llm(revisePrompt(prompt, draft, judged.fixes), RungDraftSchema, {
-            model: models.writer,
+            model,
             label: `${level} revision`,
           });
-          const rp = validateRungBody(level, revised.body_md, { tolerance: HARD_TOLERANCE });
+          const rp = lint(revised, HARD_TOLERANCE);
           if (rp.length === 0) draft = revised;
           else log(`revision came back broken (${rp.join("; ")}) — keeping first draft`);
         } catch (err) {
@@ -522,8 +591,9 @@ export const ensureRung = async (
         hook: draft.hook?.trim() || null,
         bodyMd,
         wordCount: words,
-        model: models.writer,
+        model,
         judgeVerdict: verdict ? JSON.stringify(verdict) : null,
+        quizJson: level === "onepager" && draft.quiz ? JSON.stringify(draft.quiz) : null,
         error: null,
         readyAt: new Date(),
       })
