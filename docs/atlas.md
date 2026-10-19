@@ -66,7 +66,9 @@ Rules the code enforces:
 
 - Env: `ATLAS_MODEL_WRITER` (default `claude-fable-5`), `ATLAS_MODEL_JUDGE`
   (default `claude-sonnet-5`), `ATLAS_JUDGE=false` to skip the editor-judge
-  on one-pagers and deep dives (faster, less checked).
+  on deep dives (faster, less checked). PR-A adds `ATLAS_MODEL_ONEPAGER`
+  (default `claude-sonnet-5`; one-pagers are never judged) and
+  `ATLAS_PRELOAD_WORKERS` (default 3).
 - By hand: `pnpm --filter web run job:atlas draft-map --map <id>` and
   `pnpm --filter web run job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]`.
 - Rejected readings are the tuning data for the verifier thresholds
@@ -77,10 +79,28 @@ Rules the code enforces:
 
 **Shipped:** PR1 (#96, merged 2026-10-19) — maps, node ladders, verified
 readings, visited state, skip. Everything under "Remaining work" is still to
-do. The owner has PR1 feedback pending; fold it into PR2 unless it is a bug,
-in which case it goes first as its own small PR.
+do. The owner's PR1 feedback (below) reorders it: the v2 track (PR-A → PR-D)
+comes **before** PR2 and PR3. **Next up: build PR-A** — its spec under
+"Remaining work" is complete and agreed; no design questions remain for it.
 
-To pick this up in a fresh session:
+To pick this up in a fresh session, paste this prompt:
+
+> Read `docs/atlas.md` top to bottom, then `apps/web/src/lib/atlas/rungs.ts`,
+> `draftMap.ts`, `llm.ts`, `runner.ts`, `scripts/atlas.ts` and
+> `apps/web/src/lib/email.ts`. Build PR-A exactly as specified under
+> "PR-A — preloaded one-pagers and quizzes": migration 0014, the onepager
+> model and no-judge rule in `ensureRung`, the quiz in the one-pager draft
+> schema, `lib/atlas/preload.ts` with sharded workers and the atomic
+> notification claim, `lib/atlas/email.ts`, the `preload` subcommand, the
+> preload route, the three UI changes, and the tests listed there. Tests
+> first for `rungs`, `preload` and `email`. Run `pnpm typecheck`,
+> `pnpm lint` and `pnpm --filter web exec vitest run --passWithNoTests`
+> before every push. Branch `claude/atlas-preload` from `main`; never push
+> to `main`; open a PR when green. Do not start PR-B or PR-C in the same PR.
+> If anything in the spec contradicts the code, follow the code and note
+> the deviation in the PR description.
+
+Then:
 
 1. Read this file top to bottom, then skim `apps/web/src/lib/atlas/` (start
    with `rungs.ts` and `picker.ts`) and `scripts/atlas.ts`.
@@ -95,12 +115,270 @@ To pick this up in a fresh session:
 4. Deploying a merge on the mini: `git pull && pnpm install &&
    pnpm --filter web db:migrate && launchctl kickstart -k gui/$(id -u)/com.sprout.web`.
 
-### Owner feedback on PR1
+## Owner feedback on PR1 and the v2 direction (2026-10-19)
 
-_(to be filled in by the owner, or copied here from the PR thread by the
-next session)_
+Three problems with PR1, in the owner's words: (1) click-and-wait — the
+field submission and every page are generated on demand, and a one-line
+blurb does not hold attention for 60–90 s; (2) text is not always the best
+way to learn — diagrams, side-by-sides and maps belong in the page; (3)
+nothing tracks what has been learned, and there is no reason to come back.
+The fix for (3) is a game layer, and it is the owner's priority: the feel
+is Khan Academy mastery levels + Brilliant's skill tree + Dungeon Crawler
+Carl's system-that-notices-you + Balatro's collection grid with mastery
+stickers + RuneScape's levels and capes — a character that ends up unique
+to the learner because combinations of what they've learned produce things.
+
+### Decisions
+
+| Axis | Decision |
+|---|---|
+| Order | PR-A (speed) → PR-B (visuals) → PR-C (game foundation) → PR-D (engine), then PR2, PR3. |
+| Preload | Every one-pager (with its quiz) is drafted as soon as a map is created, on Sonnet and **without** the editor-judge. A map may take some minutes; the owner gets one email when it is ready (push notifications deferred). Eli10 and deep dive stay on demand. |
+| Visuals | Model-drawn diagrams, side-by-sides and maps (geographic or concept, by context), labeled as model-drawn; real images only (e.g. Wikimedia), never generated art. Atlas may be less strict than the medical half of the app. |
+| Players | Per-person progress from the start: shared maps, separate progress, separate characters. Built for the owner and their wife first; extended family / other users later. Sharing map, character and achievements between players is an option, never forced. |
+| "Learned" | Quizzes are **in** (reversed from the first pass): a node is mastered by reading + a quiz, not by a trust-based "mark complete". No flashcards or spaced-recall prompts. |
+| Mastery | Three layers, levels never drop (below). No hard locks anywhere: unexplored nodes are fog, always clickable. |
+| Achievements | A small hand-written base plus a nightly model pass over the activity log that grants one-off hidden achievements, titles and class offers. The action vocabulary must be extensible (new verbs = data, not code). |
+| Persona | The learner picks one of two system voices (below). Family-friendly: the child may see the screen. |
+| Classes | Offered at total-level gates (below). Change title, look, persona treatment, suggestion tilt and one habit perk; never lock content. |
+| Sprite | Open — see "Open questions". Lean on Claude / Midjourney-class tools; the storybook image worker stays tabled. Still sprite with gear/effects is the v1 floor; animations follow. |
+| Tabled | Eurekas (real-world actions that accelerate a branch), audio narration (own branch, next phase), the local image generator. |
+
+### Mastery: three layers
+
+1. **Branches are the skills.** Each branch (Ethics, Metaphysics, …) levels
+   1–99; XP is scaled to the branch's node count so a small branch and a
+   large one both mean "fully mastered" at 99. 99 earns the branch's skill
+   cape.
+2. **Fields are the maps.** A field shows its own total, e.g.
+   `Philosophy 412 / 594`. Maxing every branch earns the field cape; several
+   field capes earn a trimmed / polymath cape.
+3. **Disciplines are the account-wide spine.** A small fixed set of
+   cross-field skills — Reasoning, Evidence, Language, Systems, Creativity —
+   that every node is tagged to at draft time, so they level as a byproduct.
+   The account-wide total level is the sum of disciplines, which stays
+   stable and comparable as fields are added, and rewards transfer (logic in
+   Philosophy and in Math both feed Reasoning).
+
+Per node, the ladder is the mastery tier (Balatro stickers): eli10 →
+one-pager → deep dive, each stamped on the collection grid, with the quiz as
+the gate to "mastered". Unseen nodes are `?` slots.
+
+### The engine (Dungeon Crawler Carl)
+
+- **Actions are the raw material.** PR1 has four (open, read a rung, skip,
+  complete). Planned additions, all logged as typed events: pass a quiz,
+  write a one-line takeaway, add a seed (PR3 capture), save for the child
+  (PR3), discuss with the other player, read a suggested book, start a
+  second field. The event log is the single input to every reward.
+- **Hidden achievements** fire on specific, sometimes absurd behavior
+  ("three Stoics before 6 am → *Dawn Ascetic*"). The nightly pass reads the
+  week's events + the learner's history and grants at most a few; a base
+  rule set covers the obvious milestones deterministically.
+- **Combination beats raw power.** Cross-field discipline mixes are the
+  source of rare wildcard classes.
+
+### Persona (pick one at character creation)
+
+1. **The obsessive cartographer** — a fussy archivist who has spent forever
+   charting the field and cannot finish alone; your finds fill its map. It
+   is thrilled by rare finds, complains about half-documented entries,
+   grumbles at unexplored regions. Humor points at its obsessions and at the
+   material, never at you. Loot = *expedition supplies* it sends for good
+   finds. (Blathers in Animal Crossing.)
+2. **The protégé** — a naive entity (young AI, apprentice creature) you are
+   teaching; its skill tree is what you've taught it. It misapplies concepts
+   in funny ways and gets things right only when you did. Flips the
+   positioning (you are the expert being watched) and uses the protégé
+   effect (Betty's Brain). Loot = *gifts* it brings back from adventures
+   using what you taught it.
+
+### Classes
+
+- Offers arrive at total-level gates the learner can see coming; contents
+  are built from what they actually did, and an offer waits if there is not
+  enough signal yet.
+- Three options: two reflecting the learner's pattern, one rare wildcard
+  unlocked by a hidden achievement. Never mid-lesson: an offer queues and is
+  revealed on the next map screen, like loot; soft deadline with a default.
+- A class = **domain affinity** (quantitative / historical / creative …) ×
+  **engagement style** (scouts widely / goes deep / connects / questions),
+  e.g. "Quantitative Tinkerer", "Historical Skeptic". Later gates offer
+  specializations.
+- Changes: title and look (avatar, map styling, frames); persona treatment
+  (nicknames, which expeditions/quests it sends); a suggestion tilt plus
+  class-only side quests; one perk that nudges a good habit (Scout sees
+  further past the fog, Scholar earns bonus mastery from reviews). No
+  learning-style matching — vary emphasis and context, not format.
+- Titles and class history are permanent on the profile; effects respec at
+  the next tier, or early with a rare item.
+
+### Delivery order
+
+- **PR-A — speed.** Preload all one-pagers and their quizzes on map
+  creation (Sonnet, no judge), one "map is ready" email (push
+  notifications deferred: they need a service worker, VAPID keys and an
+  installed app on iOS), node page shows the one-pager instantly.
+- **PR-B — visuals.** Diagram / side-by-side / map blocks in rungs
+  (model-drawn, labeled) and verified real images.
+- **PR-C — game foundation.** Players and per-player progress, the event
+  log, quizzes, node tiers, branch/field/discipline levels, the map as a
+  skill tree with fog, the collection grid. Persona choice and voice.
+- **PR-D — engine.** Nightly achievement pass, class offers, loot, the
+  sprite.
+- Then PR2 (weekly frontier note) and PR3 (save for the child, capture),
+  both re-based on the event log.
+
+### Quizzes, loot, sharing (settled 2026-10-19)
+
+- **Quiz:** drafted with the one-pager during preload (one extra call per
+  node), three questions, all correct for the stamp, retry freely, no cost
+  on failure. Levels never drop.
+- **Loot lands on achievements, not sessions.** There is no "session";
+  every achievement carries a loot box, queued and revealed on the next map
+  screen (never mid-lesson). Contents: cosmetics (frames, map styles, sprite
+  gear) plus a few functional items — respec tokens, fog-reveals, and
+  early access to a **rare node** (a node the draft marks rare; its blurb
+  and one-pager open before its neighbors do).
+- **Sharing:** between the household's players only (each sees the other's
+  character and achievements). No public profile; everything stays behind
+  Cloudflare Access.
+
+### Sprite: decision and workflow
+
+**Decided (owner, 2026-10-19):** layered parts composed in code. The
+proof is `docs/atlas-sprite-lab.html` (also published as a private
+artifact): 12 hand-placed 16×20 grids in six slots compose into 1,728
+characters with a two-frame idle. The owner's verdict: a good start,
+light on detail. Style still open between 16-bit RPG and chunkier; the
+sprite itself is PR-D work, but the spec below lets art start any time.
+
+Workflow for producing and refining the parts:
+
+1. **Fix the spec before any art.** Canvas `32×40` (16×20 is too light for
+   a readable face and hands), one indexed palette of ≤32 colors, one
+   front-facing anchor pose with the arms slightly off the body so held
+   items never overlap the torso. Write down the layer order (aura-back,
+   cape, body, outfit, hair, item, aura-front) and the **anchor pixels**
+   every part must respect: head-top row, shoulder row, left and right
+   hand pixel, foot row. Animations: idle 2 frames, celebrate 4, per layer.
+2. **Draw the base body first.** It defines the silhouette and the
+   anchors; export it as a template PNG with the anchor pixels marked in a
+   reserved color. Every other part is drawn on a copy of that template.
+3. **Produce parts.** Three sources, all ending in the same format:
+   Aseprite by hand (the standard pixel tool; fastest for fixes);
+   Midjourney for candidates from the parts-sheet prompt, then cleaned up
+   in Aseprite — snap to the grid, re-index to the palette, align to the
+   anchors (Midjourney never holds a grid, so the cleanup is the real
+   work); Claude for grid-as-code parts like the lab, which is good for
+   quick variants and bad for faces.
+4. **Store parts as data, not code.** `apps/web/public/sprite/<style>/
+   <slot>/<id>-<anim>-<frame>.png` with transparent background plus a
+   `manifest.json` (slot, z-order, anchor offsets, palette-swap groups for
+   skin and hair, which achievement or class grants it). The runtime
+   composes on a canvas exactly as the lab does, with palette swaps via
+   indexed colors.
+5. **Validate every part mechanically.** A script checks size, that every
+   color is in the palette, that the anchor pixels are untouched, and
+   that no part paints outside its slot's allowed region. This is what
+   lets a Midjourney-derived part and a hand-drawn part coexist.
+6. **Refine on contact sheets.** Render 50 random combinations plus a
+   fixed "golden" set, check for clipping between layers, color clashes
+   and readability at 1× and 3×, fix per part, re-render. The golden set
+   becomes a regression snapshot.
+7. **Animate last.** Same frame count per slot per animation; a part that
+   lacks an animation falls back to its idle frame, so animations can land
+   one slot at a time.
+
+### Open questions
+
+- **Sprite style** (16-bit RPG vs. chunky) and which parts sheet to
+  commission first. Everything else is decided.
 
 ## Remaining work
+
+### PR-A — preloaded one-pagers and quizzes (~500 LOC)
+
+Goal: after "Start a map", the owner gets one email when every one-pager
+(and its quiz) is ready, and from then on every node opens instantly.
+Eli10 and deep dive stay on demand.
+
+- **Models.** `atlasModels()` gains `onepager: ATLAS_MODEL_ONEPAGER ??
+  "claude-sonnet-5"`. A one-pager is always written on that model and is
+  never judged, whatever triggered it (preload or the node page); deep
+  dives keep `writer` + judge, eli10 keeps `writer`, no judge. `ensureRung`
+  picks the model and the judge flag from `level`, so the route and the
+  preload share one path.
+- **Quiz in the same call.** For `onepager`, `RungDraftSchema` adds
+  `quiz: 3 × { question, choices[4], answer: 0–3, why }` (choices
+  distinct, `why` ≤ 240 chars, one sentence). `validateQuiz` lints it and
+  rides the existing one-repair-pass; a broken quiz after repair fails the
+  rung like a broken body does. Stored as `atlas_rungs.quiz_json`
+  (nullable text, **migration 0014**). PR-C builds the answering UI and
+  the mastery stamp; PR-A only drafts and stores.
+- **`lib/atlas/preload.ts`** — `preloadMap(db, mapId, { shard, shards,
+  llm, fetchImpl, send, log })`:
+  1. nodes of the map ordered by id, keep those with `id % shards ===
+     shard`, skipping branch nodes if branches have no rungs (they do: a
+     branch is a node like any other — keep them in);
+  2. for each: if the one-pager is `drafting` and not stale, skip; else
+     `ensureRung(onepager)` (ready rows are a no-op);
+  3. for each ready one-pager with `quiz_json` null (the live Philosophy
+     map): one quiz-only call, `buildQuizPrompt(context, onepagerMd)` →
+     `QuizSchema`, store. This is the backfill for maps drafted before
+     PR-A;
+  4. when this shard is done: if no rung of the map is still `drafting`
+     and every node has a ready-or-failed one-pager, atomically claim the
+     notification: `update atlas_maps set notified_at = now where id = ?
+     and notified_at is null` — the shard whose update returns a row sends
+     the email, so two shards finishing together cannot send twice.
+  `callClaude` is `spawnSync`, so one process is serial; the web process
+  spawns `ATLAS_PRELOAD_WORKERS` (default 3) detached shards. At ~30–45 s
+  per one-pager on Sonnet without the judge, a 45-node map lands in
+  roughly 10–15 min with three workers, 30–45 min with one.
+- **Map status.** The map flips to `ready` after the outline exactly as
+  today (browsable fog within ~2 min); preload progress is derived from
+  rung rows, no new status enum. New column `atlas_maps.notified_at`
+  (migration 0014). `draftMap` spawns the shards as its last step; the
+  `POST /api/atlas/maps/[id]/preload` route re-spawns them by hand (the
+  "Prepare the rest" button, and the backfill for existing maps). Rung
+  reaping is unchanged: each rung row is marked `drafting` only when its
+  turn comes, so `RUNG_STALE_MS` still describes one rung.
+- **`lib/atlas/email.ts`** — `renderMapReadyEmail({ map, branchCount,
+  nodeCount, readyCount, failedCount, starts, baseUrl })` → `{ subject:
+  "Atlas · <map> is ready", html }`: blurb, counts, three suggested first
+  nodes (first unvisited child of the first three branches, each with
+  its hook) linking to `/atlas/<map>/<node>`, and one link to the map.
+  Minimal inline styles, max-width 640px, `mdToHtml` for the blurb.
+  `sendEmail` from `lib/email.ts`; `EMAIL_DRY_RUN=true` logs instead.
+  The web process spawns the shards with its own env, so
+  `com.sprout.web.plist` must carry `RESEND_API_KEY`, `DIGEST_FROM`,
+  `DIGEST_TO` and `SPROUT_BASE_URL` (copy from the digest plist) or the
+  ready mail is a dry-run line in `/tmp/sprout-web.log`.
+- **`scripts/atlas.ts preload --map <id> [--shard k --shards n]`**;
+  README jobs-table row. `rung` is unchanged.
+- **UI.** `/atlas/[mapId]`: a "Preparing · 12 / 43 one-pagers" line under
+  the title while any one-pager is missing or drafting, polling every 5 s
+  as it does for a drafting map; a "Prepare the rest" button when some
+  are failed or missing and nothing is drafting. `/atlas/[mapId]/[nodeId]`:
+  when the one-pager is neither ready nor drafting, POST it automatically
+  on mount (today it waits for a click); the status line reads "Writing
+  this page… (about a minute)" instead of the generic drafting text.
+  `/atlas` cards show "ready · 43 pages" vs "preparing · 12 / 43".
+- **Tests.** `rungs.test.ts`: a one-pager uses the onepager model and
+  makes no judge call; the quiz is validated and stored; a bad quiz
+  triggers the repair pass. `preload.test.ts` over the in-memory DB with a
+  canned llm and a capturing `send`: shards partition the nodes exactly
+  once; a second run drafts nothing; quiz backfill fills only null rows;
+  two shards finishing "together" produce one email; a map with a failed
+  one-pager still notifies and the email says so. `email.test.ts`: subject,
+  three start links, map link.
+- **Verify.** Locally: `EMAIL_DRY_RUN=true pnpm --filter web run job:atlas
+  preload --map 1` logs each rung and ends with `[email dry-run] subject:
+  Atlas · Philosophy is ready`; a second run logs only skips. On the mini:
+  fill the web plist env, `launchctl kickstart -k`, press "Prepare the
+  rest" on the Philosophy map, watch `select level,status,count(*) from
+  atlas_rungs group by 1,2`, check the inbox.
 
 ### PR2 — weekly frontier note (~800 LOC)
 

@@ -1,0 +1,387 @@
+<title>Atlas Sprite Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap">
+<style>
+  /* Layout: a game character screen — sprite stage left, part pickers right, parts sheet below. */
+  :root {
+    --bg: #ece9dc;
+    --panel: #f7f5ec;
+    --fg: #23282a;
+    --muted: #5f6a66;
+    --line: #cfcbb8;
+    --accent: #2f6f6a;
+    --accent-ink: #ffffff;
+    --stage: #d9d4c0;
+    --display: "Pixelify Sans", "Trebuchet MS", sans-serif;
+    --body: "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1c2422; --panel: #26302d; --fg: #e8e6da; --muted: #a2aba6;
+      --line: #3b4844; --accent: #7fc8bf; --accent-ink: #10201d; --stage: #141b19;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1c2422; --panel: #26302d; --fg: #e8e6da; --muted: #a2aba6;
+    --line: #3b4844; --accent: #7fc8bf; --accent-ink: #10201d; --stage: #141b19;
+    color-scheme: dark;
+  }
+  body {
+    background: var(--bg); color: var(--fg); font-family: var(--body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 24px 48px; line-height: 1.5;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 24px; }
+  h1 { font-family: var(--display); font-weight: 700; font-size: 2rem; margin: 0; letter-spacing: 0.01em; text-wrap: balance; }
+  h2 { font-family: var(--display); font-weight: 500; font-size: 1.2rem; margin: 0 0 8px; }
+  .lede { max-width: 62ch; margin: 4px 0 0; color: var(--muted); }
+  .lab { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 24px; align-items: start; }
+  @media (max-width: 680px) { .lab { grid-template-columns: 1fr; } }
+  .stage { background: var(--stage); border: 2px solid var(--line); padding: 16px; display: grid; justify-items: center; gap: 12px; }
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges; max-width: 100%; height: auto; }
+  .nameplate { font-family: var(--display); font-size: 1.1rem; text-align: center; min-height: 1.6em; }
+  .nameplate small { display: block; font-family: var(--body); font-size: 0.8rem; color: var(--muted); }
+  .pickers { display: grid; gap: 14px; }
+  fieldset { border: 1px solid var(--line); background: var(--panel); padding: 10px 12px 12px; margin: 0; min-width: 0; }
+  legend { font-family: var(--display); font-size: 0.95rem; padding: 0 6px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .row label { border: 1px solid var(--line); padding: 4px 10px; cursor: pointer; font-size: 0.9rem; background: var(--bg); }
+  .row input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .row input:checked + span { color: var(--accent-ink); }
+  .row label:has(input:checked) { background: var(--accent); border-color: var(--accent); }
+  .row label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  button { font: inherit; font-family: var(--display); font-size: 0.95rem; padding: 6px 12px; cursor: pointer;
+    background: var(--panel); color: var(--fg); border: 1px solid var(--line); }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .count { font-variant-numeric: tabular-nums; }
+  .sheet { background: var(--panel); border: 1px solid var(--line); padding: 14px; overflow-x: auto; }
+  .sheet p { margin: 0 0 10px; color: var(--muted); max-width: 70ch; }
+  .notes { max-width: 70ch; }
+  .notes li { margin-bottom: 6px; }
+  @media (prefers-reduced-motion: reduce) { .motion-note { display: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Atlas Sprite Lab</h1>
+    <p class="lede">Option A from the sprite question: every part is a 16×20 pixel grid drawn once, and the character is composed in code. Pick parts, or press a class preset, and watch the count of distinct characters this tiny set already yields.</p>
+  </header>
+
+  <section class="lab">
+    <div class="stage">
+      <canvas id="sprite" width="160" height="200" aria-label="Composed pixel character"></canvas>
+      <div class="nameplate" id="plate">Unnamed learner<small>Total level 1</small></div>
+    </div>
+
+    <div class="pickers" id="pickers">
+      <fieldset>
+        <legend>Class presets</legend>
+        <div class="presets" id="presets"></div>
+      </fieldset>
+    </div>
+  </section>
+
+  <section class="sheet">
+    <h2>The parts sheet</h2>
+    <p>This is the whole asset set behind the lab: <span id="partCount" class="count"></span> hand-placed grids. It is also exactly what you would ask Midjourney for, once per style, before slicing it into layers.</p>
+    <canvas id="sheet" aria-label="All sprite parts laid out in a row"></canvas>
+  </section>
+
+  <section class="notes">
+    <h2>What to judge</h2>
+    <ul>
+      <li><strong>Combinatorial feel.</strong> Six slots with 3–4 options each already give <span id="combos" class="count"></span> characters. Every new part multiplies, which is the Dungeon Crawler Carl property.</li>
+      <li><strong>Reward legibility.</strong> A cape, a held item and an aura each read at a glance. That is what a loot box has to deliver in one frame.</li>
+      <li><strong>Animation cost.</strong> The idle bob and sparkle twinkle here are two frames per layer. Every new animation is a per-layer sprite sheet, never a re-draw of the whole character.<span class="motion-note"> (Motion is off if your system asks for reduced motion.)</span></li>
+      <li><strong>What it can't do.</strong> Parts must share one grid and one palette, so every style is a separate full parts sheet. A Midjourney-only route makes nicer single images and no combinations.</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+(() => {
+  // ---- palette ----------------------------------------------------------
+  const PAL = {
+    k: "#1d1a24", w: "#f5f1e6", d: "#5c5a66", r: "#8a2d3b", b: "#2c5a8f",
+    p: "#5b3a7e", g: "#d9a43a", n: "#3f8a52", o: "#e07a2e", y: "#f2d06b",
+    t: "#8ea0a8", c: "#c9a86a", e: "#e9d9a8",
+  };
+  const SKIN = { fair: { s: "#f0c9a0", S: "#d9a77a" }, tan: { s: "#c98f5e", S: "#a56f41" }, deep: { s: "#6f4a2f", S: "#4f3220" } };
+  const HAIR = { black: "#2a2230", brown: "#6b4226", silver: "#c7c4bd" };
+
+  // ---- grids (16 wide, 20 tall; "." = transparent) -----------------------
+  const BODY = [
+    "................",
+    ".....kkkkkk.....",
+    "....khhhhhhk....",
+    "...khhhhhhhhk...",
+    "...khsssssshk...",
+    "...kssksskssk...",
+    "...kssssssssk...",
+    "....kssSSssk....",
+    ".....kkkkkk.....",
+    "....kddddddk....",
+    "...kdddddddddk..",
+    "..kskddddddksk..",
+    "..kskddddddksk..",
+    "...k.kddddk.k...",
+    ".....kddddk.....",
+    ".....kddddk.....",
+    ".....kd.kdk.....",
+    ".....kd..dk.....",
+    "....kkk..kkk....",
+    "................",
+  ];
+  const OUTFIT = {
+    tunic: null,
+    robe: [
+      "................","................","................","................","................",
+      "................","................","................","................",
+      "....krrrrrrk....",
+      "...krrrwwrrrk...",
+      "..kskrrwwrrksk..",
+      "..kskrrwwrrksk..",
+      "...k.krwwrk.k...",
+      ".....krwwrk.....",
+      ".....krwwrk.....",
+      ".....krrrrk.....",
+      ".....krrrrk.....",
+      "....kkkkkkkk....",
+      "................",
+    ],
+    coat: [
+      "................","................","................","................","................",
+      "................","................","................","................",
+      "....kbbbbbbk....",
+      "...kbbbccbbbk...",
+      "..kskbbccbbksk..",
+      "..kskbbccbbksk..",
+      "...k.kbbbbk.k...",
+      ".....kbbbbk.....",
+      ".....kbkkbk.....",
+      "................","................","................","................",
+    ],
+    vest: [
+      "................","................","................","................","................",
+      "................","................","................","................",
+      "....kppppppk....",
+      "...kpppggpppk...",
+      "..kskppggppksk..",
+      "..kskppppppksk..",
+      "...k.kppppk.k...",
+      "................","................","................","................","................","................",
+    ],
+  };
+  const ITEM = {
+    none: null,
+    staff: [
+      "..y.............","..g.............","..k.............","..k.............","..k.............",
+      "..k.............","..k.............","..k.............","..k.............","..k.............",
+      ".kk.............","..k.............","..k.............","..k.............","..k.............",
+      "..k.............","..k.............","..k.............","..k.............","................",
+    ],
+    book: [
+      "................","................","................","................","................",
+      "................","................","................","................","................",
+      "................",
+      "............kkkk",
+      "............kwwk",
+      "............krrk",
+      "............kkkk",
+      "................","................","................","................","................",
+    ],
+    lantern: [
+      "................","................","................","................","................",
+      "................","................","................","................",
+      ".kk.............",
+      ".ky.............",
+      "kkkk............",
+      "kyyk............",
+      "koyk............",
+      "kkkk............",
+      "................","................","................","................","................",
+    ],
+  };
+  // Capes draw BEHIND the body.
+  const CAPE = {
+    none: null,
+    branch: [
+      "................","................","................","................","................",
+      "................","................","................",
+      "...kkkkkkkkkk...",
+      "..kbbbbbbbbbbk..",
+      "..kbbbbbbbbbbk..",
+      "..kbbbbbbbbbbk..",
+      "..kbbbbbbbbbbk..",
+      "..kbbbbbbbbbbk..",
+      "..kbbbbbbbbbbk..",
+      "..kbbbbbbbbbbk..",
+      "..kbbbbbbbbbbk..",
+      "..kggggggggggk..",
+      "...kkkkkkkkkk...",
+      "................",
+    ],
+    field: [
+      "................","................","................","................","................",
+      "................","................","................",
+      "...kkkkkkkkkk...",
+      "..kggggggggggk..",
+      "..kgrrrrrrrrgk..",
+      "..kgrrrrrrrrgk..",
+      "..kgrrrrrrrrgk..",
+      "..kgrrrrrrrrgk..",
+      "..kgrrrrrrrrgk..",
+      "..kgrrrrrrrrgk..",
+      "..kgrrrrrrrrgk..",
+      "..kggggggggggk..",
+      "...kkkkkkkkkk...",
+      "................",
+    ],
+  };
+  // Effects: two frames each, drawn in front (sparkles, laurel) or behind (glow).
+  const EFFECT = {
+    none: null,
+    sparkles: { front: true, frames: [
+      [ "y...............","...........y....","................","y...............","..............y.",
+        "................","................","..............y.","................","y...............",
+        "................","................","...............y","................","................",
+        "y...............","................","..............y.","................","................" ],
+      [ "................","............y...","y...............","................","................",
+        "..............y.","y...............","................","................","................",
+        ".............y..","y...............","................","................","y...............",
+        "................","...............y","................","y...............","................" ],
+    ]},
+    glow: { front: false, frames: [
+      [ "................","....eeeeeeee....","...eeeeeeeeee...","..eeeeeeeeeeee..","..eeeeeeeeeeee..",
+        "..eeeeeeeeeeee..","..eeeeeeeeeeee..","..eeeeeeeeeeee..","...eeeeeeeeee...","...eeeeeeeeee...",
+        "..eeeeeeeeeeee..","..eeeeeeeeeeee..","..eeeeeeeeeeee..","..eeeeeeeeeeee..","...eeeeeeeeee...",
+        "...eeeeeeeeee...","...eeeeeeeeee...","...eeeeeeeeee...","..eeeeeeeeeeee..","................" ],
+      [ "....eeeeeeee....","...eeeeeeeeee...","..eeeeeeeeeeee..",".eeeeeeeeeeeeee.",".eeeeeeeeeeeeee.",
+        ".eeeeeeeeeeeeee.",".eeeeeeeeeeeeee.","..eeeeeeeeeeee..","..eeeeeeeeeeee..","..eeeeeeeeeeee..",
+        ".eeeeeeeeeeeeee.",".eeeeeeeeeeeeee.",".eeeeeeeeeeeeee.","..eeeeeeeeeeee..","..eeeeeeeeeeee..",
+        "..eeeeeeeeeeee..","..eeeeeeeeeeee..","..eeeeeeeeeeee..",".eeeeeeeeeeeeee.","................" ],
+    ]},
+    laurel: { front: true, frames: [
+      [ "................","...n.......n....","..nn.kkkkkk.nn..","..n.n......n.n..","...n........n...",
+        "................","................","................","................","................",
+        "................","................","................","................","................",
+        "................","................","................","................","................" ],
+      [ "................","...n.......n....","..nn.kkkkkk.nn..","..n.n......n.n..","...n........n...",
+        "................","................","................","................","................",
+        "................","................","................","................","................",
+        "................","................","................","................","................" ],
+    ]},
+  };
+
+  const SLOTS = [
+    { key: "skin", label: "Skin", options: Object.keys(SKIN) },
+    { key: "hair", label: "Hair", options: Object.keys(HAIR) },
+    { key: "outfit", label: "Outfit (class look)", options: Object.keys(OUTFIT) },
+    { key: "item", label: "Held item (loot)", options: Object.keys(ITEM) },
+    { key: "cape", label: "Cape (branch 99 / field max)", options: Object.keys(CAPE) },
+    { key: "effect", label: "Aura (achievement)", options: Object.keys(EFFECT) },
+  ];
+  const PRESETS = {
+    "New learner": { skin: "fair", hair: "brown", outfit: "tunic", item: "none", cape: "none", effect: "none", title: "Unnamed learner", level: 1 },
+    "Historical Skeptic": { skin: "tan", hair: "black", outfit: "robe", item: "book", cape: "none", effect: "sparkles", title: "Historical Skeptic", level: 86 },
+    "Quantitative Tinkerer": { skin: "deep", hair: "silver", outfit: "coat", item: "lantern", cape: "branch", effect: "glow", title: "Quantitative Tinkerer", level: 142 },
+    "Scout of the Fog": { skin: "fair", hair: "black", outfit: "vest", item: "staff", cape: "none", effect: "none", title: "Scout of the Fog", level: 37 },
+    "Polymath (field cape)": { skin: "tan", hair: "silver", outfit: "robe", item: "staff", cape: "field", effect: "laurel", title: "Polymath", level: 594 },
+  };
+
+  const state = { ...PRESETS["New learner"] };
+
+  // ---- rendering -------------------------------------------------------
+  const PX = 10;
+  const cv = document.getElementById("sprite");
+  const ctx = cv.getContext("2d");
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function paint(grid, pal, dx, dy, scale, target) {
+    if (!grid) return;
+    for (let y = 0; y < grid.length; y++) {
+      const row = grid[y];
+      for (let x = 0; x < row.length; x++) {
+        const ch = row[x];
+        if (ch === ".") continue;
+        const color = pal[ch];
+        if (!color) continue;
+        target.fillStyle = color;
+        target.fillRect((x + dx) * scale, (y + dy) * scale, scale, scale);
+      }
+    }
+  }
+  function palette() {
+    return { ...PAL, ...SKIN[state.skin], h: HAIR[state.hair] };
+  }
+  function draw(frame) {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const pal = palette();
+    const bob = reduced ? 0 : frame % 2; // idle: whole character dips one pixel
+    const fx = EFFECT[state.effect];
+    if (fx && !fx.front) paint(fx.frames[frame % 2], pal, 0, 0, PX, ctx);
+    paint(CAPE[state.cape], pal, 0, bob, PX, ctx);
+    paint(BODY, pal, 0, bob, PX, ctx);
+    paint(OUTFIT[state.outfit], pal, 0, bob, PX, ctx);
+    paint(ITEM[state.item], pal, 0, bob, PX, ctx);
+    if (fx && fx.front) paint(fx.frames[frame % 2], pal, 0, 0, PX, ctx);
+  }
+  let frame = 0;
+  draw(0);
+  if (!reduced) setInterval(() => { frame++; draw(frame); }, 550);
+
+  // ---- parts sheet -----------------------------------------------------
+  const sheetParts = [
+    ["body", BODY], ...Object.entries(OUTFIT).filter(([, g]) => g), ...Object.entries(ITEM).filter(([, g]) => g),
+    ...Object.entries(CAPE).filter(([, g]) => g),
+    ...Object.entries(EFFECT).filter(([, e]) => e).map(([k, e]) => [k, e.frames[0]]),
+  ];
+  const sh = document.getElementById("sheet");
+  const S = 4, GAP = 4;
+  sh.width = sheetParts.length * (16 + GAP) * S; sh.height = 20 * S;
+  const sctx = sh.getContext("2d");
+  const basePal = { ...PAL, ...SKIN.fair, h: HAIR.brown };
+  sheetParts.forEach(([, g], i) => paint(g, basePal, i * (16 + GAP), 0, S, sctx));
+  document.getElementById("partCount").textContent = sheetParts.length;
+
+  // ---- controls --------------------------------------------------------
+  const pickers = document.getElementById("pickers");
+  SLOTS.forEach((slot) => {
+    const fs = document.createElement("fieldset");
+    const lg = document.createElement("legend"); lg.textContent = slot.label; fs.appendChild(lg);
+    const row = document.createElement("div"); row.className = "row";
+    slot.options.forEach((opt) => {
+      const id = `${slot.key}-${opt}`;
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "radio"; input.name = slot.key; input.value = opt; input.id = id;
+      input.checked = state[slot.key] === opt;
+      input.addEventListener("change", () => { state[slot.key] = opt; state.title = "Custom"; sync(); });
+      const span = document.createElement("span"); span.textContent = opt;
+      label.append(input, span); row.appendChild(label);
+    });
+    fs.appendChild(row); pickers.appendChild(fs);
+  });
+  const presetsEl = document.getElementById("presets");
+  Object.entries(PRESETS).forEach(([name, p]) => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = name;
+    b.addEventListener("click", () => { Object.assign(state, p); sync(true); });
+    presetsEl.appendChild(b);
+  });
+  const plate = document.getElementById("plate");
+  function sync(fromPreset) {
+    if (fromPreset) SLOTS.forEach((s) => { const el = document.getElementById(`${s.key}-${state[s.key]}`); if (el) el.checked = true; });
+    plate.innerHTML = "";
+    plate.append(document.createTextNode(state.title));
+    const small = document.createElement("small"); small.textContent = `Total level ${state.level}`; plate.appendChild(small);
+    draw(frame);
+  }
+  const combos = SLOTS.reduce((n, s) => n * s.options.length, 1);
+  document.getElementById("combos").textContent = combos.toLocaleString();
+  sync(true);
+})();
+</script>
