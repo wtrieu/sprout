@@ -220,32 +220,50 @@ const attrValue = (tag: string, name: "property" | "name" | "content"): string |
   return m?.[1] ?? null;
 };
 
-/** og:title if present (attributes in any order), else the <title> text. */
+/**
+ * og:title if present (attributes in any order), else the <title> text.
+ * Tags are located by plain string scanning, not by HTML-shaped regexes:
+ * this is a title sniff over untrusted bytes, never a sanitizer, and it
+ * must stay linear.
+ */
 export const extractHtmlTitle = (html: string): string | null => {
-  // Walk <meta …> tags one at a time rather than spanning the document with
-  // a single regex: `[^>]*` runs once per tag and cannot cross a `>`.
-  const metaRe = /<meta\b[^>]*>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = metaRe.exec(html))) {
-    const tag = m[0];
+  const lower = html.toLowerCase();
+  let from = 0;
+  for (;;) {
+    const start = lower.indexOf("<meta", from);
+    if (start === -1) break;
+    const end = lower.indexOf(">", start);
+    if (end === -1) break;
+    const tag = html.slice(start, end + 1);
     const prop = attrValue(tag, "property") ?? attrValue(tag, "name");
     if (prop?.toLowerCase() === "og:title") {
-      const content = attrValue(tag, "content");
-      if (content && content.trim()) return content.trim();
+      const content = attrValue(tag, "content")?.trim();
+      if (content) return content;
     }
+    from = end + 1;
   }
-  const t = html.match(/<title\b[^>]*>([^<]*)<\/title>/i);
-  return t?.[1]?.replace(/\s+/g, " ").trim() || null;
+  const titleAt = lower.indexOf("<title");
+  if (titleAt === -1) return null;
+  const open = lower.indexOf(">", titleAt);
+  if (open === -1) return null;
+  const close = lower.indexOf("</title", open);
+  if (close === -1) return null;
+  return html.slice(open + 1, close).replace(/\s+/g, " ").trim() || null;
 };
 
-const decodeEntities = (s: string): string =>
-  s
-    .replace(/&amp;/g, "&")
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&ndash;/g, "–")
-    .replace(/&mdash;/g, "—")
-    .replace(/&nbsp;/g, " ");
+const ENTITIES: Record<string, string> = {
+  amp: "&",
+  apos: "'",
+  "#39": "'",
+  quot: '"',
+  ndash: "–",
+  mdash: "—",
+  nbsp: " ",
+};
+
+/** Single pass, so "&amp;quot;" decodes to "&quot;" and never to a quote. */
+export const decodeEntities = (s: string): string =>
+  s.replace(/&(amp|apos|#39|quot|ndash|mdash|nbsp);/g, (_, name: string) => ENTITIES[name] ?? "");
 
 const stripTracking = (url: string): string => {
   try {
@@ -276,7 +294,7 @@ const verifyWeb = async (
     host === "localhost" ||
     host.endsWith(".local") ||
     /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ||
-    host.includes(":")
+    host.startsWith("[") // bracketed IPv6 literal
   ) {
     return { ok: false, reason: "web url host not allowed" };
   }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  decodeEntities,
   extractHtmlTitle,
   normalizeTitle,
   titleSimilarity,
@@ -160,6 +161,19 @@ describe("extractHtmlTitle", () => {
     const started = Date.now();
     expect(extractHtmlTitle(hostile)).toBeNull();
     expect(Date.now() - started).toBeLessThan(500);
+  });
+
+  it("tolerates whitespace in closing tags and ignores an unclosed title", () => {
+    expect(extractHtmlTitle(`<TITLE lang="en">Caps</TITLE >`)).toBe("Caps");
+    expect(extractHtmlTitle(`<title>never closed`)).toBeNull();
+  });
+});
+
+describe("decodeEntities", () => {
+  it("decodes the common entities in one pass and never double-unescapes", () => {
+    expect(decodeEntities("A &amp; B &quot;C&quot; D&#39;s &ndash; E")).toBe(`A & B "C" D's – E`);
+    expect(decodeEntities("&amp;quot;")).toBe("&quot;");
+    expect(decodeEntities("&amp;lt;b&amp;gt;")).toBe("&lt;b&gt;");
   });
 });
 
