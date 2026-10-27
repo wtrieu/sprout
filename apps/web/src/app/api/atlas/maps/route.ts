@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { atlasMaps, atlasNodes } from "@/db/schema";
+import { atlasMaps, atlasNodes, atlasRungs } from "@/db/schema";
 import { getPreset, presetKeys } from "@/lib/atlas/presets";
 import { MAP_STALE_MS, isStale, reapStaleMaps, spawnAtlasJob } from "@/lib/atlas/runner";
 
@@ -10,18 +10,30 @@ export const GET = () => {
   reapStaleMaps(db);
   const maps = db.select().from(atlasMaps).orderBy(desc(atlasMaps.id)).all();
   const nodes = db
-    .select({ mapId: atlasNodes.mapId, visitedAt: atlasNodes.visitedAt })
+    .select({ id: atlasNodes.id, mapId: atlasNodes.mapId, visitedAt: atlasNodes.visitedAt })
     .from(atlasNodes)
     .all();
-  const counts = new Map<number, { nodeCount: number; visitedCount: number }>();
+  const readyOnepagers = new Set(
+    db
+      .select({ nodeId: atlasRungs.nodeId })
+      .from(atlasRungs)
+      .where(and(eq(atlasRungs.level, "onepager"), eq(atlasRungs.status, "ready")))
+      .all()
+      .map((r) => r.nodeId),
+  );
+  const counts = new Map<number, { nodeCount: number; visitedCount: number; onepagerReadyCount: number }>();
   for (const n of nodes) {
-    const c = counts.get(n.mapId) ?? { nodeCount: 0, visitedCount: 0 };
+    const c = counts.get(n.mapId) ?? { nodeCount: 0, visitedCount: 0, onepagerReadyCount: 0 };
     c.nodeCount += 1;
     if (n.visitedAt) c.visitedCount += 1;
+    if (readyOnepagers.has(n.id)) c.onepagerReadyCount += 1;
     counts.set(n.mapId, c);
   }
   return NextResponse.json({
-    maps: maps.map((m) => ({ ...m, ...(counts.get(m.id) ?? { nodeCount: 0, visitedCount: 0 }) })),
+    maps: maps.map((m) => ({
+      ...m,
+      ...(counts.get(m.id) ?? { nodeCount: 0, visitedCount: 0, onepagerReadyCount: 0 }),
+    })),
     presets: presetKeys,
   });
 };

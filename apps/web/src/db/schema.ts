@@ -668,6 +668,9 @@ export const atlasMaps = sqliteTable("atlas_maps", {
     .notNull()
     .$defaultFn(() => new Date()),
   readyAt: integer("ready_at", { mode: "timestamp" }),
+  // Set once by the preload shard that found every one-pager ready-or-failed:
+  // the atomic claim that makes "map is ready" a single email.
+  notifiedAt: integer("notified_at", { mode: "timestamp" }),
 });
 
 export const atlasNodeKinds = ["branch", "school", "thinker", "concept", "text"] as const;
@@ -729,8 +732,11 @@ export const atlasRungs = sqliteTable(
     bodyMd: text("body_md"),
     wordCount: integer("word_count"),
     model: text("model"),
-    // Editor-judge verdict JSON (one-pager and deep dive only).
+    // Editor-judge verdict JSON (deep dive only; one-pagers are never judged).
     judgeVerdict: text("judge_verdict"),
+    // One-pager rows only: 3 × { question, choices[4], answer, why }, drafted
+    // in the same call as the body. PR-C builds the answering UI.
+    quizJson: text("quiz_json"),
     error: text("error"),
     startedAt: integer("started_at", { mode: "timestamp" })
       .notNull()

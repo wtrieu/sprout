@@ -31,6 +31,32 @@ export const spawnAtlasJob = (args: string[]): void => {
   child.unref();
 };
 
+/** How many detached preload shards to run (one rung at a time each). */
+export const preloadWorkers = (): number => {
+  const n = Number(process.env.ATLAS_PRELOAD_WORKERS ?? 3);
+  return Number.isInteger(n) && n >= 1 && n <= 8 ? n : 3;
+};
+
+/**
+ * Spawn the detached preload shards for a map (after draft-map, and from the
+ * "Prepare the rest" button). Each shard takes the nodes with
+ * `id % shards === shard` and the last one standing sends the ready email.
+ */
+export const spawnPreloadShards = (mapId: number, shards = preloadWorkers()): number => {
+  for (let shard = 0; shard < shards; shard++) {
+    spawnAtlasJob([
+      "preload",
+      "--map",
+      String(mapId),
+      "--shard",
+      String(shard),
+      "--shards",
+      String(shards),
+    ]);
+  }
+  return shards;
+};
+
 const STALE_MESSAGE = "No result came back in time — the background run may have died. Try again.";
 
 /** Flip maps that have been `drafting` past the deadline to `failed`. */

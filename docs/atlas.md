@@ -35,9 +35,11 @@ apps/web/src/lib/atlas/
   rungs.ts      ensureRung(): draft → validate (+1 repair) → judge (+1 revision) → verify readings → store
   verify.ts     deterministic, keyless reading verification (injectable fetch)
   picker.ts     frontier ordering: child → sibling → next-branch → fallback (pure)
-  runner.ts     detached spawn of scripts/atlas.ts + stale-drafting reaper
-scripts/atlas.ts            draft-map | rung  (PR2 adds: note; PR3 adds: kid)
-apps/web/src/app/api/atlas  maps, maps/[id], nodes/[id], nodes/[id]/rungs/[level], /visit, /skip
+  runner.ts     detached spawn of scripts/atlas.ts (+ preload shards) + stale-drafting reaper
+  preload.ts    preloadMap(): one shard's one-pagers + quiz backfill + the atomic "ready" email claim
+  email.ts      renderMapReadyEmail() (PR2 adds renderFrontierEmail)
+scripts/atlas.ts            draft-map | rung | preload  (PR2 adds: note; PR3 adds: kid)
+apps/web/src/app/api/atlas  maps, maps/[id], maps/[id]/preload, nodes/[id], nodes/[id]/rungs/[level], /visit, /skip
 apps/web/src/app/(app)/atlas  /atlas, /atlas/[mapId], /atlas/[mapId]/[nodeId]
 ```
 
@@ -56,49 +58,82 @@ Rules the code enforces:
   `failed` after 20 min (maps) / 10 min (rungs).
 - **The child's name is never hardcoded.** Read `children.name` / `dob`.
 
-## Data model (migration 0013)
+## Data model (migrations 0013, 0014)
 
 `atlas_maps`, `atlas_nodes` (self-referencing `parent_id`, two levels),
 `atlas_rungs` (unique per node+level), `atlas_readings` (verified + rejected),
 `atlas_frontier_picks` (PR2), `atlas_bookmarks` (PR3), `atlas_seeds` (PR3).
+0014 added `atlas_rungs.quiz_json` and `atlas_maps.notified_at`.
 
 ## Operations
 
 - Env: `ATLAS_MODEL_WRITER` (default `claude-fable-5`), `ATLAS_MODEL_JUDGE`
   (default `claude-sonnet-5`), `ATLAS_JUDGE=false` to skip the editor-judge
-  on deep dives (faster, less checked). PR-A adds `ATLAS_MODEL_ONEPAGER`
-  (default `claude-sonnet-5`; one-pagers are never judged) and
-  `ATLAS_PRELOAD_WORKERS` (default 3).
-- By hand: `pnpm --filter web run job:atlas draft-map --map <id>` and
-  `pnpm --filter web run job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]`.
+  on deep dives (faster, less checked), `ATLAS_MODEL_ONEPAGER` (default
+  `claude-sonnet-5`; one-pagers are never judged), `ATLAS_PRELOAD_WORKERS`
+  (default 3). The web plist must carry `RESEND_API_KEY`, `DIGEST_FROM`,
+  `DIGEST_TO` and `SPROUT_BASE_URL` for the "map is ready" email.
+- By hand: `pnpm --filter web run job:atlas draft-map --map <id>`,
+  `pnpm --filter web run job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]`
+  and `pnpm --filter web run job:atlas preload --map <id> [--shard k --shards n]`.
+  Detached runs started from the web process log nothing; run by hand to watch.
+- Quizzes have no UI until PR-C. Inspect them with
+  `select n.title, json_extract(q.value,'$.question') from atlas_rungs r join atlas_nodes n on n.id = r.node_id, json_each(r.quiz_json) q where r.level='onepager'`.
 - Rejected readings are the tuning data for the verifier thresholds
   (`THRESHOLDS` in `verify.ts`): `select kind,title,reject_reason from atlas_readings where status='rejected'`.
 
 
 ## Status and how to resume
 
-**Shipped:** PR1 (#96, merged 2026-10-19) — maps, node ladders, verified
-readings, visited state, skip. Everything under "Remaining work" is still to
-do. The owner's PR1 feedback (below) reorders it: the v2 track (PR-A → PR-D)
-comes **before** PR2 and PR3. **Next up: build PR-A** — its spec under
-"Remaining work" is complete and agreed; no design questions remain for it.
+**Shipped:**
+
+- PR1 (#96, merged 2026-10-19) — maps, node ladders, verified readings,
+  visited state, skip.
+- PR-A (#99, merged 2026-10-27) — one-pagers (with quizzes) preloaded on
+  map creation by sharded workers, one "map is ready" email, Sonnet without
+  the judge for one-pagers. Built as specified below except: the shard spawn
+  lives in `scripts/atlas.ts` after `draftMap` returns (lib stays free of
+  `child_process`). The owner merged it on a light review and will review
+  it properly alongside PR-C; the live pass rate of Sonnet quizzes against
+  `validateQuiz` was not measured before merge.
+
+**Order of what's left:** PR-B → PR-C → PR-D, then PR2 and PR3 (the owner's
+PR1 feedback put the v2 track first). **Next up: PR-B (visuals).** Unlike
+PR-A it has no build spec yet — only the decisions in the v2 table ("Visuals"
+row) and one line under "Delivery order". The first job is the spec.
+
+Follow-ups from PR-A, not scheduled (fold into whichever PR touches them):
+
+- A dry run consumes the notification claim: `preloadMap` sets
+  `notified_at` before `sendEmail`, and `sendEmail` returns `sent: false`
+  without a Resend key, so a map preloaded under a plist missing the key
+  never gets its email. Fix: release the claim (set `notified_at` back to
+  null) when `send` returns `sent: false` or throws, plus a test.
+- "Prepare the rest" only appears while a one-pager is missing or failed; a
+  map whose one-pagers are all ready but quiz-less has no button (run
+  `preload` by hand).
 
 To pick this up in a fresh session, paste this prompt:
 
 > Read `docs/atlas.md` top to bottom, then `apps/web/src/lib/atlas/rungs.ts`,
-> `draftMap.ts`, `llm.ts`, `runner.ts`, `scripts/atlas.ts` and
-> `apps/web/src/lib/email.ts`. Build PR-A exactly as specified under
-> "PR-A — preloaded one-pagers and quizzes": migration 0014, the onepager
-> model and no-judge rule in `ensureRung`, the quiz in the one-pager draft
-> schema, `lib/atlas/preload.ts` with sharded workers and the atomic
-> notification claim, `lib/atlas/email.ts`, the `preload` subcommand, the
-> preload route, the three UI changes, and the tests listed there. Tests
-> first for `rungs`, `preload` and `email`. Run `pnpm typecheck`,
-> `pnpm lint` and `pnpm --filter web exec vitest run --passWithNoTests`
-> before every push. Branch `claude/atlas-preload` from `main`; never push
-> to `main`; open a PR when green. Do not start PR-B or PR-C in the same PR.
-> If anything in the spec contradicts the code, follow the code and note
-> the deviation in the PR description.
+> `preload.ts`, `verify.ts`, `apps/web/src/lib/markdown.ts`,
+> `apps/web/src/components/Markdown.tsx` and the node page
+> `apps/web/src/app/(app)/atlas/[mapId]/[nodeId]/page.tsx`. Next up is
+> PR-B (visuals): model-drawn diagrams, side-by-sides and maps inside rungs,
+> labeled as model-drawn, plus verified real images (e.g. Wikimedia), never
+> generated art. It has no build spec yet. First, write one in the shape of
+> the PR-A spec under "Remaining work" — block format in the rung body and
+> how the renderer, `validateRungBody` and `mdToHtml` handle it; which
+> rungs get visuals and how the prompts ask for them; how images are
+> proposed and machine-verified (same rule as readings: never shown
+> unverified, rejects stored with a reason); the migration if any; UI;
+> tests; how to verify. Put the spec to me and wait for my agreement before
+> building. Then build it, tests first. Run `pnpm typecheck`, `pnpm lint`
+> and `pnpm --filter web exec vitest run --passWithNoTests` before every
+> push. Branch `claude/atlas-visuals` from `main`; never push to `main`;
+> open a PR when green, with the agreed spec committed to `docs/atlas.md`
+> in the same PR. Do not start PR-C. If the spec and the code disagree,
+> follow the code and note the deviation in the PR description.
 
 Then:
 
@@ -297,7 +332,7 @@ Workflow for producing and refining the parts:
 
 ## Remaining work
 
-### PR-A — preloaded one-pagers and quizzes (~500 LOC)
+### PR-A — preloaded one-pagers and quizzes (shipped, #99)
 
 Goal: after "Start a map", the owner gets one email when every one-pager
 (and its quiz) is ready, and from then on every node opens instantly.

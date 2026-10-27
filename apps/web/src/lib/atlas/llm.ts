@@ -15,6 +15,8 @@ import { callClaude, callClaudeForJson, type CallClaude } from "../stories/claud
 export const atlasModels = () => ({
   writer: process.env.ATLAS_MODEL_WRITER ?? "claude-fable-5",
   judge: process.env.ATLAS_MODEL_JUDGE ?? "claude-sonnet-5",
+  // One-pagers are preloaded in bulk: a faster model, and never judged.
+  onepager: process.env.ATLAS_MODEL_ONEPAGER ?? "claude-sonnet-5",
 });
 
 export type AtlasLlm = <S extends ZodTypeAny>(

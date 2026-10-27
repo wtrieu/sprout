@@ -107,21 +107,35 @@ function NodePageInner() {
     });
   }, [data, level, nodeId]);
 
-  const draftRung = async (l: Level, force = false) => {
-    setBusy(true);
-    setError(null);
-    const res = await fetch(`/api/atlas/nodes/${nodeId}/rungs/${l}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(force ? { force: true } : {}),
-    });
-    setBusy(false);
-    if (!res.ok && res.status !== 409) {
-      const d = await res.json().catch(() => null);
-      setError(d?.error ?? "Couldn't start the draft.");
-    }
-    load();
-  };
+  const draftRung = useCallback(
+    async (l: Level, force = false) => {
+      setBusy(true);
+      setError(null);
+      const res = await fetch(`/api/atlas/nodes/${nodeId}/rungs/${l}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(force ? { force: true } : {}),
+      });
+      setBusy(false);
+      if (!res.ok && res.status !== 409) {
+        const d = await res.json().catch(() => null);
+        setError(d?.error ?? "Couldn't start the draft.");
+      }
+      load();
+    },
+    [nodeId, load],
+  );
+
+  // The preload writes every one-pager up front; when this node still lacks
+  // one (an older map, a failed or reaped row), start it without a click.
+  const autoDrafted = useRef(false);
+  useEffect(() => {
+    if (!data || autoDrafted.current) return;
+    const onepager = data.rungs.onepager;
+    if (onepager && (onepager.status === "ready" || onepager.status === "drafting")) return;
+    autoDrafted.current = true;
+    draftRung("onepager");
+  }, [data, draftRung]);
 
   const skipBranch = async (skipped: boolean) => {
     if (!data) return;
@@ -229,8 +243,9 @@ function NodePageInner() {
           )}
           {rung?.status === "drafting" && (
             <p className="text-sm text-neutral-400">
-              Drafting… usually about a minute (write, fact-check, verify links). This page
-              refreshes itself.
+              {level === "onepager"
+                ? "Writing this page… (about a minute). This page refreshes itself."
+                : "Drafting… usually about a minute (write, fact-check, verify links). This page refreshes itself."}
             </p>
           )}
           {rung?.status === "failed" && (
