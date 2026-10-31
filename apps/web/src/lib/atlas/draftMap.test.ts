@@ -39,6 +39,7 @@ const outlineOf = (branchCount: number) =>
     branches: Array.from({ length: branchCount }, (_, i) => ({
       title: `Branch ${i}`,
       blurb: `What is the question branch ${i} keeps asking?`,
+      discipline: "reasoning" as const,
     })),
   });
 
@@ -48,6 +49,7 @@ const childrenOf = (branchCount: number, perBranch: number): BranchChildren["chi
       title: `Child ${i}-${j}`,
       blurb: `Why does ${i}-${j} still matter today?`,
       kind: "concept" as const,
+      discipline: "evidence" as const,
     })),
   );
 
@@ -123,6 +125,10 @@ describe("draftMap", () => {
     const nodes = db.select().from(schema.atlasNodes).where(eq(schema.atlasNodes.mapId, map.id)).all();
     expect(nodes.filter((n) => n.parentId === null)).toHaveLength(8);
     expect(nodes.filter((n) => n.parentId !== null)).toHaveLength(3);
+    // Discipline tags land at draft time: branches and children both.
+    expect(nodes.every((n) => n.discipline !== null)).toBe(true);
+    expect(nodes.find((n) => n.parentId === null)?.discipline).toBe("reasoning");
+    expect(nodes.find((n) => n.parentId !== null)?.discipline).toBe("evidence");
   });
 
   it("marks the map failed when the outline call throws", () => {

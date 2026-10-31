@@ -676,6 +676,17 @@ export const atlasMaps = sqliteTable("atlas_maps", {
 export const atlasNodeKinds = ["branch", "school", "thinker", "concept", "text"] as const;
 export type AtlasNodeKind = (typeof atlasNodeKinds)[number];
 
+// The account-wide spine: a small fixed set of cross-field skills every node
+// is tagged to at draft time, so they level as a byproduct of reading.
+export const atlasDisciplines = [
+  "reasoning",
+  "evidence",
+  "language",
+  "systems",
+  "creativity",
+] as const;
+export type AtlasDiscipline = (typeof atlasDisciplines)[number];
+
 // Two levels only: branches (parentId null) and their children. Depth is
 // derived from parentId, never stored.
 export const atlasNodes = sqliteTable(
@@ -693,6 +704,10 @@ export const atlasNodes = sqliteTable(
     // One line: the live question this node answers.
     blurb: text("blurb").notNull(),
     kind: text("kind", { enum: atlasNodeKinds }).notNull().default("concept"),
+    // Discipline tag assigned at draft time (null on maps drafted before
+    // PR-C until the `disciplines` backfill runs). Untagged nodes count
+    // toward branch and field levels but no discipline.
+    discipline: text("discipline", { enum: atlasDisciplines }),
     // "Skip this branch": the subtree drops out of frontier selection.
     skipped: integer("skipped", { mode: "boolean" }).notNull().default(false),
     skippedAt: integer("skipped_at", { mode: "timestamp" }),
@@ -873,4 +888,48 @@ export const atlasSeeds = sqliteTable(
     resolvedAt: integer("resolved_at", { mode: "timestamp" }),
   },
   (t) => [index("atlas_seeds_status_idx").on(t.status)],
+);
+
+export const atlasPersonas = ["cartographer", "protege"] as const;
+export type AtlasPersona = (typeof atlasPersonas)[number];
+
+// One character per person (Cloudflare Access email). Maps are shared;
+// progress, levels and the persona are per player. Household-only: there is
+// no public profile and no roles — everyone behind Access is family.
+export const atlasPlayers = sqliteTable("atlas_players", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  email: text("email").notNull().unique(),
+  name: text("name").notNull(),
+  persona: text("persona", { enum: atlasPersonas }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// The typed event log: the single input to every reward (levels, tiers,
+// PR-D's achievements and class offers, PR2/PR3 re-bases). Append-only —
+// nothing updates or deletes a row, which is what makes "levels never drop"
+// true by construction. `verb` is deliberately TEXT with no enum: new verbs
+// are data, not code, and no reader may switch exhaustively on it.
+export const atlasEvents = sqliteTable(
+  "atlas_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    playerId: integer("player_id")
+      .notNull()
+      .references(() => atlasPlayers.id, { onDelete: "cascade" }),
+    verb: text("verb").notNull(),
+    // Nullable on purpose: deleting a map keeps the player's history.
+    mapId: integer("map_id").references(() => atlasMaps.id, { onDelete: "set null" }),
+    nodeId: integer("node_id").references(() => atlasNodes.id, { onDelete: "set null" }),
+    // Verb-specific payload (JSON), e.g. { level: "onepager" } on read_rung.
+    data: text("data"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    index("atlas_events_player_idx").on(t.playerId, t.createdAt),
+    index("atlas_events_verb_idx").on(t.verb),
+  ],
 );

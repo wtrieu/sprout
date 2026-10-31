@@ -13,6 +13,7 @@
  */
 import "./env";
 import { db } from "../apps/web/src/db/client";
+import { assignDisciplines } from "../apps/web/src/lib/atlas/disciplines";
 import { draftMap } from "../apps/web/src/lib/atlas/draftMap";
 import { preloadMap } from "../apps/web/src/lib/atlas/preload";
 import { ensureRung, isRungLevel } from "../apps/web/src/lib/atlas/rungs";
@@ -33,6 +34,7 @@ const usage = (): never => {
       "  job:atlas draft-map --map <id>",
       "  job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]",
       "  job:atlas preload --map <id> [--shard <k> --shards <n>]",
+      "  job:atlas disciplines --map <id> [--force]",
     ].join("\n"),
   );
   process.exit(1);
@@ -61,6 +63,15 @@ const main = async (): Promise<number> => {
       console.log(`atlas preload #${mapId} shard ${shard}/${shards} starting ${startedAt}`);
       const res = await preloadMap(db, mapId, { shard, shards });
       return res.failed > 0 ? 2 : 0;
+    }
+    case "disciplines": {
+      // Backfill discipline tags on a map drafted before PR-C (new maps are
+      // tagged at draft time). One classification call per branch.
+      const mapId = Number(flag("map"));
+      if (!Number.isInteger(mapId)) usage();
+      console.log(`atlas disciplines #${mapId} starting ${startedAt}`);
+      const res = assignDisciplines(db, mapId, { force: has("force") });
+      return res.unknownTitles.length > 0 ? 2 : 0;
     }
     case "rung": {
       const nodeId = Number(flag("node"));
