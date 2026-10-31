@@ -13,7 +13,14 @@
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import type { DB } from "../../db/client";
-import { atlasMaps, atlasNodes, type AtlasNodeKind } from "../../db/schema";
+import {
+  atlasDisciplines,
+  atlasMaps,
+  atlasNodes,
+  type AtlasDiscipline,
+  type AtlasNodeKind,
+} from "../../db/schema";
+import { disciplineRules } from "./disciplines";
 import { atlasModels, cliLlm, type AtlasLlm } from "./llm";
 import { normalizeTitle } from "./verify";
 
@@ -33,10 +40,15 @@ export const MAX_CHILDREN = 6;
 const Title = z.string().trim().min(2).max(90);
 const Blurb = z.string().trim().min(8).max(260);
 
+const Discipline = z.enum(atlasDisciplines);
+
 export const MapOutlineSchema = z.object({
   title: Title,
   blurb: Blurb,
-  branches: z.array(z.object({ title: Title, blurb: Blurb })).min(MIN_BRANCHES).max(MAX_BRANCHES),
+  branches: z
+    .array(z.object({ title: Title, blurb: Blurb, discipline: Discipline }))
+    .min(MIN_BRANCHES)
+    .max(MAX_BRANCHES),
 });
 export type MapOutline = z.infer<typeof MapOutlineSchema>;
 
@@ -44,16 +56,23 @@ export const childKinds = ["school", "thinker", "concept", "text"] as const;
 
 export const BranchChildrenSchema = z.object({
   children: z
-    .array(z.object({ title: Title, blurb: Blurb, kind: z.enum(childKinds) }))
+    .array(z.object({ title: Title, blurb: Blurb, kind: z.enum(childKinds), discipline: Discipline }))
     .min(MIN_CHILDREN)
     .max(MAX_CHILDREN),
 });
 export type BranchChildren = z.infer<typeof BranchChildrenSchema>;
 
-export type DraftChild = { title: string; blurb: string; kind: AtlasNodeKind; position: number };
+export type DraftChild = {
+  title: string;
+  blurb: string;
+  kind: AtlasNodeKind;
+  discipline: AtlasDiscipline;
+  position: number;
+};
 export type DraftBranch = {
   title: string;
   blurb: string;
+  discipline: AtlasDiscipline;
   position: number;
   children: DraftChild[];
 };
@@ -66,7 +85,7 @@ BRIEF:
 ${input.brief?.trim() || "(none — use your best judgment of how a great history of this field is organized)"}
 
 Return JSON only:
-{ "title": string, "blurb": string, "branches": [ { "title": string, "blurb": string } ] }
+{ "title": string, "blurb": string, "branches": [ { "title": string, "blurb": string, "discipline": "reasoning" | "evidence" | "language" | "systems" | "creativity" } ] }
 
 Rules:
 - 8 to 14 branches, in reading order (history first when the field has one).
@@ -74,6 +93,7 @@ Rules:
 - A branch blurb is the live question that region of the field is still arguing about, in one sentence — not a definition.
 - Titles are short and specific ("The Hellenistic schools", not "Later Greek thought (various)").
 - No two branches overlap: each thinker, school, or idea belongs in exactly one branch.
+- ${disciplineRules().replace(/\n/g, "\n  ")}
 - Plain text in every string: no markdown, no quotation marks around titles.`;
 
 export const buildChildrenPrompt = (input: {
@@ -89,13 +109,14 @@ THE OTHER BRANCHES (already covered elsewhere — do NOT place their schools, th
 ${input.otherBranches.map((b) => `- ${b}`).join("\n")}
 
 Return JSON only:
-{ "children": [ { "title": string, "blurb": string, "kind": "school" | "thinker" | "concept" | "text" } ] }
+{ "children": [ { "title": string, "blurb": string, "kind": "school" | "thinker" | "concept" | "text", "discipline": "reasoning" | "evidence" | "language" | "systems" | "creativity" } ] }
 
 Rules:
 - 2 to 6 children, ordered by importance: the first is the one a newcomer must meet.
 - Each child is a school, a thinker, a concept, or a text — pick the kind that best names it.
 - A blurb is the live question the child answers, in one sentence ("Can a life be good if it ends badly?"), never a definition.
 - Titles are the names a good index would use.
+- ${disciplineRules().replace(/\n/g, "\n  ")}
 - Plain text in every string: no markdown, no quotation marks around titles.`;
 
 /**
@@ -123,9 +144,21 @@ export const normalizeMapDraft = (
       const ck = normalizeTitle(c.title);
       if (!ck || seen.has(ck)) continue;
       seen.add(ck);
-      children.push({ title: c.title.trim(), blurb: c.blurb.trim(), kind: c.kind, position: 0 });
+      children.push({
+        title: c.title.trim(),
+        blurb: c.blurb.trim(),
+        kind: c.kind,
+        discipline: c.discipline,
+        position: 0,
+      });
     }
-    return { title: branch.title.trim(), blurb: branch.blurb.trim(), position: 0, children };
+    return {
+      title: branch.title.trim(),
+      blurb: branch.blurb.trim(),
+      discipline: branch.discipline,
+      position: 0,
+      children,
+    };
   });
 
   const total = () => branches.reduce((n, b) => n + 1 + b.children.length, 0);
@@ -169,6 +202,7 @@ export const storeMapDraft = (db: DB, mapId: number, draft: MapDraft): number =>
           title: b.title,
           blurb: b.blurb,
           kind: "branch",
+          discipline: b.discipline,
         })
         .returning({ id: atlasNodes.id })
         .get();
@@ -182,6 +216,7 @@ export const storeMapDraft = (db: DB, mapId: number, draft: MapDraft): number =>
             title: c.title,
             blurb: c.blurb,
             kind: c.kind,
+            discipline: c.discipline,
           })
           .run();
         count += 1;

@@ -33,6 +33,14 @@ type Reading = {
   snippet: string | null;
 };
 type NodeLite = { id: number; title: string; blurb: string; kind: string; skipped: boolean };
+type Tier = {
+  seen: boolean;
+  eli10: boolean;
+  onepager: boolean;
+  deepdive: boolean;
+  mastered: boolean;
+};
+type QuizQuestion = { question: string; choices: string[] };
 type Detail = {
   node: NodeLite & { parentId: number | null; mapId: number; visitedAt: string | null };
   map: { id: number; title: string } | null;
@@ -42,6 +50,16 @@ type Detail = {
   rungs: Record<Level, Rung | null>;
   readings: Reading[];
   adjacent: Array<{ nodeId: number; title: string; reason: string }>;
+  player: { id: number; name: string; persona: string } | null;
+  progress: { tier: Tier; quiz: { passedAt: string | null; attempts: number } } | null;
+  quiz: { questions: QuizQuestion[] } | null;
+};
+type GradeResponse = {
+  correct: boolean[];
+  score: number;
+  passed: boolean;
+  explanations: string[] | null;
+  personaLine: string;
 };
 
 const KIND_LABEL: Record<Reading["kind"], string> = {
@@ -51,6 +69,138 @@ const KIND_LABEL: Record<Reading["kind"], string> = {
 };
 
 const isLevel = (s: string | null): s is Level => !!s && (LEVELS as string[]).includes(s);
+
+/**
+ * The quiz under the one-pager — the gate to "mastered". Grading happens on
+ * the server (the answers never reach the client); retry freely, no cost; a
+ * pass is permanent, so a re-take is just for fun.
+ */
+function QuizBlock({
+  nodeId,
+  questions,
+  passedAt,
+  onGraded,
+}: {
+  nodeId: string;
+  questions: QuizQuestion[];
+  passedAt: string | null;
+  onGraded: () => void;
+}) {
+  const [answers, setAnswers] = useState<(number | null)[]>(questions.map(() => null));
+  const [result, setResult] = useState<GradeResponse | null>(null);
+  const [open, setOpen] = useState(!passedAt);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const res = await fetch(`/api/atlas/nodes/${nodeId}/quiz`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ answers }),
+    });
+    setBusy(false);
+    const d = await res.json().catch(() => null);
+    if (!res.ok) {
+      setError(d?.error ?? "Couldn't grade the quiz.");
+      return;
+    }
+    setResult(d as GradeResponse);
+    onGraded();
+  };
+
+  return (
+    <div className="space-y-4 border-t border-neutral-800 pt-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">Quiz</h3>
+        {passedAt && (
+          <span className="rounded-full border border-amber-400/60 px-2 py-0.5 text-xs text-amber-400">
+            ★ mastered
+          </span>
+        )}
+        {passedAt && !open && (
+          <button
+            onClick={() => {
+              setOpen(true);
+              setResult(null);
+              setAnswers(questions.map(() => null));
+            }}
+            className="text-xs text-neutral-600 hover:text-neutral-300"
+          >
+            Take it again
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <>
+          <ol className="space-y-4">
+            {questions.map((q, qi) => {
+              const graded = result?.correct[qi];
+              return (
+                <li key={qi} className="space-y-2">
+                  <p className="text-sm text-neutral-200">
+                    {qi + 1}. {q.question}
+                    {result && (
+                      <span className={graded ? "ml-2 text-xs text-amber-400" : "ml-2 text-xs text-red-400"}>
+                        {graded ? "right" : "not this one"}
+                      </span>
+                    )}
+                  </p>
+                  <div className="space-y-1">
+                    {q.choices.map((choice, ci) => (
+                      <label
+                        key={ci}
+                        className={`flex cursor-pointer items-baseline gap-2 rounded-md border px-3 py-1.5 text-sm transition ${
+                          answers[qi] === ci
+                            ? "border-amber-500/60 text-neutral-100"
+                            : "border-neutral-800 text-neutral-400 hover:border-neutral-700"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`q-${nodeId}-${qi}`}
+                          checked={answers[qi] === ci}
+                          onChange={() =>
+                            setAnswers((a) => a.map((v, i) => (i === qi ? ci : v)))
+                          }
+                          className="sr-only"
+                        />
+                        <span>{choice}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {result?.passed && result.explanations && (
+                    <p className="text-xs text-neutral-500">{result.explanations[qi]}</p>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              disabled={busy || answers.some((a) => a === null)}
+              onClick={submit}
+              className="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-amber-400 disabled:opacity-50"
+            >
+              Check my answers
+            </button>
+            {result && !result.passed && (
+              <span className="text-xs text-neutral-500">
+                {result.score}/{questions.length} — all three for the stamp. Retry freely.
+              </span>
+            )}
+            {error && <span className="text-sm text-red-400">{error}</span>}
+          </div>
+          {result && (
+            <p className="text-sm italic text-neutral-500">“{result.personaLine}”</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 function NodePageInner() {
   const { mapId, nodeId } = useParams<{ mapId: string; nodeId: string }>();
@@ -219,6 +369,11 @@ function NodePageInner() {
                 <span className="ml-1.5 text-xs text-neutral-600">
                   {s === "ready" ? "●" : s === "drafting" ? "…" : s === "failed" ? "!" : "○"}
                 </span>
+                {l === "onepager" && data.progress?.tier.mastered && (
+                  <span className="ml-1 text-xs text-amber-400" title="mastered — quiz passed">
+                    ★
+                  </span>
+                )}
               </button>
             );
           })}
@@ -239,6 +394,19 @@ function NodePageInner() {
                   Regenerate
                 </button>
               </div>
+              {level === "onepager" && data.player && data.quiz && (
+                <QuizBlock
+                  nodeId={nodeId}
+                  questions={data.quiz.questions}
+                  passedAt={data.progress?.quiz.passedAt ?? null}
+                  onGraded={load}
+                />
+              )}
+              {level === "onepager" && data.player && !data.quiz && (
+                <p className="border-t border-neutral-800 pt-4 text-xs text-neutral-600">
+                  Quiz not written yet — “Prepare quizzes” on the map page backfills it.
+                </p>
+              )}
             </>
           )}
           {rung?.status === "drafting" && (
