@@ -41,8 +41,16 @@ apps/web/src/lib/atlas/
   runner.ts     detached spawn of scripts/atlas.ts (+ preload shards) + stale-drafting reaper
   preload.ts    preloadMap(): one shard's one-pagers + quiz backfill + the atomic "ready" email claim
   email.ts      renderMapReadyEmail() (PR2 adds renderFrontierEmail)
-scripts/atlas.ts            draft-map | rung | preload  (PR2 adds: note; PR3 adds: kid)
-apps/web/src/app/api/atlas  maps, maps/[id], maps/[id]/preload, nodes/[id], nodes/[id]/rungs/[level], /visit, /skip
+  events.ts     the append-only event log: logEvent(), KNOWN_VERBS, legacy import
+  players.ts    one character per Access email: create (first imports legacy), update
+  game.ts       pure math: tiers from events, branch/field/discipline levels, fog
+  progress.ts   composition: map/node progress payloads, household summaries
+  quiz.ts       parse/strip/grade the stored quiz; answers never leave the server
+  persona.ts    hand-written voice lines per persona per moment (seeded pick)
+  disciplines.ts  the five definitions + the per-branch backfill classifier
+scripts/atlas.ts            draft-map | rung | preload | disciplines  (PR2 adds: note; PR3 adds: kid)
+apps/web/src/app/api/atlas  maps, maps/[id], maps/[id]/preload, nodes/[id], nodes/[id]/rungs/[level],
+                            /visit, /skip, nodes/[id]/quiz, me, players, players/me
 apps/web/src/app/(app)/atlas  /atlas, /atlas/[mapId], /atlas/[mapId]/[nodeId]
 ```
 
@@ -69,14 +77,17 @@ Rules the code enforces:
   `failed` after 20 min (maps) / 10 min (rungs).
 - **The child's name is never hardcoded.** Read `children.name` / `dob`.
 
-## Data model (migrations 0013, 0014)
+## Data model (migrations 0013–0016)
 
 `atlas_maps`, `atlas_nodes` (self-referencing `parent_id`, two levels),
 `atlas_rungs` (unique per node+level), `atlas_readings` (verified + rejected),
 `atlas_frontier_picks` (PR2), `atlas_bookmarks` (PR3), `atlas_seeds` (PR3).
-0014 added `atlas_rungs.quiz_json` and `atlas_maps.notified_at`. 0015 (PR-B)
-added `atlas_rungs.visuals_json` and `atlas_images` (verified + rejected,
-the readings rule for pictures).
+0014 added `atlas_rungs.quiz_json` and `atlas_maps.notified_at`. 0015 (PR-C)
+added `atlas_players`, `atlas_events` (append-only; `verb` is TEXT on
+purpose — new verbs are data, not code) and `atlas_nodes.discipline`.
+0016 (PR-B, renumbered past PR-C's 0015 when main moved first) added
+`atlas_rungs.visuals_json` and `atlas_images` (verified + rejected, the
+readings rule for pictures).
 
 ## Operations
 
@@ -87,10 +98,13 @@ the readings rule for pictures).
   (default 3). The web plist must carry `RESEND_API_KEY`, `DIGEST_FROM`,
   `DIGEST_TO` and `SPROUT_BASE_URL` for the "map is ready" email.
 - By hand: `pnpm --filter web run job:atlas draft-map --map <id>`,
-  `pnpm --filter web run job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]`
-  and `pnpm --filter web run job:atlas preload --map <id> [--shard k --shards n]`.
+  `pnpm --filter web run job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]`,
+  `pnpm --filter web run job:atlas preload --map <id> [--shard k --shards n]`
+  and `pnpm --filter web run job:atlas disciplines --map <id> [--force]` (the
+  PR-C backfill for maps drafted before discipline tags).
   Detached runs started from the web process log nothing; run by hand to watch.
-- Quizzes have no UI until PR-C. Inspect them with
+- The quiz UI is on the node page's one-pager tab (PR-C). Inspect stored
+  quizzes with
   `select n.title, json_extract(q.value,'$.question') from atlas_rungs r join atlas_nodes n on n.id = r.node_id, json_each(r.quiz_json) q where r.level='onepager'`.
 - Rejected readings are the tuning data for the verifier thresholds
   (`THRESHOLDS` in `verify.ts`): `select kind,title,reject_reason from atlas_readings where status='rejected'`.
@@ -111,11 +125,15 @@ the readings rule for pictures).
   `child_process`). The owner merged it on a light review and will review
   it properly alongside PR-C; the live pass rate of Sonnet quizzes against
   `validateQuiz` was not measured before merge.
+- PR-C (#103, merged 2026-10-31) — game foundation: players, the
+  append-only event log, quiz grading + stamps, branch/field/discipline
+  levels, fog + collection grid, personas. Spec below. It reached `main`
+  while PR-B was still in review, so PR-B's migration was renumbered 0016.
 
-**Order of what's left:** PR-B → PR-C → PR-D, then PR2 and PR3 (the owner's
-PR1 feedback put the v2 track first). **PR-B (visuals) is built** — spec
-below, committed with its PR. **Next up: PR-C (game foundation).** It has no
-build spec yet — only the decisions above; the first job is the spec.
+**Order of what's left:** PR-B (built, in review as #102) → PR-D, then PR2
+and PR3 (the owner's PR1 feedback put the v2 track first). **Next up:
+PR-D (engine).** It has no build spec yet — only the decisions above; the
+first job is the spec.
 
 Follow-ups from PR-A, not scheduled (fold into whichever PR touches them):
 
@@ -131,19 +149,19 @@ Follow-ups from PR-A, not scheduled (fold into whichever PR touches them):
 To pick this up in a fresh session, paste this prompt:
 
 > Read `docs/atlas.md` top to bottom, then skim `apps/web/src/lib/atlas/`
-> and `apps/web/src/db/schema.ts` (Module C). Next up is PR-C (game
-> foundation): players and per-player progress, the event log, the quiz UI
-> and mastery stamps, node tiers, branch/field/discipline levels, the map
-> as a skill tree with fog, the collection grid, persona choice — the
-> decisions are all in this file under "Owner feedback on PR1". It has no
-> build spec yet. First, write one in the shape of the PR-A and PR-B specs
-> under "Remaining work", put it to me, and wait for my agreement before
-> building. Then build it, tests first. Run `pnpm typecheck`, `pnpm lint`
-> and `pnpm --filter web exec vitest run --passWithNoTests` before every
-> push. Branch `claude/atlas-game` from `main`; never push to `main`; open
-> a PR when green, with the agreed spec committed to `docs/atlas.md` in the
-> same PR. Do not start PR-D. If the spec and the code disagree, follow the
-> code and note the deviation in the PR description.
+> and `apps/web/src/db/schema.ts` (Module C). Next up is PR-D (engine):
+> the nightly achievement pass over the event log, class offers at
+> total-level gates, loot on achievements, and the layered sprite — the
+> decisions are all in this file under "Owner feedback on PR1" (engine,
+> classes, loot, sprite workflow). It has no build spec yet. First, write
+> one in the shape of the PR-A/PR-B/PR-C specs under "Remaining work",
+> put it to me, and wait for my agreement before building. Then build it,
+> tests first. Run `pnpm typecheck`, `pnpm lint` and `pnpm --filter web
+> exec vitest run --passWithNoTests` before every push. Branch
+> `claude/atlas-engine` from `main`; never push to `main`; open a PR when
+> green, with the agreed spec committed to `docs/atlas.md` in the same PR.
+> Do not start PR2. If the spec and the code disagree, follow the code and
+> note the deviation in the PR description.
 
 Then:
 
@@ -425,7 +443,7 @@ Eli10 and deep dive stay on demand.
   rest" on the Philosophy map, watch `select level,status,count(*) from
   atlas_rungs group by 1,2`, check the inbox.
 
-### PR-B — visuals in rungs (built with this spec, ~1,200 LOC)
+### PR-B — visuals in rungs (built with this spec, ~1,200 LOC; migration 0016)
 
 Goal: one-pagers and deep dives can carry model-drawn diagrams,
 side-by-sides and maps (labeled as model-drawn) and verified real images
@@ -485,9 +503,10 @@ exists — the model proposes a *query*, never an exact Commons file title
   duplicate. `IMAGE_THRESHOLD = 0.3` — lower than the readings' 0.5–0.6
   because Commons filenames carry museum/collection noise tokens; tune
   from the rejected rows.
-- **Migration 0015.** `atlas_rungs.visuals_json` (nullable text; `"[]"`
-  means "asked, none wanted" — the backfill only re-asks while null, eli10
-  stays null). New table `atlas_images`: slug, query, caption, why,
+- **Migration 0016** (renumbered from 0015 when PR-C reached `main`
+  first). `atlas_rungs.visuals_json` (nullable text; `"[]"` means "asked,
+  none wanted" — the backfill only re-asks while null, eli10 stays null).
+  New table `atlas_images`: slug, query, caption, why,
   status verified/rejected, file_title, verified_via
   (article_media/commons_search), url, thumb_url, desc_url, author,
   license, width, height, reject_reason, proposed_by
@@ -523,6 +542,100 @@ exists — the model proposes a *query*, never an exact Commons file title
   mini after merge: deploy as usual, "Prepare the rest" on Philosophy,
   watch `select count(*) from atlas_rungs where visuals_json is not null`
   grow, and read the rejected-images query under Operations.
+
+### PR-C — game foundation (built on `claude/atlas-game`; migration 0015)
+
+Goal: shared maps, separate characters. Every action lands in a typed,
+append-only event log that every reward derives from; a node is mastered by
+reading plus its quiz; branches/fields/disciplines level and never drop; the
+map renders as a skill tree with fog (no hard locks) and a collection grid;
+a persona chosen at character creation speaks in hand-written lines.
+
+- **Players (migration 0015).** `atlas_players`: `email` (unique), `name`,
+  `persona` (`"cartographer" | "protege"`). Resolved per request from
+  `getAuthenticatedEmail` (`lib/auth.ts`) — Access already names the person,
+  so there is no login UI and no switcher; `service-token` / null get a
+  read-only view (no events, no progress). `/atlas` without a character
+  shows creation (name + the two personas as cards); `POST
+  /api/atlas/players`. The **first** character created inherits pre-player
+  progress as events in the same transaction (`visitedAt` → `open_node`,
+  `readAt` → `read_rung`, backdated, `data: {imported: true}`); the second
+  starts fresh. Import runs only when the table was empty — idempotent.
+- **Events (migration 0015).** `atlas_events`: `playerId`, `verb` **TEXT,
+  no enum** — new verbs are data, not code — nullable `mapId`/`nodeId` (set
+  null on delete), `data` JSON, `createdAt`; indexes `(playerId, createdAt)`
+  and `(verb)`. `lib/atlas/events.ts`: `logEvent()` + a `KNOWN_VERBS`
+  reference const. PR-C verbs: `create_character`, `choose_persona`,
+  `open_node`, `read_rung` (`data.level`), `pass_quiz`, `fail_quiz`
+  (`data.score`, `data.answers` — raw material for PR-D), `skip_branch`,
+  `unskip_branch`. Append-only; no reader switches exhaustively on a verb.
+  The legacy node/rung columns keep being written — the picker and PR2 read
+  them as the shared "atlas memory" — but per-player UI derives from events
+  only. Skips stay **shared** (they prune the map, they are not progress);
+  who skipped is logged.
+- **Disciplines (migration 0015).** `atlas_nodes.discipline` (reasoning,
+  evidence, language, systems, creativity; nullable). Draft-time: the
+  outline and children calls each tag their nodes (`disciplineRules()` in
+  the prompts). Backfill: `scripts/atlas.ts disciplines --map <id>` — one
+  classification call per branch, select-don't-generate; an assignment whose
+  title matches no node is reported, never applied. Untagged nodes count
+  toward branch/field levels but no discipline.
+- **Game math — `lib/atlas/game.ts`, pure.** Tier per node per player:
+  unseen → seen (`open_node`) → stamps per `read_rung` level → mastered
+  (`pass_quiz`). Stamp XP, once per node: eli10 10, onepager 20, deepdive
+  30, quiz 40 (100/node). Branch level 1–99: `1 + floor(98·sqrt(xp/maxXp))`
+  over the branch node + children — fast early, 99 only at full mastery;
+  monotone over an append-only log, so levels never drop. Field: sum of
+  branch levels / 99×branches (+ `capeEarned`; rendering is PR-D).
+  Disciplines (account-wide, across maps): same stamp XP per node's tag on
+  an absolute curve, `xpForLevel(n) = 50·n·(n−1)`, capped 99; total level =
+  sum of the five. All constants in one block in game.ts.
+- **Quiz.** The node GET strips `quiz_json` (it carries the answers) and
+  ships `{questions, choices}` only; `POST /api/atlas/nodes/[id]/quiz`
+  grades server-side, logs pass/fail, returns per-question correctness and
+  the `why` explanations **only on a pass**. Retry freely, no cost; a pass
+  is permanent. UI under the one-pager body: three questions, Check button,
+  stamp + persona line on pass. Folds in the PR-A gap: the map page's
+  preload button also appears as "Prepare quizzes (n missing)" when every
+  one-pager is ready but some `quiz_json` is null.
+- **Map page = skill tree with fog + collection grid.** Map GET gains
+  `player`, `progress` (tiers, revealed set, branch levels, field,
+  disciplines, total level), `greeting` (persona line, stable per day) and
+  `quizlessCount`. Fog is a render rule derived from events, never stored:
+  branch titles always visible; a child is revealed once the player opened
+  it, its branch, or any sibling; the rest are `?` entries, still clickable
+  (opening reveals). Outline / Collection toggle; tier stamps (three dots +
+  ★ ring when mastered); branch level chips; field total in the header.
+  No character → today's shared view, no fog. DOM + Tailwind only; rung
+  bodies and their renderer untouched (PR-B's surface).
+- **Node page.** ★ on the one-pager tab when mastered; the quiz block;
+  visit/read beacons and the skip route also log events when the request
+  belongs to a character.
+- **Persona — `lib/atlas/persona.ts`.** No model calls in PR-C: hand-written
+  template lines per persona per moment (creation, map greeting with live
+  counts, quiz pass, quiz fail), seeded pick so renders are stable and tests
+  deterministic. Family-friendly; humor at the material, never the learner.
+  Switchable from `/atlas` (logged as `choose_persona`).
+- **Routes.** `GET /api/atlas/me` (player + household summaries), `POST
+  /api/atlas/players` (409 when the email has one), `PATCH
+  /api/atlas/players/me`, `POST /api/atlas/nodes/[id]/quiz`; map and node
+  GETs extended as above. Event-writing endpoints 401 without a character.
+- **Tests.** Route logic lives in lib and is tested there: `game.test.ts`
+  (tier folding, XP once per stamp, both curves monotone with exact
+  endpoints, field totals, cross-map discipline pools, fog rules),
+  `events.test.ts` (append + JSON payloads, unknown verbs, legacy import
+  exact/backdated/once, one character per email, per-player separation,
+  progress payloads), `quiz.test.ts` (parse/strip/grade, explanations only
+  on pass, first-pass-wins state), `persona.test.ts` (every voice at every
+  moment, deterministic), `disciplines.test.ts` (tagging by exact title,
+  unknown titles ignored, second run makes no calls).
+- **Verify.** Locally (`DEV_BYPASS_AUTH=true`): create a character on
+  `/atlas`, open a fog `?` entry, read its one-pager, pass the quiz →
+  stamps + branch chip move; for a second player set `DEV_BYPASS_AUTH=false`
+  and curl with a `cf-access-authenticated-user-email` header. Run
+  `disciplines --map 1` and spot-check tags. On the mini after merge:
+  migrate, kickstart, first visit creates the owner's character and imports
+  their progress; the second household email creates its own, fresh.
 
 ### PR2 — weekly frontier note (~800 LOC)
 
