@@ -49,7 +49,7 @@ export type VerifyOptions = {
 
 export const THRESHOLDS = { wikipedia: 0.6, book: 0.6, web: 0.5 } as const;
 const MAX_HTML_BYTES = 256 * 1024;
-const USER_AGENT = "Sprout-Atlas/1.0 (self-hosted family app; link verification)";
+export const USER_AGENT = "Sprout-Atlas/1.0 (self-hosted family app; link verification)";
 
 const STOPWORDS = new Set(["the", "a", "an", "of", "and", "on", "in", "to", "for"]);
 

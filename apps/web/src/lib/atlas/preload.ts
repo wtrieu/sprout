@@ -27,9 +27,11 @@ import {
   loadNodeContext,
   rungFor,
   validateQuiz,
+  verifyAndStoreImages,
 } from "./rungs";
 import { RUNG_STALE_MS, isStale } from "./runner";
 import type { FetchLike } from "./verify";
+import { VisualsBackfillSchema, buildVisualsPrompt, insertMarkers, validateVisuals } from "./visuals";
 
 export type SendEmailFn = (input: {
   subject: string;
@@ -52,6 +54,7 @@ export type PreloadResult = {
   skipped: number;
   failed: number;
   quizzes: number;
+  visuals: number;
   notified: boolean;
 };
 
@@ -150,6 +153,59 @@ export const preloadMap = async (
     }
   }
 
+  // Visuals backfill for rungs written before PR-B: one visuals-only call per
+  // ready one-pager whose visuals_json is still null. The model anchors each
+  // visual to a "###" heading and code inserts the marker — the prose itself
+  // is never rewritten. A failure leaves the row null for the next run;
+  // success stores at least "[]" so a page that wants no visuals is never
+  // asked again.
+  let visualsBackfilled = 0;
+  const fetchImpl: FetchLike = deps.fetchImpl ?? ((url, init) => fetch(url, init));
+  for (const node of mine) {
+    const rung = rungFor(db, node.id, "onepager");
+    if (rung?.status !== "ready" || rung.visualsJson !== null || !rung.bodyMd) continue;
+    const ctx = loadNodeContext(db, node.id);
+    if (!ctx) continue;
+    try {
+      const out = llm(
+        buildVisualsPrompt({ context: contextBlock(ctx), bodyMd: rung.bodyMd, level: "onepager" }),
+        VisualsBackfillSchema,
+        { model: models.onepager, label: "visuals backfill" },
+      );
+      const visuals = out.visuals ?? [];
+      const images = out.images ?? [];
+      let bodyMd = rung.bodyMd;
+      if (visuals.length > 0 || images.length > 0) {
+        bodyMd = insertMarkers(bodyMd, [
+          ...visuals.map((v) => ({
+            type: "visual" as const,
+            slug: v.slug,
+            afterHeading: v.after_heading ?? null,
+          })),
+          ...images.map((p) => ({
+            type: "image" as const,
+            slug: p.slug,
+            afterHeading: p.after_heading ?? null,
+          })),
+        ]);
+        const problems = validateVisuals("onepager", bodyMd, visuals, images);
+        if (problems.length > 0) throw new Error(problems.join("; "));
+      }
+      if (images.length > 0) {
+        await verifyAndStoreImages(db, node.id, "backfill", images, fetchImpl);
+      }
+      db.update(atlasRungs)
+        .set({ bodyMd, visualsJson: JSON.stringify(visuals) })
+        .where(eq(atlasRungs.id, rung.id))
+        .run();
+      visualsBackfilled += 1;
+    } catch (err) {
+      log(
+        `visuals backfill for node #${node.id} failed (${err instanceof Error ? err.message : err}) — left null`,
+      );
+    }
+  }
+
   // This shard is done. If the whole map is done — no rung of the map still
   // drafting, every node's one-pager ready-or-failed — claim the notification.
   const nodeIds = nodes.map((n) => n.id);
@@ -193,7 +249,7 @@ export const preloadMap = async (
   }
 
   log(
-    `preload shard ${shard}/${shards} done: ${drafted} drafted, ${skipped} skipped, ${failed} failed, ${quizzes} quizzes backfilled${notified ? ", email sent" : ""}`,
+    `preload shard ${shard}/${shards} done: ${drafted} drafted, ${skipped} skipped, ${failed} failed, ${quizzes} quizzes backfilled, ${visualsBackfilled} visuals backfilled${notified ? ", email sent" : ""}`,
   );
-  return { drafted, skipped, failed, quizzes, notified };
+  return { drafted, skipped, failed, quizzes, visuals: visualsBackfilled, notified };
 };

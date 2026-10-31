@@ -32,8 +32,11 @@ apps/web/src/lib/atlas/
   llm.ts        atlasModels() + cliLlm: claudeCli + zod validation + one repair pass
   presets.ts    PHILOSOPHY_BRIEF (anchors + the bar; not an outline)
   draftMap.ts   M1 outline call → M2 one call per branch → normalize (dedupe, trim ≤50) → store
-  rungs.ts      ensureRung(): draft → validate (+1 repair) → judge (+1 revision) → verify readings → store
+  rungs.ts      ensureRung(): draft → validate (+1 repair) → judge (+1 revision) → verify readings + images → store
   verify.ts     deterministic, keyless reading verification (injectable fetch)
+  visuals.ts    model-drawn visual specs (sidebyside/diagram/geomap), [[visual:slug]] markers, validateVisuals
+  verifyImages.ts  deterministic, keyless Wikimedia Commons image verification
+  worldOutline.ts  generated Natural Earth 110m land outline for the geomap renderer
   picker.ts     frontier ordering: child → sibling → next-branch → fallback (pure)
   runner.ts     detached spawn of scripts/atlas.ts (+ preload shards) + stale-drafting reaper
   preload.ts    preloadMap(): one shard's one-pagers + quiz backfill + the atomic "ready" email claim
@@ -51,7 +54,15 @@ Rules the code enforces:
   verified rows, never written by the model.
 - **Body markdown is the `lib/markdown.ts` subset** (`###`, `**bold**`,
   `- bullets`) and may not contain a link; `validateRungBody` lints it and the
-  draft gets one repair pass, then fails loudly.
+  draft gets one repair pass, then fails loudly. The one exception is a
+  visual marker alone on its own line (`[[visual:slug]]` / `[[image:slug]]`,
+  PR-B): the UI splits on markers (`components/atlas/RungBody`), a marker
+  with no matching stored row renders nothing, and `stripVisualMarkers` is
+  for anything that feeds `mdToHtml` directly (emails).
+- **The model never draws.** A "model-drawn" visual is a typed JSON spec
+  (zod) that code renders to SVG; model-emitted SVG/HTML would go through
+  `dangerouslySetInnerHTML` and is an XSS hole. Visuals never fail a rung:
+  still broken after the repair pass they are dropped, unlike the quiz.
 - **The row is the job status.** Maps and rungs are inserted as `drafting`
   before the detached run starts and flipped to `ready`/`failed` when it
   lands; the UI only polls those rows. A run that dies silently is reaped as
@@ -63,7 +74,9 @@ Rules the code enforces:
 `atlas_maps`, `atlas_nodes` (self-referencing `parent_id`, two levels),
 `atlas_rungs` (unique per node+level), `atlas_readings` (verified + rejected),
 `atlas_frontier_picks` (PR2), `atlas_bookmarks` (PR3), `atlas_seeds` (PR3).
-0014 added `atlas_rungs.quiz_json` and `atlas_maps.notified_at`.
+0014 added `atlas_rungs.quiz_json` and `atlas_maps.notified_at`. 0015 (PR-B)
+added `atlas_rungs.visuals_json` and `atlas_images` (verified + rejected,
+the readings rule for pictures).
 
 ## Operations
 
@@ -81,6 +94,8 @@ Rules the code enforces:
   `select n.title, json_extract(q.value,'$.question') from atlas_rungs r join atlas_nodes n on n.id = r.node_id, json_each(r.quiz_json) q where r.level='onepager'`.
 - Rejected readings are the tuning data for the verifier thresholds
   (`THRESHOLDS` in `verify.ts`): `select kind,title,reject_reason from atlas_readings where status='rejected'`.
+- Rejected images tune `IMAGE_THRESHOLD` in `verifyImages.ts` the same way:
+  `select slug,query,reject_reason from atlas_images where status='rejected'`.
 
 
 ## Status and how to resume
@@ -98,9 +113,9 @@ Rules the code enforces:
   `validateQuiz` was not measured before merge.
 
 **Order of what's left:** PR-B → PR-C → PR-D, then PR2 and PR3 (the owner's
-PR1 feedback put the v2 track first). **Next up: PR-B (visuals).** Unlike
-PR-A it has no build spec yet — only the decisions in the v2 table ("Visuals"
-row) and one line under "Delivery order". The first job is the spec.
+PR1 feedback put the v2 track first). **PR-B (visuals) is built** — spec
+below, committed with its PR. **Next up: PR-C (game foundation).** It has no
+build spec yet — only the decisions above; the first job is the spec.
 
 Follow-ups from PR-A, not scheduled (fold into whichever PR touches them):
 
@@ -115,25 +130,20 @@ Follow-ups from PR-A, not scheduled (fold into whichever PR touches them):
 
 To pick this up in a fresh session, paste this prompt:
 
-> Read `docs/atlas.md` top to bottom, then `apps/web/src/lib/atlas/rungs.ts`,
-> `preload.ts`, `verify.ts`, `apps/web/src/lib/markdown.ts`,
-> `apps/web/src/components/Markdown.tsx` and the node page
-> `apps/web/src/app/(app)/atlas/[mapId]/[nodeId]/page.tsx`. Next up is
-> PR-B (visuals): model-drawn diagrams, side-by-sides and maps inside rungs,
-> labeled as model-drawn, plus verified real images (e.g. Wikimedia), never
-> generated art. It has no build spec yet. First, write one in the shape of
-> the PR-A spec under "Remaining work" — block format in the rung body and
-> how the renderer, `validateRungBody` and `mdToHtml` handle it; which
-> rungs get visuals and how the prompts ask for them; how images are
-> proposed and machine-verified (same rule as readings: never shown
-> unverified, rejects stored with a reason); the migration if any; UI;
-> tests; how to verify. Put the spec to me and wait for my agreement before
+> Read `docs/atlas.md` top to bottom, then skim `apps/web/src/lib/atlas/`
+> and `apps/web/src/db/schema.ts` (Module C). Next up is PR-C (game
+> foundation): players and per-player progress, the event log, the quiz UI
+> and mastery stamps, node tiers, branch/field/discipline levels, the map
+> as a skill tree with fog, the collection grid, persona choice — the
+> decisions are all in this file under "Owner feedback on PR1". It has no
+> build spec yet. First, write one in the shape of the PR-A and PR-B specs
+> under "Remaining work", put it to me, and wait for my agreement before
 > building. Then build it, tests first. Run `pnpm typecheck`, `pnpm lint`
 > and `pnpm --filter web exec vitest run --passWithNoTests` before every
-> push. Branch `claude/atlas-visuals` from `main`; never push to `main`;
-> open a PR when green, with the agreed spec committed to `docs/atlas.md`
-> in the same PR. Do not start PR-C. If the spec and the code disagree,
-> follow the code and note the deviation in the PR description.
+> push. Branch `claude/atlas-game` from `main`; never push to `main`; open
+> a PR when green, with the agreed spec committed to `docs/atlas.md` in the
+> same PR. Do not start PR-D. If the spec and the code disagree, follow the
+> code and note the deviation in the PR description.
 
 Then:
 
@@ -415,6 +425,105 @@ Eli10 and deep dive stay on demand.
   rest" on the Philosophy map, watch `select level,status,count(*) from
   atlas_rungs group by 1,2`, check the inbox.
 
+### PR-B — visuals in rungs (built with this spec, ~1,200 LOC)
+
+Goal: one-pagers and deep dives can carry model-drawn diagrams,
+side-by-sides and maps (labeled as model-drawn) and verified real images
+from Wikimedia Commons — never generated art, nothing shown unverified,
+rejects stored with a reason. Three design calls shape everything else:
+(1) the model never draws pixels or markup — a "model-drawn" visual is a
+small typed JSON spec code renders to SVG (model markup through
+`dangerouslySetInnerHTML` is an XSS hole); (2) visuals never fail a rung —
+a quiz broken after repair fails the rung (it is PR-C's mastery gate), a
+visual broken after repair is dropped and the page ships bare; (3) image
+relevance is grounded in the node's verified Wikipedia reading when one
+exists — the model proposes a *query*, never an exact Commons file title
+(it would hallucinate them).
+
+- **Visual kinds** (`lib/atlas/visuals.ts`, zod `VisualSchema`
+  discriminated on `kind`; every visual has `slug` (`[a-z0-9-]{1,40}`),
+  `title` ≤ 80, `caption` ≤ 200, and a backfill-only `after_heading`):
+  `sidebyside` (2–3 columns × 2–6 rows, headers, optional `row_labels`,
+  cells ≤ 120 chars — rival positions); `diagram` (≤ 9 nodes, ≤ 12
+  directed edges with optional labels; code lays out layered left→right by
+  longest path, a cycle degrades to insertion order — structure, who
+  taught whom); `geomap` (≤ 8 places `{label, lat, lon}` plotted on the
+  committed public-domain Natural Earth 110m land outline,
+  `worldOutline.ts`, equirectangular `x = lon + 180, y = 90 − lat`; the
+  viewBox is the places' bounding box plus padding at a held aspect).
+- **Block format.** A visual or image is placed by a marker alone on its
+  own line — `[[visual:slug]]` / `[[image:slug]]` — the one exception to
+  the markdown subset. The stored body is never rewritten at render time:
+  a marker with no matching stored visual / verified image renders
+  nothing, which is how a rejected image degrades. `mdToHtml` is untouched;
+  `stripVisualMarkers` serves anything that feeds it directly (emails).
+  `wordCount` ignores marker lines.
+- **Validation.** `validateVisuals(level, body, visuals, images)` rides the
+  existing one-repair-pass: markers well-formed and alone on their line,
+  per-level caps (onepager ≤ 1 visual + ≤ 1 image, deepdive ≤ 3 + ≤ 2,
+  eli10 none), slugs distinct, marker ↔ spec agreement exactly once each
+  way, sidebyside row agreement, diagram edge references, geomap
+  coordinate ranges (zod). Fatal problems (body, quiz) still fail the rung
+  after repair; visual problems surviving repair drop the visuals
+  (markers stripped, `visuals_json` `"[]"`) and the rung lands `ready`.
+- **Prompts.** `buildRungPrompt` gains `VISUAL_RULES` and `IMAGE_RULES`
+  blocks for onepager and deepdive (the three shapes, the markers, and the
+  brake: *an empty list is a fine answer and usually the right one*);
+  eli10 is unchanged. `RungDraftSchema` adds `visuals` and `images` — the
+  same single call, no extra latency in preload.
+- **Image verification** (`lib/atlas/verifyImages.ts` — deterministic,
+  keyless, injectable fetch, mirroring `verify.ts`). Proposal
+  `{slug, query, caption, why}`. Per proposal: (1) the verified `wikipedia`
+  reading's media list (`/api/rest_v1/page/media-list/`), bitmaps only,
+  interface junk filtered, ranked by `titleSimilarity(query, filename)`
+  (and caption when present); (2) else Commons full-text search
+  (`list=search`, ns 6), filename-only ranking (the snippet echoes the
+  query by construction); (3) `imageinfo` for the winner: original URL,
+  640px thumb, dimensions, Artist + LicenseShortName (HTML-stripped).
+  Reject reasons stored: no candidates, best match below threshold (named,
+  with score), not found, too small (< 400px a side), fetch failed,
+  duplicate. `IMAGE_THRESHOLD = 0.3` — lower than the readings' 0.5–0.6
+  because Commons filenames carry museum/collection noise tokens; tune
+  from the rejected rows.
+- **Migration 0015.** `atlas_rungs.visuals_json` (nullable text; `"[]"`
+  means "asked, none wanted" — the backfill only re-asks while null, eli10
+  stays null). New table `atlas_images`: slug, query, caption, why,
+  status verified/rejected, file_title, verified_via
+  (article_media/commons_search), url, thumb_url, desc_url, author,
+  license, width, height, reject_reason, proposed_by
+  (onepager/deepdive/backfill), position. Dedupe in code (by slug per
+  node, by file title per node), no unique index — rejects reuse slugs.
+- **Backfill** for the live Philosophy map, inside `preloadMap` exactly
+  like the quiz backfill: one visuals-only call per ready one-pager with
+  `visuals_json` null (`buildVisualsPrompt`), each proposal anchored by
+  `after_heading` (the exact `###` text); code inserts the marker after
+  the matched heading (unmatched → end of body) — the prose is never
+  rewritten. Failure leaves null for the next run. Runs under `preload`
+  and the "Prepare the rest" button; no new subcommand.
+- **UI.** `GET /api/atlas/nodes/[id]` adds verified `images`; rung rows
+  carry `visualsJson`. `components/atlas/RungBody` splits the body on
+  markers and interleaves `Markdown` with `AtlasVisual` (SVG renderers per
+  kind in a figure with title, caption and a **model-drawn** chip) and
+  `AtlasImage` (hotlinked Commons thumb, caption, "Artist · License ·
+  Wikimedia Commons" linking the description page). "Regenerate" already
+  refreshes visuals via `force`. A `vitest.config.mts` (alias + JSX) lets
+  the components be tested with `renderToStaticMarkup`.
+- **Tests.** `visuals.test.ts` (schemas, validateVisuals, segmentBody,
+  stripVisualMarkers, insertMarkers); `verifyImages.test.ts` (canned
+  fetch: media-list first, search fallback, threshold/size/missing/dupe/
+  network rejects); `rungs.test.ts` (visuals stored with markers, image
+  verified via article media, rejected image stored and never shown,
+  repair pass, drop-not-fail, eli10 marker-free, prompt coverage);
+  `preload.test.ts` (backfill fills only null rows, anchors markers,
+  stores `"[]"`, idempotent second run); `RungBody.test.tsx` (render,
+  dangling markers dropped, malformed JSON survived).
+- **Verify.** Locally: `pnpm --filter web run job:atlas rung --node <id>
+  --level onepager --force` on a geography-anchored node, open the node,
+  see the visual with its chip and the image with attribution. On the
+  mini after merge: deploy as usual, "Prepare the rest" on Philosophy,
+  watch `select count(*) from atlas_rungs where visuals_json is not null`
+  grow, and read the rejected-images query under Operations.
+
 ### PR2 — weekly frontier note (~800 LOC)
 
 One unvisited node a week, next to where the reader left off, pre-drafted
@@ -436,7 +545,8 @@ inside. The table already exists (`atlas_frontier_picks`).
 - **`lib/atlas/email.ts`** — `renderFrontierEmail({ childName, map, branch,
   node, rung, readings, links, progress })` → `{ subject: "Atlas · <node>",
   html }`. Eyebrow "This week in Atlas · <map> › <branch>", h1, bold hook,
-  `mdToHtml(bodyMd)` (re-exported from `lib/email.ts`), "Read next" from
+  `mdToHtml(stripVisualMarkers(bodyMd))` (PR-B markers never reach an
+  email; `stripVisualMarkers` from `lib/atlas/visuals`), "Read next" from
   verified readings only, four plain `<a>` buttons, footer
   "<visited>/<total> visited". Minimal inline styles, max-width 640px.
 - **Email links** (GET pages behind Cloudflare Access, base `SPROUT_BASE_URL`):

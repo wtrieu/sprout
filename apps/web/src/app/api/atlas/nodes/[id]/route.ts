@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { atlasMaps, atlasNodes, atlasRungLevels } from "@/db/schema";
 import { frontierCandidates } from "@/lib/atlas/picker";
-import { rungsFor, verifiedReadingsFor } from "@/lib/atlas/rungs";
+import { rungsFor, verifiedImagesFor, verifiedReadingsFor } from "@/lib/atlas/rungs";
 import { reapStaleRungs } from "@/lib/atlas/runner";
 
 const byPosition = <T extends { position: number; id: number }>(a: T, b: T) =>
@@ -30,11 +30,12 @@ export const GET = async (_req: NextRequest, { params }: { params: Promise<{ id:
     atlasRungLevels.map((level) => [level, rungRows.find((r) => r.level === level) ?? null]),
   );
   const readings = verifiedReadingsFor(db, node.id);
+  const images = verifiedImagesFor(db, node.id);
 
   const titles = new Map(mapNodes.map((n) => [n.id, n.title]));
   const adjacent = frontierCandidates(mapNodes, node.id)
     .slice(0, 3)
     .map((c) => ({ nodeId: c.nodeId, title: titles.get(c.nodeId) ?? "", reason: c.reason }));
 
-  return NextResponse.json({ node, map, parent, siblings, children, rungs, readings, adjacent });
+  return NextResponse.json({ node, map, parent, siblings, children, rungs, readings, images, adjacent });
 };

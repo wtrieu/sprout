@@ -19,6 +19,7 @@ import {
   type QuizQuestion,
 } from "./rungs";
 import type { FetchLike } from "./verify";
+import type { ImageProposal, Visual } from "./visuals";
 
 const migrationsFolder = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -110,11 +111,37 @@ const DEEPDIVE = ["Origins", "Figures", "Debates", "Influence", "Misreadings"]
   .join("\n\n");
 const ELI10 = words(150, "k");
 
+const DIAGRAM: Visual = {
+  kind: "diagram",
+  slug: "succession",
+  title: "Who taught whom",
+  nodes: [
+    { id: "zeno", label: "Zeno of Citium" },
+    { id: "cleanthes", label: "Cleanthes" },
+  ],
+  edges: [{ from: "zeno", to: "cleanthes" }],
+};
+const IMAGE_PROPOSAL: ImageProposal = {
+  slug: "zeno-bust",
+  query: "Zeno of Citium bust",
+  caption: "A Roman copy of the school's founder.",
+};
+const ONEPAGER_WITH_VISUALS = `### The question\n${words(120)}\n\n[[visual:succession]]\n\n### The move\n${words(120, "m")}\n\n[[image:zeno-bust]]\n\n### Where it bites\n${words(110, "b")}`;
+
 /** Routes on prompt content, so call order is a consequence rather than a script. */
 const fakeLlm =
   (
     calls: string[],
-    overrides: { onepagerBody?: string; quiz?: QuizQuestion[]; repairedQuiz?: QuizQuestion[] } = {},
+    overrides: {
+      onepagerBody?: string;
+      repairedBody?: string;
+      quiz?: QuizQuestion[];
+      repairedQuiz?: QuizQuestion[];
+      visuals?: Visual[];
+      repairedVisuals?: Visual[];
+      images?: ImageProposal[];
+      eli10Body?: string;
+    } = {},
     models: string[] = [],
   ): AtlasLlm =>
   (prompt, zschema, opts) => {
@@ -127,12 +154,16 @@ const fakeLlm =
       const repairing = prompt.includes("an editor flagged problems");
       out = {
         hook: "The only thing in your power is your own mind.",
-        body_md: overrides.onepagerBody ?? ONEPAGER,
+        body_md: repairing
+          ? (overrides.repairedBody ?? overrides.onepagerBody ?? ONEPAGER)
+          : (overrides.onepagerBody ?? ONEPAGER),
         readings: [
           { kind: "wikipedia", title: "Stoicism", why: "the overview" },
           { kind: "book", title: "Meditations", author: "Marcus Aurelius", why: "the diary" },
         ],
         quiz: repairing ? (overrides.repairedQuiz ?? overrides.quiz ?? QUIZ) : (overrides.quiz ?? QUIZ),
+        visuals: repairing ? (overrides.repairedVisuals ?? overrides.visuals) : overrides.visuals,
+        images: overrides.images,
       };
     } else if (prompt.includes("Write the DEEP DIVE")) {
       out = {
@@ -144,7 +175,7 @@ const fakeLlm =
         ],
       };
     } else if (prompt.includes("LIKE-I'M-10")) {
-      out = { body_md: ELI10 };
+      out = { body_md: overrides.eli10Body ?? ELI10 };
     } else {
       throw new Error(`unexpected prompt: ${prompt.slice(0, 80)}`);
     }
@@ -165,17 +196,48 @@ const summary = (title: string) =>
 
 const fakeFetch = () => {
   const calls: string[] = [];
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
   const impl: FetchLike = async (url) => {
     calls.push(url);
     if (url.startsWith(`${WIKI}Stoicism`)) return summary("Stoicism");
     if (url.startsWith(`${WIKI}Zeno_of_Citium`)) return summary("Zeno of Citium");
     if (url.startsWith("https://openlibrary.org/search.json")) {
-      return new Response(
-        JSON.stringify({
-          docs: [{ key: "/works/OL1W", title: "Meditations", author_name: ["Marcus Aurelius"] }],
-        }),
-        { status: 200 },
-      );
+      return json({
+        docs: [{ key: "/works/OL1W", title: "Meditations", author_name: ["Marcus Aurelius"] }],
+      });
+    }
+    if (url.startsWith("https://en.wikipedia.org/api/rest_v1/page/media-list/")) {
+      return json({
+        items: [
+          { title: "File:Zeno of Citium bust.jpg", type: "image", caption: { text: "Bust of Zeno" } },
+        ],
+      });
+    }
+    if (url.includes("commons.wikimedia.org") && url.includes("list=search")) {
+      return json({ query: { search: [{ title: "File:Zeno of Citium bust.jpg" }] } });
+    }
+    if (url.includes("commons.wikimedia.org") && url.includes("prop=imageinfo")) {
+      return json({
+        query: {
+          pages: [
+            {
+              imageinfo: [
+                {
+                  url: "https://upload.wikimedia.org/zeno.jpg",
+                  descriptionurl: "https://commons.wikimedia.org/wiki/File:Zeno.jpg",
+                  thumburl: "https://upload.wikimedia.org/thumb/zeno-640.jpg",
+                  width: 2000,
+                  height: 1500,
+                  extmetadata: {
+                    Artist: { value: "Paolo Monti" },
+                    LicenseShortName: { value: "CC BY-SA 4.0" },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      });
     }
     return new Response("nope", { status: 404 });
   };
@@ -413,6 +475,139 @@ describe("ensureRung", () => {
       .get()!;
     expect(row.status).toBe("failed");
     expect(row.error).toMatch(/distinct/);
+  });
+
+  it("stores visuals with the body and verifies the proposed image against the article's media", async () => {
+    const db = makeDb();
+    const { nodeId } = seed(db);
+    const calls: string[] = [];
+    const net = fakeFetch();
+    const res = await ensureRung(db, nodeId, "onepager", {
+      llm: fakeLlm(calls, {
+        onepagerBody: ONEPAGER_WITH_VISUALS,
+        visuals: [DIAGRAM],
+        images: [IMAGE_PROPOSAL],
+      }),
+      fetchImpl: net.impl,
+      log: quiet,
+      verifyOptions: { gapMs: 0 },
+      verifyImageOptions: { gapMs: 0 },
+    });
+    expect(res.ok).toBe(true);
+    expect(calls).toEqual(["onepager draft"]);
+    if (!res.ok) return;
+    expect(res.rung.bodyMd).toContain("[[visual:succession]]");
+    expect(res.rung.bodyMd).toContain("[[image:zeno-bust]]");
+    expect(JSON.parse(res.rung.visualsJson ?? "null")).toMatchObject([{ kind: "diagram", slug: "succession" }]);
+    // Markers never count as words.
+    expect(res.rung.wordCount).toBeGreaterThanOrEqual(300);
+
+    const images = db.select().from(schema.atlasImages).where(eq(schema.atlasImages.nodeId, nodeId)).all();
+    expect(images).toHaveLength(1);
+    expect(images[0]).toMatchObject({
+      slug: "zeno-bust",
+      status: "verified",
+      fileTitle: "File:Zeno of Citium bust.jpg",
+      verifiedVia: "article_media",
+      author: "Paolo Monti",
+      license: "CC BY-SA 4.0",
+      proposedBy: "onepager",
+    });
+  });
+
+  it("stores a rejected image with its reason, never shown", async () => {
+    const db = makeDb();
+    const { nodeId } = seed(db);
+    const net = fakeFetch();
+    const res = await ensureRung(db, nodeId, "onepager", {
+      llm: fakeLlm([], {
+        onepagerBody: ONEPAGER_WITH_VISUALS,
+        visuals: [DIAGRAM],
+        images: [{ ...IMAGE_PROPOSAL, query: "completely unrelated subject" }],
+      }),
+      fetchImpl: net.impl,
+      log: quiet,
+      verifyOptions: { gapMs: 0 },
+      verifyImageOptions: { gapMs: 0 },
+    });
+    expect(res.ok).toBe(true);
+    const images = db.select().from(schema.atlasImages).where(eq(schema.atlasImages.nodeId, nodeId)).all();
+    expect(images).toHaveLength(1);
+    expect(images[0].status).toBe("rejected");
+    expect(images[0].rejectReason).toMatch(/below threshold/);
+    // The marker stays in the body; the renderer drops it for lack of a
+    // verified row. The rung itself is untouched by the rejection.
+    if (!res.ok) return;
+    expect(res.rung.bodyMd).toContain("[[image:zeno-bust]]");
+  });
+
+  it("repairs broken visuals in the same pass as the body", async () => {
+    const db = makeDb();
+    const { nodeId } = seed(db);
+    const calls: string[] = [];
+    const res = await ensureRung(db, nodeId, "onepager", {
+      // First draft proposes a visual but never places its marker.
+      llm: fakeLlm(calls, {
+        visuals: [DIAGRAM],
+        repairedBody: ONEPAGER_WITH_VISUALS.replace("[[image:zeno-bust]]\n\n", ""),
+        repairedVisuals: [DIAGRAM],
+      }),
+      fetchImpl: fakeFetch().impl,
+      log: quiet,
+      verifyOptions: { gapMs: 0 },
+    });
+    expect(res.ok).toBe(true);
+    expect(calls).toEqual(["onepager draft", "onepager repair"]);
+    if (!res.ok) return;
+    expect(res.rung.bodyMd).toContain("[[visual:succession]]");
+    expect(JSON.parse(res.rung.visualsJson ?? "null")).toHaveLength(1);
+  });
+
+  it("drops visuals still broken after repair instead of failing the rung", async () => {
+    const db = makeDb();
+    const { nodeId } = seed(db);
+    const calls: string[] = [];
+    const res = await ensureRung(db, nodeId, "onepager", {
+      // A marker with no matching visual, before and after repair.
+      llm: fakeLlm(calls, {
+        onepagerBody: `${ONEPAGER}\n\n[[visual:ghost]]`,
+        visuals: [],
+      }),
+      fetchImpl: fakeFetch().impl,
+      log: quiet,
+      verifyOptions: { gapMs: 0 },
+    });
+    expect(res.ok).toBe(true);
+    expect(calls).toEqual(["onepager draft", "onepager repair"]);
+    if (!res.ok) return;
+    expect(res.rung.status).toBe("ready");
+    expect(res.rung.bodyMd).not.toContain("[[visual:");
+    expect(JSON.parse(res.rung.visualsJson ?? "null")).toEqual([]);
+  });
+
+  it("keeps the like-I'm-10 version marker-free", async () => {
+    const db = makeDb();
+    const { nodeId } = seed(db);
+    const calls: string[] = [];
+    const res = await ensureRung(db, nodeId, "eli10", {
+      llm: fakeLlm(calls, { eli10Body: `${ELI10}\n\n[[visual:ghost]]` }),
+      fetchImpl: fakeFetch().impl,
+      log: quiet,
+      verifyOptions: { gapMs: 0 },
+    });
+    expect(res.ok).toBe(true);
+    expect(calls).toEqual(["onepager draft", "eli10 draft", "eli10 repair"]);
+    if (!res.ok) return;
+    expect(res.rung.bodyMd).not.toContain("[[visual:");
+    expect(res.rung.visualsJson).toBeNull();
+  });
+
+  it("asks for visuals and images in the one-pager and deep-dive prompts only", () => {
+    const ctx = "MAP: Philosophy\nTHIS NODE (school): Stoicism — ?";
+    expect(buildRungPrompt("onepager", { context: ctx })).toContain("VISUALS:");
+    expect(buildRungPrompt("onepager", { context: ctx })).toContain("IMAGES:");
+    expect(buildRungPrompt("deepdive", { context: ctx, onepagerMd: "ONE" })).toContain("VISUALS:");
+    expect(buildRungPrompt("eli10", { context: ctx, onepagerMd: "ONE" })).not.toContain("VISUALS:");
   });
 
   it("marks the rung failed, with the reason, when a draft stays broken after repair", async () => {
