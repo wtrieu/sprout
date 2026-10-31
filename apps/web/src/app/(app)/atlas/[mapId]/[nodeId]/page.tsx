@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Markdown } from "@/components/Markdown";
+import type { AtlasImageData } from "@/components/atlas/AtlasImage";
+import { RungBody } from "@/components/atlas/RungBody";
 
 type Level = "eli10" | "onepager" | "deepdive";
 const LEVELS: Level[] = ["eli10", "onepager", "deepdive"];
@@ -19,6 +20,7 @@ type Rung = {
   status: "drafting" | "ready" | "failed";
   hook: string | null;
   bodyMd: string | null;
+  visualsJson: string | null;
   wordCount: number | null;
   error: string | null;
   startedAt: string;
@@ -49,6 +51,7 @@ type Detail = {
   children: NodeLite[];
   rungs: Record<Level, Rung | null>;
   readings: Reading[];
+  images: AtlasImageData[];
   adjacent: Array<{ nodeId: number; title: string; reason: string }>;
   player: { id: number; name: string; persona: string } | null;
   progress: { tier: Tier; quiz: { passedAt: string | null; attempts: number } } | null;
@@ -383,7 +386,7 @@ function NodePageInner() {
           {rung?.status === "ready" && rung.bodyMd && (
             <>
               {rung.hook && <p className="text-base font-medium text-neutral-100">{rung.hook}</p>}
-              <Markdown md={rung.bodyMd} />
+              <RungBody md={rung.bodyMd} visualsJson={rung.visualsJson} images={data.images} />
               <div className="flex items-center justify-between pt-2 text-xs text-neutral-600">
                 <span>{rung.wordCount ? `${rung.wordCount} words` : ""}</span>
                 <button

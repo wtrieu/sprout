@@ -7,7 +7,7 @@ import { frontierCandidates } from "@/lib/atlas/picker";
 import { playerForEmail } from "@/lib/atlas/players";
 import { nodeProgressFor } from "@/lib/atlas/progress";
 import { parseQuizJson, publicQuiz } from "@/lib/atlas/quiz";
-import { rungsFor, verifiedReadingsFor } from "@/lib/atlas/rungs";
+import { rungsFor, verifiedImagesFor, verifiedReadingsFor } from "@/lib/atlas/rungs";
 import { reapStaleRungs } from "@/lib/atlas/runner";
 
 const byPosition = <T extends { position: number; id: number }>(a: T, b: T) =>
@@ -44,6 +44,7 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
   const quizQuestions =
     onepager?.status === "ready" ? parseQuizJson(onepager.quizJson) : null;
   const readings = verifiedReadingsFor(db, node.id);
+  const images = verifiedImagesFor(db, node.id);
 
   const titles = new Map(mapNodes.map((n) => [n.id, n.title]));
   const adjacent = frontierCandidates(mapNodes, node.id)
@@ -61,6 +62,7 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
     children,
     rungs,
     readings,
+    images,
     adjacent,
     player: player ? { id: player.id, name: player.name, persona: player.persona } : null,
     progress,

@@ -10,6 +10,8 @@ import type { DB } from "../../db/client";
 import type { AtlasLlm } from "./llm";
 import { preloadMap, suggestedStarts } from "./preload";
 import type { QuizQuestion } from "./rungs";
+import type { FetchLike } from "./verify";
+import type { Visual } from "./visuals";
 
 const migrationsFolder = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -85,11 +87,19 @@ const seed = (db: DB) => {
 const nodeTitle = (prompt: string): string =>
   /THIS NODE \([a-z]+\): ([^—]+) —/.exec(prompt)?.[1]?.trim() ?? "?";
 
-type Recorder = { drafts: string[]; quizzes: string[] };
+type Recorder = { drafts: string[]; quizzes: string[]; visuals: string[] };
 
-/** Routes on prompt content: one-pager drafts and quiz-only backfill calls. */
+const newRec = (): Recorder => ({ drafts: [], quizzes: [], visuals: [] });
+
+/** Routes on prompt content: drafts, quiz backfill, visuals backfill. */
 const fakeLlm =
-  (rec: Recorder, opts: { failFor?: string } = {}): AtlasLlm =>
+  (
+    rec: Recorder,
+    opts: {
+      failFor?: string;
+      visualsFor?: Record<string, { visuals?: unknown[]; images?: unknown[] }>;
+    } = {},
+  ): AtlasLlm =>
   (prompt, zschema) => {
     if (prompt.includes("Write the ONE-PAGER")) {
       const title = nodeTitle(prompt);
@@ -100,6 +110,12 @@ const fakeLlm =
     if (prompt.includes("Now write its quiz")) {
       rec.quizzes.push(nodeTitle(prompt));
       return zschema.parse({ quiz: QUIZ });
+    }
+    if (prompt.includes("Now decide whether it deserves visuals")) {
+      const title = nodeTitle(prompt);
+      rec.visuals.push(title);
+      const out = opts.visualsFor?.[title] ?? { visuals: [], images: [] };
+      return zschema.parse({ visuals: out.visuals ?? [], images: out.images ?? [] });
     }
     throw new Error(`unexpected prompt: ${prompt.slice(0, 80)}`);
   };
@@ -124,7 +140,7 @@ describe("preloadMap", () => {
     const { map, nodes } = seed(db);
     const { sent, send } = capturingSend();
 
-    const rec0: Recorder = { drafts: [], quizzes: [] };
+    const rec0: Recorder = newRec();
     const first = await preloadMap(db, map.id, {
       shard: 0,
       shards: 2,
@@ -135,7 +151,7 @@ describe("preloadMap", () => {
     expect(first.notified).toBe(false); // the other shard's nodes have no one-pager yet
     expect(sent).toHaveLength(0);
 
-    const rec1: Recorder = { drafts: [], quizzes: [] };
+    const rec1: Recorder = newRec();
     const second = await preloadMap(db, map.id, {
       shard: 1,
       shards: 2,
@@ -164,14 +180,14 @@ describe("preloadMap", () => {
     const { map } = seed(db);
     const { sent, send } = capturingSend();
     for (const shard of [0, 1]) {
-      await preloadMap(db, map.id, { shard, shards: 2, llm: fakeLlm({ drafts: [], quizzes: [] }), send, log: quiet });
+      await preloadMap(db, map.id, { shard, shards: 2, llm: fakeLlm(newRec()), send, log: quiet });
     }
     expect(sent).toHaveLength(1);
 
     // Both shards run again over a fully preloaded map: both see it complete,
     // neither can claim the notification a second time.
     for (const shard of [0, 1]) {
-      const rec: Recorder = { drafts: [], quizzes: [] };
+      const rec: Recorder = newRec();
       const res = await preloadMap(db, map.id, { shard, shards: 2, llm: fakeLlm(rec), send, log: quiet });
       expect(rec.drafts).toEqual([]);
       expect(rec.quizzes).toEqual([]);
@@ -186,7 +202,7 @@ describe("preloadMap", () => {
     db.insert(schema.atlasRungs)
       .values({ nodeId: nodes[0].id, level: "onepager", status: "drafting", startedAt: new Date() })
       .run();
-    const rec: Recorder = { drafts: [], quizzes: [] };
+    const rec: Recorder = newRec();
     const { sent, send } = capturingSend();
     const res = await preloadMap(db, map.id, { llm: fakeLlm(rec), send, log: quiet });
     expect(rec.drafts).not.toContain(nodes[0].title);
@@ -214,7 +230,7 @@ describe("preloadMap", () => {
         })
         .run();
     });
-    const rec: Recorder = { drafts: [], quizzes: [] };
+    const rec: Recorder = newRec();
     const { sent, send } = capturingSend();
     const res = await preloadMap(db, map.id, { llm: fakeLlm(rec), send, log: quiet });
     expect(rec.drafts).toEqual([]); // ready rows are a no-op
@@ -232,7 +248,7 @@ describe("preloadMap", () => {
   it("still notifies when a one-pager failed, and the email says so", async () => {
     const db = makeDb();
     const { map } = seed(db);
-    const rec: Recorder = { drafts: [], quizzes: [] };
+    const rec: Recorder = newRec();
     const { sent, send } = capturingSend();
     const res = await preloadMap(db, map.id, {
       llm: fakeLlm(rec, { failFor: "Heraclitus" }),
@@ -246,6 +262,112 @@ describe("preloadMap", () => {
     expect(sent[0].html).toContain("1 failed — regenerate them from the map page");
     const failedRow = onepagerRows(db).find((r) => r.status === "failed");
     expect(failedRow?.error).toMatch(/fell over/);
+  });
+
+  it("backfills visuals into null rows, anchoring markers to headings (the live map)", async () => {
+    const db = makeDb();
+    const { map, nodes } = seed(db);
+    // A pre-PR-B map: every one-pager ready with its quiz, visuals never asked.
+    for (const n of nodes) {
+      db.insert(schema.atlasRungs)
+        .values({
+          nodeId: n.id,
+          level: "onepager",
+          status: "ready",
+          hook: `Hook: ${n.title}`,
+          bodyMd: ONEPAGER,
+          quizJson: JSON.stringify(QUIZ),
+          readyAt: new Date(),
+        })
+        .run();
+    }
+    const geomap: Visual = {
+      kind: "geomap",
+      slug: "miletus",
+      title: "Where Thales worked",
+      places: [{ label: "Miletus", lat: 37.53, lon: 27.28 }],
+      after_heading: "The move",
+    };
+    const image = {
+      slug: "zeno-bust",
+      query: "Zeno of Citium bust",
+      caption: "A Roman copy of the school's founder.",
+      after_heading: null,
+    };
+    const fetchImpl: FetchLike = async (url) => {
+      if (url.includes("list=search")) {
+        return new Response(
+          JSON.stringify({ query: { search: [{ title: "File:Zeno of Citium bust.jpg" }] } }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("prop=imageinfo")) {
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  imageinfo: [
+                    {
+                      url: "https://upload.wikimedia.org/zeno.jpg",
+                      descriptionurl: "https://commons.wikimedia.org/wiki/File:Zeno.jpg",
+                      thumburl: "https://upload.wikimedia.org/thumb/zeno-640.jpg",
+                      width: 2000,
+                      height: 1500,
+                      extmetadata: {
+                        Artist: { value: "Paolo Monti" },
+                        LicenseShortName: { value: "CC BY-SA 4.0" },
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("nope", { status: 404 });
+    };
+
+    const rec: Recorder = newRec();
+    const { send } = capturingSend();
+    const res = await preloadMap(db, map.id, {
+      llm: fakeLlm(rec, {
+        visualsFor: { Thales: { visuals: [geomap] }, Stoicism: { images: [image] } },
+      }),
+      fetchImpl,
+      send,
+      log: quiet,
+    });
+    expect(rec.drafts).toEqual([]);
+    expect(rec.visuals.sort()).toEqual(nodes.map((n) => n.title).sort());
+    expect(res.visuals).toBe(6);
+
+    const rows = onepagerRows(db);
+    const thales = rows.find((r) => r.nodeId === nodes[1].id)!;
+    expect(thales.bodyMd).toContain("### The move\n\n[[visual:miletus]]");
+    expect(JSON.parse(thales.visualsJson ?? "null")).toMatchObject([{ slug: "miletus" }]);
+
+    const stoicism = rows.find((r) => r.nodeId === nodes[4].id)!;
+    expect(stoicism.bodyMd?.endsWith("[[image:zeno-bust]]")).toBe(true);
+    const images = db
+      .select()
+      .from(schema.atlasImages)
+      .where(eq(schema.atlasImages.nodeId, nodes[4].id))
+      .all();
+    expect(images).toHaveLength(1);
+    expect(images[0]).toMatchObject({ status: "verified", proposedBy: "backfill" });
+
+    // A page that wants no visuals is marked asked ("[]") and never re-asked.
+    const heraclitus = rows.find((r) => r.nodeId === nodes[2].id)!;
+    expect(heraclitus.bodyMd).toBe(ONEPAGER);
+    expect(heraclitus.visualsJson).toBe("[]");
+
+    const rec2: Recorder = newRec();
+    const second = await preloadMap(db, map.id, { llm: fakeLlm(rec2), fetchImpl, send, log: quiet });
+    expect(rec2.visuals).toEqual([]);
+    expect(second.visuals).toBe(0);
   });
 
   it("suggests the first unvisited child of the first three branches", () => {

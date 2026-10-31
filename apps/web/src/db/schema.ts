@@ -752,6 +752,10 @@ export const atlasRungs = sqliteTable(
     // One-pager rows only: 3 × { question, choices[4], answer, why }, drafted
     // in the same call as the body. PR-C builds the answering UI.
     quizJson: text("quiz_json"),
+    // Model-drawn visuals (lib/atlas/visuals.ts VisualSchema), placed in the
+    // body by [[visual:slug]] markers. "[]" means "asked, none wanted" — the
+    // backfill only re-asks while this is null. Eli10 rows stay null.
+    visualsJson: text("visuals_json"),
     error: text("error"),
     startedAt: integer("started_at", { mode: "timestamp" })
       .notNull()
@@ -798,6 +802,45 @@ export const atlasReadings = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (t) => [index("atlas_readings_node_status_idx").on(t.nodeId, t.status)],
+);
+
+// Every real image the model ever proposed for a node, with its verification
+// outcome — the readings rule again: only status='verified' rows are shown
+// (placed in rung bodies by [[image:slug]] markers), rejected rows carry the
+// reason and tune the verifier. Always Wikimedia Commons, never generated art.
+export const atlasImages = sqliteTable(
+  "atlas_images",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    nodeId: integer("node_id")
+      .notNull()
+      .references(() => atlasNodes.id, { onDelete: "cascade" }),
+    // The marker name a rung body references this image by (per node).
+    slug: text("slug").notNull(),
+    // What the model asked for: the exact subject, as Commons search terms.
+    query: text("query").notNull(),
+    caption: text("caption"),
+    why: text("why"),
+    status: text("status", { enum: ["verified", "rejected"] }).notNull(),
+    // Verified rows: the Commons file and where it was resolved from.
+    fileTitle: text("file_title"),
+    verifiedVia: text("verified_via", { enum: ["article_media", "commons_search"] }),
+    url: text("url"),
+    thumbUrl: text("thumb_url"),
+    // The Commons description page — where the attribution line links.
+    descUrl: text("desc_url"),
+    author: text("author"),
+    license: text("license"),
+    width: integer("width"),
+    height: integer("height"),
+    rejectReason: text("reject_reason"),
+    proposedBy: text("proposed_by", { enum: ["onepager", "deepdive", "backfill"] }).notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index("atlas_images_node_status_idx").on(t.nodeId, t.status)],
 );
 
 export const atlasFrontierReasons = ["child", "sibling", "next-branch", "fallback", "seed"] as const;

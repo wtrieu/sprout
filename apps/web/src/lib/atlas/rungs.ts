@@ -22,6 +22,7 @@ import { z } from "zod";
 import { and, asc, eq } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import {
+  atlasImages,
   atlasMaps,
   atlasNodes,
   atlasReadings,
@@ -40,6 +41,20 @@ import {
   type VerifiedReading,
   type VerifyOptions,
 } from "./verify";
+import {
+  verifyImages,
+  type RejectedImage,
+  type VerifiedImage,
+  type VerifyImageOptions,
+} from "./verifyImages";
+import {
+  ImageProposalSchema,
+  VisualSchema,
+  imageRules,
+  stripVisualMarkers,
+  validateVisuals,
+  visualRules,
+} from "./visuals";
 
 export const RUNG_LEVELS = atlasRungLevels;
 export const isRungLevel = (s: string): s is AtlasRungLevel =>
@@ -95,6 +110,9 @@ export const RungDraftSchema = z.object({
   readings: z.array(ReadingProposalSchema).max(6).nullish(),
   // One-pager only; lint beyond the shape lives in validateQuiz.
   quiz: z.array(QuizQuestionSchema).max(5).nullish(),
+  // Onepager + deepdive; lint beyond the shape lives in validateVisuals.
+  visuals: z.array(VisualSchema).max(3).nullish(),
+  images: z.array(ImageProposalSchema).max(4).nullish(),
 });
 export type RungDraft = z.infer<typeof RungDraftSchema>;
 
@@ -195,9 +213,13 @@ ${readingsRules("2 to 4 readings: at least one Wikipedia article, at most one bo
 
 ${QUIZ_RULES}
 
+${visualRules("onepager")}
+
+${imageRules("onepager")}
+
 ${FORMAT_RULES}
 
-Return: { "hook": string (one line, under 20 words, the sharpest way in), "body_md": string, "readings": [ ... ], "quiz": [ ... ] }`;
+Return: { "hook": string (one line, under 20 words, the sharpest way in), "body_md": string, "readings": [ ... ], "quiz": [ ... ], "visuals": [ ... ], "images": [ ... ] }`;
   }
   if (level === "deepdive") {
     return `${VOICE}
@@ -211,9 +233,13 @@ Write the DEEP DIVE for THIS NODE: ${b.min}–${b.max} words, 4 to 7 "###" headi
 
 ${readingsRules("up to 3 further readings beyond the one-pager's (books allowed up to 2)")}
 
+${visualRules("deepdive")}
+
+${imageRules("deepdive")}
+
 ${FORMAT_RULES}
 
-Return: { "hook": string (one line, under 20 words), "body_md": string, "readings": [ ... ] }`;
+Return: { "hook": string (one line, under 20 words), "body_md": string, "readings": [ ... ], "visuals": [ ... ], "images": [ ... ] }`;
   }
   return `${VOICE}
 
@@ -281,6 +307,7 @@ Return the revised JSON object only, same shape.`;
 
 export const wordCount = (md: string): number =>
   md
+    .replace(/^\[\[(?:visual|image):[a-z0-9-]{1,40}\]\]\s*$/gm, "")
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/\*\*/g, "")
     .replace(/^\s*-\s+/gm, "")
@@ -372,6 +399,7 @@ export const assembleDeepdive = (
 
 export type RungRow = typeof atlasRungs.$inferSelect;
 export type ReadingRow = typeof atlasReadings.$inferSelect;
+export type ImageRow = typeof atlasImages.$inferSelect;
 
 export const rungFor = (db: DB, nodeId: number, level: AtlasRungLevel): RungRow | null =>
   db
@@ -390,6 +418,90 @@ export const verifiedReadingsFor = (db: DB, nodeId: number): ReadingRow[] =>
     .where(and(eq(atlasReadings.nodeId, nodeId), eq(atlasReadings.status, "verified")))
     .orderBy(asc(atlasReadings.position), asc(atlasReadings.id))
     .all();
+
+export const verifiedImagesFor = (db: DB, nodeId: number): ImageRow[] =>
+  db
+    .select()
+    .from(atlasImages)
+    .where(and(eq(atlasImages.nodeId, nodeId), eq(atlasImages.status, "verified")))
+    .orderBy(asc(atlasImages.position), asc(atlasImages.id))
+    .all();
+
+/** Both outcomes stored, the readings rule: verified shown, rejected logged. */
+export const storeImages = (
+  db: DB,
+  nodeId: number,
+  proposedBy: "onepager" | "deepdive" | "backfill",
+  verified: VerifiedImage[],
+  rejected: RejectedImage[],
+  startPosition: number,
+) => {
+  verified.forEach((v, i) => {
+    db.insert(atlasImages)
+      .values({
+        nodeId,
+        slug: v.slug,
+        query: v.query,
+        caption: v.caption,
+        why: v.why,
+        status: "verified",
+        fileTitle: v.fileTitle,
+        verifiedVia: v.verifiedVia,
+        url: v.url,
+        thumbUrl: v.thumbUrl,
+        descUrl: v.descUrl,
+        author: v.author,
+        license: v.license,
+        width: v.width,
+        height: v.height,
+        proposedBy,
+        position: startPosition + i,
+      })
+      .run();
+  });
+  rejected.forEach((r) => {
+    db.insert(atlasImages)
+      .values({
+        nodeId,
+        slug: r.slug,
+        query: r.query,
+        caption: r.caption,
+        why: r.why ?? null,
+        status: "rejected",
+        rejectReason: r.reason.slice(0, 500),
+        proposedBy,
+        position: 0,
+      })
+      .run();
+  });
+};
+
+/**
+ * Verify a draft's image proposals and store both outcomes. Slugs that
+ * already have a verified image on this node are skipped (their markers
+ * resolve to the stored row); verified files the node already shows are
+ * dropped rather than duplicated.
+ */
+export const verifyAndStoreImages = async (
+  db: DB,
+  nodeId: number,
+  proposedBy: "onepager" | "deepdive" | "backfill",
+  proposals: Array<z.infer<typeof ImageProposalSchema>>,
+  fetchImpl: FetchLike,
+  options: VerifyImageOptions = {},
+): Promise<{ verified: number; rejected: number }> => {
+  const existing = verifiedImagesFor(db, nodeId);
+  const knownSlugs = new Set(existing.map((i) => i.slug));
+  const knownFiles = new Set(existing.map((i) => i.fileTitle).filter((t): t is string => !!t));
+  const fresh = proposals.filter((p) => !knownSlugs.has(p.slug));
+  if (fresh.length === 0) return { verified: 0, rejected: 0 };
+  const wikipediaTitle =
+    verifiedReadingsFor(db, nodeId).find((r) => r.kind === "wikipedia")?.title ?? null;
+  const { verified, rejected } = await verifyImages(fresh, { wikipediaTitle }, fetchImpl, options);
+  const kept = verified.filter((v) => !knownFiles.has(v.fileTitle));
+  storeImages(db, nodeId, proposedBy, kept, rejected, existing.length);
+  return { verified: kept.length, rejected: rejected.length };
+};
 
 /** Insert (or reset) the rung row as `drafting` — the status the UI polls. */
 export const markRungDrafting = (
@@ -464,6 +576,7 @@ export type RungDeps = {
   /** Editor-judge pass for the deep dive. Default on; ATLAS_JUDGE=false disables. */
   judge?: boolean;
   verifyOptions?: VerifyOptions;
+  verifyImageOptions?: VerifyImageOptions;
 };
 
 export type EnsureRungResult =
@@ -514,22 +627,36 @@ export const ensureRung = async (
   try {
     const context = contextBlock(ctx);
     const prompt = buildRungPrompt(level, { context, onepagerMd });
-    const lint = (d: RungDraft, tolerance: number): string[] => [
+    const fatalLint = (d: RungDraft, tolerance: number): string[] => [
       ...validateRungBody(level, d.body_md, { tolerance }),
       ...(level === "onepager" ? validateQuiz(d.quiz) : []),
     ];
+    const visualLint = (d: RungDraft): string[] =>
+      validateVisuals(level, d.body_md, d.visuals ?? [], d.images ?? []);
     log(`rung ${level} for "${ctx.node.title}" model=${model}`);
     let draft = llm(prompt, RungDraftSchema, { model, label: `${level} draft` });
 
-    const problems = lint(draft, SOFT_TOLERANCE);
+    const problems = [...fatalLint(draft, SOFT_TOLERANCE), ...visualLint(draft)];
     if (problems.length > 0) {
       log(`draft flagged, one repair pass: ${problems.join("; ")}`);
-      const repaired = llm(repairPrompt(prompt, draft, problems), RungDraftSchema, {
+      let repaired = llm(repairPrompt(prompt, draft, problems), RungDraftSchema, {
         model,
         label: `${level} repair`,
       });
-      const again = lint(repaired, HARD_TOLERANCE);
+      const again = fatalLint(repaired, HARD_TOLERANCE);
       if (again.length > 0) throw new Error(`craft checks failed after repair: ${again.join("; ")}`);
+      const visualsAgain = visualLint(repaired);
+      if (visualsAgain.length > 0) {
+        // Unlike the quiz (the mastery gate), visuals are enrichment: still
+        // broken after repair, they are dropped and the page ships bare.
+        log(`visuals still broken after repair (${visualsAgain.join("; ")}) — dropping them`);
+        repaired = {
+          ...repaired,
+          visuals: [],
+          images: [],
+          body_md: stripVisualMarkers(repaired.body_md),
+        };
+      }
       draft = repaired;
     }
 
@@ -555,7 +682,7 @@ export const ensureRung = async (
             model,
             label: `${level} revision`,
           });
-          const rp = lint(revised, HARD_TOLERANCE);
+          const rp = [...fatalLint(revised, HARD_TOLERANCE), ...visualLint(revised)];
           if (rp.length === 0) draft = revised;
           else log(`revision came back broken (${rp.join("; ")}) — keeping first draft`);
         } catch (err) {
@@ -578,6 +705,20 @@ export const ensureRung = async (
     const fresh = verified.filter((v) => !knownUrls.has(v.url));
     if (level !== "eli10") storeReadings(db, nodeId, level, fresh, rejected, already.length);
 
+    // Images ride the readings rule: verified or never shown. A rejected
+    // image's marker simply renders nothing.
+    if (level !== "eli10" && (draft.images ?? []).length > 0) {
+      const img = await verifyAndStoreImages(
+        db,
+        nodeId,
+        level,
+        draft.images ?? [],
+        fetchImpl,
+        deps.verifyImageOptions,
+      );
+      log(`images: ${img.verified} verified, ${img.rejected} rejected`);
+    }
+
     const allVerified = verifiedReadingsFor(db, nodeId).filter(
       (r): r is ReadingRow & { url: string } => typeof r.url === "string" && r.url.length > 0,
     );
@@ -594,6 +735,8 @@ export const ensureRung = async (
         model,
         judgeVerdict: verdict ? JSON.stringify(verdict) : null,
         quizJson: level === "onepager" && draft.quiz ? JSON.stringify(draft.quiz) : null,
+        // "[]" means "asked, none wanted"; the backfill only re-asks on null.
+        visualsJson: level === "eli10" ? null : JSON.stringify(draft.visuals ?? []),
         error: null,
         readyAt: new Date(),
       })
