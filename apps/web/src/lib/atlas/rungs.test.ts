@@ -213,10 +213,10 @@ const fakeFetch = () => {
         ],
       });
     }
-    if (url.includes("commons.wikimedia.org") && url.includes("list=search")) {
+    if (url.startsWith("https://commons.wikimedia.org/w/api.php?") && url.includes("list=search")) {
       return json({ query: { search: [{ title: "File:Zeno of Citium bust.jpg" }] } });
     }
-    if (url.includes("commons.wikimedia.org") && url.includes("prop=imageinfo")) {
+    if (url.startsWith("https://commons.wikimedia.org/w/api.php?") && url.includes("prop=imageinfo")) {
       return json({
         query: {
           pages: [
