@@ -14,16 +14,18 @@ and `docs/local-llm-orchestration.md` for the orchestration rules.
 
 ## Files you own — edit ONLY these
 
-- `apps/web/src/lib/atlas/` — `rungs.ts`, `draftMap.ts`, `preload.ts`, `verify.ts`, `picker.ts`, `llm.ts`, `presets.ts`, `runner.ts`, `email.ts`, and all their `.test.ts` files; future `frontier.ts`, `kid.ts`, `seeds.ts` (PR2/PR3)
+- `apps/web/src/lib/atlas/` — `rungs.ts`, `draftMap.ts`, `preload.ts`, `verify.ts`, `verifyImages.ts`, `visuals.ts` (visual-block drafting + `segmentBody`), `worldOutline.ts` (generated data), `picker.ts`, `llm.ts`, `presets.ts`, `runner.ts`, `email.ts`, and all their `.test.ts` files; future `frontier.ts`, `kid.ts`, `seeds.ts` (PR2/PR3). Quiz *drafting/validation* in rungs is yours; quiz *grading* (`quiz.ts`) belongs to `progression-engine`.
 - `scripts/atlas.ts`
 - `apps/web/src/app/api/atlas/maps/**` and `apps/web/src/app/api/atlas/nodes/[id]/rungs/**` routes, and `api/atlas/nodes/[id]/route.ts`
 
 Do NOT edit `apps/web/src/db/schema.ts` or migrations, `apps/web/src/lib/markdown.ts`,
 `apps/web/src/components/Markdown.tsx`, or the node page
 `apps/web/src/app/(app)/atlas/[mapId]/[nodeId]/page.tsx` — those belong to the
-`atlas-core` agent; stop and report the exact change you need. The other atlas
-pages belong to `skill-tree-ui`; `lib/atlas/game/**` and the visit/skip routes
-belong to `progression-engine`.
+`atlas-core` agent (so do the `components/atlas/` renderers RungBody,
+AtlasVisual, AtlasImage); stop and report the exact change you need. The other
+atlas pages belong to `skill-tree-ui`; the game-foundation files in
+`lib/atlas/` (events, game, progress, disciplines, players, persona, quiz) and
+the visit/skip/quiz/players/me routes belong to `progression-engine`.
 
 ## Rules the code enforces (from docs/atlas.md)
 

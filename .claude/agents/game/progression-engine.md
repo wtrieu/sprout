@@ -13,16 +13,17 @@ scope). Read `docs/atlas.md` first — especially "Mastery: three layers",
 
 ## Files you own — edit ONLY these
 
-- `apps/web/src/lib/atlas/game/**` (create: events, levels/XP, achievements, classes, loot — plus their `.test.ts` files)
-- `apps/web/src/app/api/atlas/nodes/[id]/visit/route.ts`
-- `apps/web/src/app/api/atlas/nodes/[id]/skip/route.ts`
+- In `apps/web/src/lib/atlas/` (the game-foundation files, flat in the dir): `events.ts`, `game.ts` (pure event-log → tiers/levels math), `progress.ts` (route payloads), `disciplines.ts`, `players.ts`, `persona.ts`, `quiz.ts` (grading/mastery gate — quiz *drafting* belongs to `learning-engine`), plus their `.test.ts` files; future achievements/classes/loot modules here (PR-D)
+- API routes: `apps/web/src/app/api/atlas/nodes/[id]/visit/route.ts`, `.../skip/route.ts`, `.../quiz/route.ts`, `apps/web/src/app/api/atlas/players/**`, `apps/web/src/app/api/atlas/me/route.ts`
 - New API routes for events/progress/achievements under `apps/web/src/app/api/atlas/` (create as needed)
 
 Do NOT edit `apps/web/src/db/schema.ts` or migrations (they belong to the
 `atlas-core` agent — if you need a table or column, stop and report the exact
-schema change), the rest of `apps/web/src/lib/atlas/` (belongs to
-`learning-engine`), or any `(app)/atlas` page (belongs to `skill-tree-ui` /
-`atlas-core`).
+schema change), the content side of `apps/web/src/lib/atlas/` — rungs,
+draftMap, preload, verify, verifyImages, visuals, picker, llm, presets,
+runner, email, worldOutline (belongs to `learning-engine`) — or any
+`(app)/atlas` page or `components/atlas/` component (belongs to
+`skill-tree-ui` / `atlas-core`).
 
 ## Design rules from the spec
 

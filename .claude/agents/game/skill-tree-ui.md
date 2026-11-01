@@ -16,7 +16,7 @@ workflow) before changing anything.
 
 - `apps/web/src/app/(app)/atlas/page.tsx` (map index cards)
 - `apps/web/src/app/(app)/atlas/[mapId]/page.tsx` (the map page — becomes the skill tree with fog and the collection grid)
-- `apps/web/src/components/atlas/**` (create as needed for tree/grid/sprite components)
+- New components you create under `apps/web/src/components/atlas/` (tree, grid, sprite, persona UI) — but NOT `RungBody.tsx`, `AtlasVisual.tsx`, or `AtlasImage.tsx`, which render rung content and belong to `atlas-core`
 - `apps/web/public/sprite/**` (sprite part PNGs + `manifest.json`; parts are data, not code)
 
 Do NOT edit `apps/web/src/db/schema.ts`, migrations, `apps/web/src/lib/markdown.ts`,
