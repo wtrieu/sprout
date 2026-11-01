@@ -18,6 +18,7 @@ touches your files.** Make exactly the one change you were asked for. Read
 - `apps/web/src/db/schema.ts` and `apps/web/src/db/migrations/**`
 - `apps/web/src/lib/markdown.ts` (the rung-body markdown subset) and its tests
 - `apps/web/src/components/Markdown.tsx` (the renderer)
+- `apps/web/src/components/atlas/RungBody.tsx` (+ its test), `AtlasVisual.tsx`, `AtlasImage.tsx` — the rung-content renderer stack both areas depend on (other `components/atlas/` files belong to `skill-tree-ui`)
 - `apps/web/src/app/(app)/atlas/[mapId]/[nodeId]/page.tsx` (the node page: renders rung bodies, quiz UI, mastery stamps)
 
 Everything else is owned by `skill-tree-ui`, `progression-engine`, or
