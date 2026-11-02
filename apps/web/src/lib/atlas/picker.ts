@@ -12,6 +12,10 @@
  *
  * Eligible = unvisited, not previously picked, not skipped, parent not skipped.
  * Map order = each branch by position, then its children by position.
+ *
+ * The weekly pick has one extra rule above the four: a node the owner's own
+ * capture created (`seedId` set) that is still eligible wins the week, oldest
+ * first — they asked for it, so it does not wait its turn.
  */
 
 export type FrontierNode = {
@@ -21,11 +25,16 @@ export type FrontierNode = {
   skipped: boolean;
   visitedAt: Date | null;
   lastOpenedAt: Date | null;
+  /** Set when an owner-captured seed created the node. */
+  seedId?: number | null;
 };
 
 export type FrontierReason = "child" | "sibling" | "next-branch" | "fallback";
 
 export type FrontierCandidate = { nodeId: number; reason: FrontierReason };
+
+/** What the weekly pick can say: the ordering's reasons plus "seed". */
+export type PickReason = FrontierReason | "seed";
 
 const byPosition = <T extends { position: number; id: number }>(a: T, b: T) =>
   a.position - b.position || a.id - b.id;
@@ -126,8 +135,14 @@ export const frontierCandidates = (
 export const pickFrontierNode = (
   nodes: FrontierNode[],
   opts: { anchorId?: number | null; pickedIds?: Iterable<number> } = {},
-): FrontierCandidate | null => {
+): { nodeId: number; reason: PickReason } | null => {
   const exclude = new Set(opts.pickedIds ?? []);
   const anchor = opts.anchorId === undefined ? anchorNodeId(nodes) : opts.anchorId;
-  return frontierCandidates(nodes, anchor, exclude)[0] ?? null;
+  const candidates = frontierCandidates(nodes, anchor, exclude);
+  // Candidates are every eligible node, so a seed node is among them exactly
+  // when it is unvisited, unskipped and never picked.
+  const seeded = new Set(nodes.filter((n) => n.seedId != null).map((n) => n.id));
+  const seed = candidates.filter((c) => seeded.has(c.nodeId)).sort((a, b) => a.nodeId - b.nodeId)[0];
+  if (seed) return { nodeId: seed.nodeId, reason: "seed" };
+  return candidates[0] ?? null;
 };

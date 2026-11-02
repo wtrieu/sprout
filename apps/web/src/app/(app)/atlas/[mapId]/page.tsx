@@ -60,6 +60,13 @@ type PlayerInfo = {
   class?: unknown;
 };
 
+/** Marks a node the parent saved for the child. */
+const Saved = () => (
+  <span aria-label="saved for the child" title="Saved for the child" className="text-xs">
+    🔖
+  </span>
+);
+
 /** A rare node shows through the fog as a faint glint. */
 const Glint = () => (
   <span aria-label="something rare" title="Something rare glints here" className="text-amber-300/80">
@@ -126,6 +133,7 @@ export default function AtlasMapPage() {
   // Snapshot taken when the chest opens, so the modal survives refetches.
   const [reveal, setReveal] = useState<Pending | null>(null);
   const [offerError, setOfferError] = useState<string | null>(null);
+  const [bookmarked, setBookmarked] = useState<Set<number>>(new Set());
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/atlas/maps/${mapId}`);
@@ -143,6 +151,8 @@ export default function AtlasMapPage() {
     setPlayer(d.player ? { ...d.player, class: d.player.class ?? d.class, loadout: d.player.loadout ?? d.loadout } : null);
     setPending(d.pending ?? null);
     setNextGate(d.nextGate ?? null);
+    // Optional until the route change lands.
+    setBookmarked(new Set<number>((d as { bookmarkedNodeIds?: number[] }).bookmarkedNodeIds ?? []));
   }, [mapId]);
 
   // One-pagers are preloaded as soon as the map exists; the map is
@@ -432,6 +442,7 @@ export default function AtlasMapPage() {
                       >
                         {b.title}
                       </Link>
+                      {bookmarked.has(b.id) && <Saved />}
                       {lvl && (
                         <span
                           className="text-xs text-amber-400/90"
@@ -479,6 +490,7 @@ export default function AtlasMapPage() {
                               >
                                 {fog ? "? — somewhere unexplored" : c.title}
                               </Link>
+                              {bookmarked.has(c.id) && <Saved />}
                               {fog && c.rare && <Glint />}
                               {!fog && (
                                 <span className="text-[10px] uppercase tracking-wide text-neutral-600">

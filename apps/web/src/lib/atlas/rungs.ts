@@ -522,10 +522,10 @@ export const markRungDrafting = (
   return db.insert(atlasRungs).values({ nodeId, level, status: "drafting", model }).returning().get();
 };
 
-const storeReadings = (
+export const storeReadings = (
   db: DB,
   nodeId: number,
-  proposedBy: "onepager" | "deepdive",
+  proposedBy: "onepager" | "deepdive" | "seed",
   verified: VerifiedReading[],
   rejected: RejectedReading[],
   startPosition: number,
