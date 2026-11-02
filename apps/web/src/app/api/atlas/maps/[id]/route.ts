@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db/client";
 import { atlasMaps, atlasNodes, atlasRungLevels, atlasRungs } from "@/db/schema";
@@ -8,6 +9,7 @@ import { playerForEmail } from "@/lib/atlas/players";
 import { defaultLapsedOffers } from "@/lib/atlas/game/classes";
 import { mapGamePayload, mapGreetingCounts, mapProgressFor } from "@/lib/atlas/progress";
 import { reapStaleMaps } from "@/lib/atlas/runner";
+import { setSetting } from "@/lib/settings";
 
 export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
@@ -90,6 +92,24 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
     progress,
     greeting,
   });
+};
+
+const PatchSchema = z.object({ active: z.literal(true) });
+
+/** Make this the map the weekly frontier note draws from. */
+export const PATCH = async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
+  const { id } = await params;
+  const body = PatchSchema.safeParse(await req.json().catch(() => ({})));
+  if (!body.success) {
+    return NextResponse.json({ error: "expected { active: true }" }, { status: 400 });
+  }
+  const map = db.select().from(atlasMaps).where(eq(atlasMaps.id, Number(id))).get();
+  if (!map) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (map.status !== "ready") {
+    return NextResponse.json({ error: "Only a ready map can be the active one." }, { status: 409 });
+  }
+  setSetting(db, "atlasActiveMapId", map.id);
+  return NextResponse.json({ active: true, mapId: map.id });
 };
 
 /** Remove a map (and, by cascade, its nodes, rungs, readings, picks). */

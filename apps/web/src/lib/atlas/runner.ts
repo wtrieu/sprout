@@ -31,6 +31,10 @@ export const spawnAtlasJob = (args: string[]): void => {
   child.unref();
 };
 
+/** Spawn the weekly frontier note (the manual "send this week's note" button). */
+export const spawnFrontierNote = (force = false): void =>
+  spawnAtlasJob(["note", ...(force ? ["--force"] : [])]);
+
 /** How many detached preload shards to run (one rung at a time each). */
 export const preloadWorkers = (): number => {
   const n = Number(process.env.ATLAS_PRELOAD_WORKERS ?? 3);

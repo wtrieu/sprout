@@ -38,9 +38,11 @@ apps/web/src/lib/atlas/
   verifyImages.ts  deterministic, keyless Wikimedia Commons image verification
   worldOutline.ts  generated Natural Earth 110m land outline for the geomap renderer
   picker.ts     frontier ordering: child → sibling → next-branch → fallback (pure)
+  frontier.ts   the weekly note: weekStartOf, activeMapId, currentPick,
+                household memory from the event log, runWeeklyFrontier
   runner.ts     detached spawn of scripts/atlas.ts (+ preload shards) + stale-drafting reaper
   preload.ts    preloadMap(): one shard's one-pagers + quiz backfill + the atomic "ready" email claim
-  email.ts      renderMapReadyEmail() (PR2 adds renderFrontierEmail)
+  email.ts      renderMapReadyEmail() + renderFrontierEmail() (PR2)
   events.ts     the append-only event log: logEvent(), KNOWN_VERBS, legacy import
   players.ts    one character per Access email: create (first imports legacy), update
   game.ts       pure math: tiers from events, branch/field/discipline levels, fog
@@ -50,9 +52,10 @@ apps/web/src/lib/atlas/
   disciplines.ts  the five definitions + the per-branch backfill classifier
   game/         the PR-D engine: achievements (base rules), loot, classes,
                 engine (nightly model pass + rare backfill), items, hooks
-scripts/atlas.ts            draft-map | rung | preload | disciplines | engine  (PR2 adds: note; PR3 adds: kid)
+scripts/atlas.ts            draft-map | rung | preload | disciplines | engine | note  (PR3 adds: kid)
 apps/web/src/app/api/atlas  maps, maps/[id], maps/[id]/preload, nodes/[id], nodes/[id]/rungs/[level],
-                            /visit, /skip, nodes/[id]/quiz, me, players, players/me
+                            /visit, /skip, nodes/[id]/quiz, me, players, players/me,
+                            frontier, frontier/run
 apps/web/src/app/(app)/atlas  /atlas, /atlas/[mapId], /atlas/[mapId]/[nodeId]
 ```
 
@@ -111,6 +114,14 @@ readings rule for pictures).
   grants with `select slug,source,hidden,title from atlas_achievements order
   by granted_at desc` and loot with
   `select kind,ref,status from atlas_items`.
+- The weekly frontier note is `pnpm --filter web run job:atlas note [--force]`
+  (launchd runs it Wednesdays at 06:30, `com.sprout.atlas.plist`, installed
+  by hand after merge; logs to `/tmp/sprout-atlas.log`). `EMAIL_DRY_RUN=true`
+  logs instead of sending. Settings `atlasActiveMapId` (null = oldest ready
+  map) and `atlasDelivery` (`email` default · `digest` folds a section into
+  the weekly digest · `app` = cards only) steer it; inspect picks with
+  `select week_start,node_id,reason,delivered_via,email_sent_at from
+  atlas_frontier_picks order by id desc`.
 - The quiz UI is on the node page's one-pager tab (PR-C). Inspect stored
   quizzes with
   `select n.title, json_extract(q.value,'$.question') from atlas_rungs r join atlas_nodes n on n.id = r.node_id, json_each(r.quiz_json) q where r.level='onepager'`.
@@ -138,9 +149,13 @@ readings rule for pictures).
   levels, fog + collection grid, personas. Spec below. It reached `main`
   while PR-B was still in review, so PR-B's migration was renumbered 0016.
 
-**Order of what's left:** PR-D (built with the spec below, in review),
-then PR2 and PR3 (the owner's PR1 feedback put the v2 track first). PR-B
-merged as #102 on 2026-10-31.
+- PR-D (#105, merged 2026-11-01) — the engine: nightly achievement pass,
+  class offers, loot, the layered sprite against placeholder parts. The
+  engine's first run backfilled rare nodes; launchd runs it daily at 04:30.
+
+**Order of what's left:** PR2 (built with the spec below, re-based on the
+event log; in review), then PR3 (the owner's PR1 feedback put the v2 track
+first). PR-B merged as #102 on 2026-10-31.
 
 Follow-ups from PR-A, not scheduled (fold into whichever PR touches them):
 
@@ -821,11 +836,30 @@ contact-sheet test.
   `launchctl load -w` the engine plist, read
   `select slug,source,title from atlas_achievements` the next morning.
 
-### PR2 — weekly frontier note (~800 LOC)
+### PR2 — weekly frontier note (built with this spec, re-based on the event log)
 
 One unvisited node a week, next to where the reader left off, pre-drafted
 overnight and delivered as its own midweek email with the whole one-pager
 inside. The table already exists (`atlas_frontier_picks`).
+
+As built, the spec's direct state reads derive from the typed event log
+instead (the spec predates PR-C/PR-D): "visited" and "where we left off"
+are the union of every player's `open_node`/`deriveTiers` stamps, the
+pick's opened status is an `open_node` event at or after the pick (the
+visit route still stamps the legacy columns and `openedAt`, and they are
+read only while no character exists), the email footer's visited count
+comes from the same event-derived set, and the run logs a `frontier_note`
+event per household player (`atlas_events.player_id` is NOT NULL, so none
+without a character; `onEventsLogged` is not called — it is not a player
+action). Other deviations from the text below: the "Save for the child"
+link is omitted until PR3, so the note has three buttons; a failed deep
+dive drops "Go deeper" instead of sinking the note (a failed one-pager
+still aborts); a send that throws withdraws the pick row so a retry can
+re-deliver the same node (a dry-run keeps it — "already delivered", as
+Verify expects); `activeMapId` falls back to the oldest ready map when the
+setting points at a missing or unready map; and `draftMap` now marks one
+seeded rare child per branch at draft time (the engine backfill's seed, so
+the two agree and the backfill skips those maps).
 
 - **`lib/atlas/frontier.ts`** — `weekStartOf(now)` (ISO Monday),
   `activeMapId(db)` (setting `atlasActiveMapId` ?? oldest `ready` map),

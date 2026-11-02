@@ -38,7 +38,14 @@ export const POST = async (req: NextRequest, { params }: { params: Promise<{ id:
     .where(eq(atlasNodes.id, node.id))
     .run();
   if (player && !body.data.rung) {
-    logEvent(db, { playerId: player.id, verb: "open_node", mapId: node.mapId, nodeId: node.id });
+    logEvent(db, {
+      playerId: player.id,
+      verb: "open_node",
+      mapId: node.mapId,
+      nodeId: node.id,
+      // The weekly note derives "opened" from this event.
+      data: body.data.from === "note" ? { from: "note" } : null,
+    });
   }
 
   if (body.data.rung) {

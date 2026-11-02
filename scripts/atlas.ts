@@ -8,6 +8,7 @@
  *   pnpm --filter web run job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]
  *   pnpm --filter web run job:atlas preload --map <id> [--shard k --shards n]
  *   pnpm --filter web run job:atlas engine [--player <id>] [--window-days <n>]
+ *   pnpm --filter web run job:atlas note [--force]
  *
  * Exit codes: 0 done · 1 usage or unexpected error · 2 the work itself failed
  * (the map/rung row carries the reason for the UI).
@@ -16,6 +17,7 @@ import "./env";
 import { db } from "../apps/web/src/db/client";
 import { assignDisciplines } from "../apps/web/src/lib/atlas/disciplines";
 import { draftMap } from "../apps/web/src/lib/atlas/draftMap";
+import { runWeeklyFrontier } from "../apps/web/src/lib/atlas/frontier";
 import { preloadMap } from "../apps/web/src/lib/atlas/preload";
 import { runEngine } from "../apps/web/src/lib/atlas/game/engine";
 import { ensureRung, isRungLevel } from "../apps/web/src/lib/atlas/rungs";
@@ -38,6 +40,7 @@ const usage = (): never => {
       "  job:atlas preload --map <id> [--shard <k> --shards <n>]",
       "  job:atlas disciplines --map <id> [--force]",
       "  job:atlas engine [--player <id>] [--window-days <n>]",
+      "  job:atlas note [--force]",
     ].join("\n"),
   );
   process.exit(1);
@@ -94,6 +97,14 @@ const main = async (): Promise<number> => {
         `engine run #${res.runId}: ${res.status}, ${res.grants} grant(s), window ${res.windowStart.toISOString()} → ${res.windowEnd.toISOString()}${res.error ? `, error: ${res.error}` : ""}`,
       );
       return res.status === "ready" ? 0 : 2;
+    }
+    case "note": {
+      // The weekly frontier note (PR2): pick, pre-draft both rungs, deliver
+      // per the atlasDelivery setting. launchd runs it Wednesdays 06:30
+      // (com.sprout.atlas.plist); --force adds a second pick for the week.
+      console.log(`atlas note starting ${startedAt}`);
+      const res = await runWeeklyFrontier(db, { force: has("force"), log: (msg) => console.log(msg) });
+      return res.status === "failed" ? 2 : 0;
     }
     case "rung": {
       const nodeId = Number(flag("node"));
