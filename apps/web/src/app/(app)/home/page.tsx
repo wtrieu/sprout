@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db/client";
-import { children } from "@/db/schema";
+import { children, atlasNodes } from "@/db/schema";
+import { currentPick, weekStartOf } from "@/lib/atlas/frontier";
 import { ageInMonths, formatAge } from "@/lib/age";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +46,12 @@ export default function Home() {
     sql`SELECT COUNT(*) as n FROM source_suggestions WHERE status = 'pending'`,
   );
 
+  // This week's Atlas frontier note, if the weekly job has picked one.
+  const pick = currentPick(db, weekStartOf(new Date()));
+  const pickNode = pick
+    ? db.select().from(atlasNodes).where(eq(atlasNodes.id, pick.nodeId)).get()
+    : undefined;
+
   return (
     <div className="space-y-6">
       <section className="rounded-xl border border-neutral-800 bg-neutral-900 p-5">
@@ -65,6 +72,17 @@ export default function Home() {
           )}
         </p>
       </section>
+
+      {pick && pickNode && (
+        <Link
+          href={`/atlas/${pick.mapId}/${pickNode.id}?from=note`}
+          className="block rounded-xl border border-amber-500/30 bg-neutral-900 p-5 transition hover:border-amber-500/60"
+        >
+          <div className="text-xs uppercase tracking-wide text-amber-400/80">This week in Atlas</div>
+          <div className="mt-1 font-medium">{pickNode.title}</div>
+          <div className="mt-0.5 text-sm text-neutral-400">{pickNode.blurb}</div>
+        </Link>
+      )}
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[

@@ -21,6 +21,7 @@ import {
   type AtlasNodeKind,
 } from "../../db/schema";
 import { disciplineRules } from "./disciplines";
+import { seededRng } from "./game/loot";
 import { atlasModels, cliLlm, type AtlasLlm } from "./llm";
 import { normalizeTitle } from "./verify";
 
@@ -207,7 +208,13 @@ export const storeMapDraft = (db: DB, mapId: number, draft: MapDraft): number =>
         .returning({ id: atlasNodes.id })
         .get();
       count += 1;
-      for (const c of b.children) {
+      // At most one rare child per branch, chosen exactly as the engine's
+      // first-run backfill would (same seed), so the two never disagree.
+      const rareIdx =
+        b.children.length === 0
+          ? -1
+          : Math.floor(seededRng(`rare:${mapId}:${branch.id}`)() * b.children.length);
+      for (const [i, c] of b.children.entries()) {
         tx.insert(atlasNodes)
           .values({
             mapId,
@@ -217,6 +224,7 @@ export const storeMapDraft = (db: DB, mapId: number, draft: MapDraft): number =>
             blurb: c.blurb,
             kind: c.kind,
             discipline: c.discipline,
+            rare: i === rareIdx,
           })
           .run();
         count += 1;

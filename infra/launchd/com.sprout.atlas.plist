@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Atlas weekly frontier note: picks one unvisited node next to where the
+  household left off, pre-drafts its one-pager and deep dive with headless
+  `claude -p`, and emails the note (docs/atlas.md "PR2 — weekly frontier
+  note"). Wednesdays 6:30am — after the nightly pipeline (2:30), the engine
+  (4:30) and the stories run (5:00) have finished with SQLite. PATH must
+  include ~/.local/bin (the claude CLI); the CLI's Max-subscription OAuth
+  token lives in the login keychain, unlocked in the user's GUI session where
+  LaunchAgents run. The runner strips ANTHROPIC_API_KEY so runs can never bill
+  the API. The email settings mirror com.sprout.digest.plist; links in the
+  note point at SPROUT_BASE_URL (the Cloudflare-Access hostname).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sprout.atlas</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/pnpm</string>
+    <string>--filter</string>
+    <string>web</string>
+    <string>run</string>
+    <string>job:atlas</string>
+    <string>note</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/waylantrieu/repos/sprout</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/waylantrieu/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>DATABASE_URL</key>
+    <string>/Users/waylantrieu/repos/sprout/data/sprout.db</string>
+    <key>IMAGES_DIR</key>
+    <string>/Users/waylantrieu/repos/sprout/data/images</string>
+    <key>RESEND_API_KEY</key>
+    <string>CHANGE_ME</string>
+    <key>DIGEST_FROM</key>
+    <string>Sprout &lt;sprout@CHANGE_ME_DOMAIN&gt;</string>
+    <key>DIGEST_TO</key>
+    <string>waylantrieu@gmail.com</string>
+    <key>SPROUT_BASE_URL</key>
+    <string>https://CHANGE_ME_DOMAIN</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>3</integer>
+    <key>Hour</key>
+    <integer>6</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/sprout-atlas.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/sprout-atlas.err.log</string>
+</dict>
+</plist>

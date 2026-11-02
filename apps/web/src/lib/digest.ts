@@ -3,7 +3,9 @@ import type { DB } from "../db/client";
 import { children, digests } from "../db/schema";
 import { ageInMonths, formatAge } from "./age";
 import { callClaudeText } from "./claude";
+import { currentPick, pickView, weekStartOf as atlasWeekStart } from "./atlas/frontier";
 import { sendEmail, mdToHtml } from "./email";
+import { getSetting } from "./settings";
 
 const BASE_URL = process.env.SPROUT_BASE_URL ?? "http://localhost:3100";
 
@@ -138,7 +140,23 @@ THE LIBRARY THIS MONTH (story mix by genre lane, then recurring topics):
 ${monthLanes.length ? monthLanes.map((l) => `- ${l.lane}: ${l.n} book(s)`).join("\n") : "(no lane data yet)"}
 ${topTags.length ? `Topics: ${topTags.join(", ")}` : ""}`;
 
-  const contentMd = await callClaudeText(prompt, { temperature: 0.5 });
+  // atlasDelivery=digest: the week's Atlas note rides at the top of the digest.
+  const atlasPick =
+    getSetting(db, "atlasDelivery") === "digest" ? currentPick(db, atlasWeekStart(new Date())) : null;
+  const atlasCard = atlasPick ? pickView(db, atlasPick) : null;
+  // Model-written text goes through mdToHtml, which neither escapes HTML nor
+  // knows the "links never written in prose" rule — flatten both here.
+  const mdSafe = (s: string) =>
+    s
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  const atlasSection = atlasCard
+    ? `### This week in Atlas\n**${mdSafe(atlasCard.node.title)}**${atlasCard.node.hook ? ` — ${mdSafe(atlasCard.node.hook)}` : ""}\n[Open it in Atlas](${BASE_URL}/atlas/${atlasCard.node.mapId}/${atlasCard.node.id}?from=note)\n\n`
+    : "";
+
+  const contentMd = atlasSection + (await callClaudeText(prompt, { temperature: 0.5 }));
   const footer =
     `\n\n---\n*Sprout digest · ${child.name} at ${formatAge(months)} · sources are summarized, not medical advice*` +
     ((pendingSuggestions?.n ?? 0) > 0

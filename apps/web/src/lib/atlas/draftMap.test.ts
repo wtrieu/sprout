@@ -131,6 +131,23 @@ describe("draftMap", () => {
     expect(nodes.find((n) => n.parentId !== null)?.discipline).toBe("evidence");
   });
 
+  it("marks at most one rare child per branch at draft time, never a branch", () => {
+    const db = makeDb();
+    const map = db.insert(schema.atlasMaps).values({ title: "Philosophy", brief: "brief" }).returning().get();
+    const llm: AtlasLlm = (prompt, zschema) => {
+      if (prompt.includes("drafting the outline")) return zschema.parse(outlineOf(8));
+      return zschema.parse({ children: childrenOf(1, 4)[0] });
+    };
+    // Every branch is offered the same child titles, so only the first keeps any.
+    expect(draftMap(db, map.id, { llm, log: () => {} }).ok).toBe(true);
+    const nodes = db.select().from(schema.atlasNodes).where(eq(schema.atlasNodes.mapId, map.id)).all();
+    expect(nodes.filter((n) => n.parentId === null && n.rare)).toHaveLength(0);
+    for (const b of nodes.filter((n) => n.parentId === null)) {
+      const kids = nodes.filter((n) => n.parentId === b.id);
+      expect(kids.filter((k) => k.rare).length).toBe(kids.length > 0 ? 1 : 0);
+    }
+  });
+
   it("marks the map failed when the outline call throws", () => {
     const db = makeDb();
     const map = db.insert(schema.atlasMaps).values({ title: "Physics" }).returning().get();

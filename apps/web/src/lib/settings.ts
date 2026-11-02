@@ -19,6 +19,10 @@ export const settingSchemas = {
   storyCandidatesPerDay: z.number().int().min(1).max(6),
   /** Premises unreviewed for this long are auto-picked (diverse winners). */
   premiseAutoPickHours: z.number().int().min(1).max(168),
+  /** The map the weekly Atlas note draws from; null = the oldest ready map. */
+  atlasActiveMapId: z.number().int().nullable(),
+  /** Where the weekly Atlas note lands: its own email, the digest, or app cards only. */
+  atlasDelivery: z.enum(["email", "digest", "app"]),
 } as const;
 
 export type SettingKey = keyof typeof settingSchemas;
@@ -30,6 +34,8 @@ const DEFAULTS: { [K in SettingKey]: SettingValue<K> } = {
   storyAgeTarget: { mode: "auto" },
   storyCandidatesPerDay: 4, // testing phase — dial down from the Stories page later
   premiseAutoPickHours: 48, // owner decision 2026-08-04
+  atlasActiveMapId: null,
+  atlasDelivery: "email",
 };
 
 export const getSetting = <K extends SettingKey>(db: DB, key: K): SettingValue<K> => {

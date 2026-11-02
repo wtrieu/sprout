@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { FrontierCard } from "@/components/atlas/FrontierCard";
 import { CharacterCard, classTitleOf } from "@/components/atlas/CharacterCard";
 import {
   AchievementGallery,
@@ -190,6 +191,10 @@ export default function AtlasPage() {
           you see it. The atlas remembers where you&apos;ve been.
         </p>
       </div>
+
+      {loaded && maps.length > 0 && (
+        <FrontierCard mapTitles={Object.fromEntries(maps.map((m) => [m.id, m.title]))} />
+      )}
 
       {loaded && me?.canCreate && (
         <div className="space-y-4 rounded-xl border border-amber-500/30 bg-neutral-900 p-5">

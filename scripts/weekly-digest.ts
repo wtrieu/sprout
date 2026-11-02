@@ -1,4 +1,5 @@
 /** Weekly digest email. Run via: pnpm --filter web run job:digest */
+import "./env";
 import { db } from "../apps/web/src/db/client";
 import { runWeeklyDigest } from "../apps/web/src/lib/digest";
 

@@ -46,6 +46,9 @@ const BOOKKEEPING = new Set([
   "equip",
   "create_character",
   "choose_persona",
+  // The weekly note writes itself into every player's log (PR2); receiving
+  // it is not something the player did.
+  "frontier_note",
 ]);
 
 export const GrantsSchema = z.object({
