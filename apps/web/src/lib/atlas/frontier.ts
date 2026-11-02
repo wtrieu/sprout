@@ -291,17 +291,11 @@ export const runWeeklyFrontier = async (
         total: nodes.length,
       },
     });
+    // Only the send itself sits in the try: once Resend has accepted the
+    // mail, withdrawing the pick would re-send the same note on a retry.
+    let sent: Awaited<ReturnType<SendEmailFn>>;
     try {
-      const res = await (deps.send ?? sendEmail)(email);
-      emailed = res.sent;
-      if (res.sent) {
-        delivered = db
-          .update(atlasFrontierPicks)
-          .set({ emailSentAt: now, resendId: res.id })
-          .where(eq(atlasFrontierPicks.id, pick.id))
-          .returning()
-          .get();
-      }
+      sent = await (deps.send ?? sendEmail)(email);
     } catch (err) {
       // Undeliverable means unpicked: drop the row so a retry can choose
       // (and mail) this node again; the rungs are already drafted.
@@ -309,6 +303,20 @@ export const runWeeklyFrontier = async (
       const message = err instanceof Error ? err.message : String(err);
       log(`email failed (${message}) — pick #${pick.id} withdrawn`);
       return { status: "failed", error: `email: ${message}` };
+    }
+    emailed = sent.sent;
+    if (sent.sent) {
+      try {
+        delivered = db
+          .update(atlasFrontierPicks)
+          .set({ emailSentAt: now, resendId: sent.id })
+          .where(eq(atlasFrontierPicks.id, pick.id))
+          .returning()
+          .get();
+      } catch (err) {
+        // The email is out; a failed stamp is a log line, never a failed run.
+        log(`pick #${pick.id} sent but not stamped (${err instanceof Error ? err.message : String(err)})`);
+      }
     }
   }
   // `digest`: the weekly digest's "This week in Atlas" section carries it;

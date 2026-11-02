@@ -31,8 +31,10 @@ export const sendEmail = async (input: {
   if (!res.ok) {
     throw new Error(`Resend responded ${res.status}: ${await res.text()}`);
   }
-  const data = (await res.json()) as { id: string };
-  return { sent: true, id: data.id };
+  // Resend accepted the mail; a body that won't parse must not read as a
+  // failed send (callers may retry a "failure" and double-send).
+  const data = (await res.json().catch(() => null)) as { id?: string } | null;
+  return { sent: true, id: data?.id ?? null };
 };
 
 export { mdToHtml } from "./markdown";

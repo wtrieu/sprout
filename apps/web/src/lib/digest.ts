@@ -144,8 +144,16 @@ ${topTags.length ? `Topics: ${topTags.join(", ")}` : ""}`;
   const atlasPick =
     getSetting(db, "atlasDelivery") === "digest" ? currentPick(db, atlasWeekStart(new Date())) : null;
   const atlasCard = atlasPick ? pickView(db, atlasPick) : null;
+  // Model-written text goes through mdToHtml, which neither escapes HTML nor
+  // knows the "links never written in prose" rule — flatten both here.
+  const mdSafe = (s: string) =>
+    s
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
   const atlasSection = atlasCard
-    ? `### This week in Atlas\n**${atlasCard.node.title}**${atlasCard.node.hook ? ` — ${atlasCard.node.hook}` : ""}\n[Open it in Atlas](${BASE_URL}/atlas/${atlasCard.node.mapId}/${atlasCard.node.id}?from=note)\n\n`
+    ? `### This week in Atlas\n**${mdSafe(atlasCard.node.title)}**${atlasCard.node.hook ? ` — ${mdSafe(atlasCard.node.hook)}` : ""}\n[Open it in Atlas](${BASE_URL}/atlas/${atlasCard.node.mapId}/${atlasCard.node.id}?from=note)\n\n`
     : "";
 
   const contentMd = atlasSection + (await callClaudeText(prompt, { temperature: 0.5 }));

@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import * as schema from "../../../db/schema";
 import type { DB } from "../../../db/client";
-import { eventData, eventsForPlayer } from "../events";
+import { eventData, eventsForPlayer, logEvent } from "../events";
 import type { AtlasLlm } from "../llm";
 import { BASE_SLUGS, grantAchievement } from "./achievements";
 import { GrantsSchema, backfillRareNodes, runEngine, type EngineDeps } from "./engine";
@@ -186,6 +186,25 @@ describe("runEngine", () => {
     expect(result.status).toBe("ready");
     // The nightly sweep catches base grants even if no hook ran.
     expect(db.select().from(schema.atlasAchievements).all().map((a) => a.slug)).toEqual(["first-open"]);
+  });
+
+  it("treats the weekly note as bookkeeping: a note-only week makes no model call", () => {
+    const db = makeDb();
+    const w = seedWorld(db);
+    const p = makePlayer(db);
+    open(db, p.id, w.all[0]!, day(1)); // long before the window
+    // PR2's note writes itself into the log; receiving it is not activity.
+    logEvent(db, {
+      playerId: p.id,
+      verb: "frontier_note",
+      nodeId: w.all[1]!,
+      data: { household: true },
+      at: day(19),
+    });
+    let calls = 0;
+    const result = run(db, { llm: canned(() => { calls += 1; return []; }).llm });
+    expect(calls).toBe(0);
+    expect(result.status).toBe("ready");
   });
 
   it("backfills one seeded child per branch on maps with no rare node, first run only", () => {
