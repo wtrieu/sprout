@@ -3,6 +3,16 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import type { AtlasPersona } from "@/db/schema";
+import { CharacterCard, classTitleOf } from "@/components/atlas/CharacterCard";
+import {
+  MAP_STYLE_ACCENTS,
+  accentFor,
+  parseLoadout,
+  type NextGate,
+  type Pending,
+} from "@/components/atlas/loadout";
+import { ChestBanner, RevealModal } from "@/components/atlas/RevealModal";
 
 type RungStatus = "drafting" | "ready" | "failed" | null;
 type NodeRow = {
@@ -14,6 +24,8 @@ type NodeRow = {
   kind: string;
   discipline: string | null;
   skipped: boolean;
+  /** Marked by the engine; hints at a glint in the fog. */
+  rare?: boolean;
   visitedAt: string | null;
   rungs: { eli10: RungStatus; onepager: RungStatus; deepdive: RungStatus };
 };
@@ -39,6 +51,21 @@ type Progress = {
   disciplines: Record<string, { xp: number; level: number }>;
   totalLevel: number;
 };
+
+type PlayerInfo = {
+  id: number;
+  name: string;
+  persona: AtlasPersona;
+  loadout?: unknown;
+  class?: unknown;
+};
+
+/** A rare node shows through the fog as a faint glint. */
+const Glint = () => (
+  <span aria-label="something rare" title="Something rare glints here" className="text-amber-300/80">
+    ✧
+  </span>
+);
 
 const byPosition = (a: NodeRow, b: NodeRow) => a.position - b.position || a.id - b.id;
 
@@ -93,6 +120,12 @@ export default function AtlasMapPage() {
   const [view, setView] = useState<"outline" | "grid">("outline");
   const [missing, setMissing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [player, setPlayer] = useState<PlayerInfo | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [nextGate, setNextGate] = useState<NextGate>(null);
+  // Snapshot taken when the chest opens, so the modal survives refetches.
+  const [reveal, setReveal] = useState<Pending | null>(null);
+  const [offerError, setOfferError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/atlas/maps/${mapId}`);
@@ -106,6 +139,10 @@ export default function AtlasMapPage() {
     setProgress(d.progress ?? null);
     setGreeting(d.greeting ?? null);
     setQuizlessCount(d.quizlessCount ?? 0);
+    // PR-D payload; every field is optional until its route lands.
+    setPlayer(d.player ? { ...d.player, class: d.player.class ?? d.class, loadout: d.player.loadout ?? d.loadout } : null);
+    setPending(d.pending ?? null);
+    setNextGate(d.nextGate ?? null);
   }, [mapId]);
 
   // One-pagers are preloaded as soon as the map exists; the map is
@@ -145,6 +182,36 @@ export default function AtlasMapPage() {
     load();
   };
 
+  const openChest = async () => {
+    if (!pending) return;
+    setReveal(pending);
+    setOfferError(null);
+    // Marks the queued loot revealed; the modal already holds its snapshot.
+    await fetch("/api/atlas/reveals", { method: "POST" }).catch(() => null);
+  };
+
+  const chooseClass = async (offerId: number, classId: string) => {
+    setBusy(true);
+    setOfferError(null);
+    const res = await fetch(`/api/atlas/offers/${offerId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ choice: classId }),
+    }).catch(() => null);
+    setBusy(false);
+    if (!res?.ok) {
+      setOfferError("Couldn't save that choice — try again.");
+      return;
+    }
+    setReveal(null);
+    load();
+  };
+
+  const closeReveal = () => {
+    setReveal(null);
+    load();
+  };
+
   if (missing) {
     return (
       <p className="text-sm text-neutral-500">
@@ -163,6 +230,9 @@ export default function AtlasMapPage() {
   // No character yet → no fog, no stamps: today's shared view.
   const isFogged = (n: NodeRow) => !!revealed && n.parentId !== null && !revealed.has(n.id);
   const branchLevel = (id: number) => progress?.branches.find((b) => b.nodeId === id) ?? null;
+  const loadout = parseLoadout(player?.loadout);
+  const mapAccent = accentFor(MAP_STYLE_ACCENTS, loadout.mapStyle);
+  const hasPending = !!pending && (pending.achievements.length > 0 || !!pending.offer);
   const masteredCount = progress
     ? Object.values(progress.tiers).filter((t) => t.mastered).length
     : 0;
@@ -175,7 +245,32 @@ export default function AtlasMapPage() {
 
   return (
     <div className="space-y-8">
-      <div>
+      {hasPending && pending && <ChestBanner pending={pending} onOpen={openChest} />}
+      {reveal && player && (
+        <RevealModal
+          pending={reveal}
+          persona={player.persona}
+          name={player.name}
+          seed={`${map.id}`}
+          onClose={closeReveal}
+          onChoose={chooseClass}
+          busy={busy}
+          error={offerError}
+        />
+      )}
+      <div className={mapAccent ? `rounded-xl p-4 ${mapAccent}` : ""}>
+        {player && progress && (
+          <div className="mb-3">
+            <CharacterCard
+              name={player.name}
+              loadout={loadout}
+              classTitle={classTitleOf(player.class)}
+              totalLevel={progress.totalLevel}
+              nextGate={nextGate}
+              scale={2}
+            />
+          </div>
+        )}
         <p className="text-xs text-neutral-500">
           <Link href="/atlas" className="hover:text-neutral-300">Atlas</Link>
           <span className="mx-1.5">›</span>
@@ -291,7 +386,13 @@ export default function AtlasMapPage() {
                         } ${n.skipped || b.skipped ? "opacity-60" : ""}`}
                       >
                         <div className="truncate text-sm text-neutral-200">
-                          {fog ? <span className="text-neutral-600">?</span> : n.title}
+                          {fog ? (
+                            <span className="text-neutral-600">
+                              ? {n.rare && <Glint />}
+                            </span>
+                          ) : (
+                            n.title
+                          )}
                         </div>
                         <div className="mt-2 flex items-center justify-between">
                           {progress ? <Stamps tier={t} /> : <span />}
@@ -378,6 +479,7 @@ export default function AtlasMapPage() {
                               >
                                 {fog ? "? — somewhere unexplored" : c.title}
                               </Link>
+                              {fog && c.rare && <Glint />}
                               {!fog && (
                                 <span className="text-[10px] uppercase tracking-wide text-neutral-600">
                                   {c.kind}

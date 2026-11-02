@@ -13,13 +13,23 @@
  */
 import type { AtlasPersona } from "../../db/schema";
 
-export type PersonaMoment = "map_greeting" | "quiz_pass" | "quiz_fail" | "creation";
+export type PersonaMoment =
+  | "map_greeting"
+  | "quiz_pass"
+  | "quiz_fail"
+  | "creation"
+  | "loot_reveal"
+  | "class_offer";
 
 export type PersonaContext = {
   /** Player's display name. */
   name?: string;
   /** The node the moment is about (quiz pass/fail). */
   nodeTitle?: string;
+  /** The achievement being revealed (loot_reveal). */
+  achievementTitle?: string;
+  /** The gate level an offer arrived at (class_offer). */
+  gateLevel?: number;
   /** Map-level counts for the greeting. */
   mapTitle?: string;
   unexploredCount?: number;
@@ -55,6 +65,17 @@ const CARTOGRAPHER: Record<PersonaMoment, LineFn[]> = {
     (c) => `Hmm — the record disagrees. Back to the page; "${c.nodeTitle ?? "this entry"}" stays penciled in for now.`,
     () => `Not yet confirmed. No matter: half my files took three expeditions. Read it once more and try again.`,
   ],
+  loot_reveal: [
+    (c) =>
+      `A chest! "${c.achievementTitle ?? "Something"}" earned you a crate of my least-embarrassing supplies. Open it; I will pretend not to hover.`,
+    () => `The archive has logged a commendation. Rare. I shall need a larger drawer.`,
+    () => `Contents unverified, but promising. Do be careful with the ink.`,
+  ],
+  class_offer: [
+    (c) =>
+      `Level ${c.gateLevel ?? "?"} on the ledger. The guild wishes to file you under a proper title. Three drafts, one pen: choose.`,
+    () => `A title, at last. I have drafted three; I am quietly partial to the first, but it is your name on the spine.`,
+  ],
 };
 
 const PROTEGE: Record<PersonaMoment, LineFn[]> = {
@@ -81,6 +102,17 @@ const PROTEGE: Record<PersonaMoment, LineFn[]> = {
   quiz_fail: [
     (c) => `Hmm, I repeated what I thought you taught me and it came out sideways. Read "${c.nodeTitle ?? "the page"}" to me again?`,
     () => `Not quite — but my wrong answer was very confident, which I'm told is half of philosophy.`,
+  ],
+  loot_reveal: [
+    (c) =>
+      `Look, look — "${c.achievementTitle ?? "something"}" came with a box! I did not shake it. I shook it a little.`,
+    () => `A prize! I think I earned this by standing very close to you while you did the work.`,
+    () => `Open it, open it! If it is socks I will still be thrilled.`,
+  ],
+  class_offer: [
+    (c) =>
+      `We hit level ${c.gateLevel ?? "?"}, and they want to give us a title! There are three. I like the first one's hat, probably.`,
+    () => `Pick a class! Nothing locks and you can change it later, which is lucky because I would have picked wrong.`,
   ],
 };
 

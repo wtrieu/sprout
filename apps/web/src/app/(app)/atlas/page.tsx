@@ -2,6 +2,16 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { CharacterCard, classTitleOf } from "@/components/atlas/CharacterCard";
+import {
+  AchievementGallery,
+  Inventory,
+  LoadoutPicker,
+  type MeAchievement,
+  type MeItem,
+} from "@/components/atlas/Collection";
+import { parseLoadout, type NextGate } from "@/components/atlas/loadout";
+import { useSpriteManifest } from "@/components/atlas/sprite/SpriteCanvas";
 
 type MapRow = {
   id: number;
@@ -22,7 +32,12 @@ type PlayerSummary = {
   totalLevel: number;
 };
 type Me = {
-  player: { id: number; name: string; persona: Persona } | null;
+  player: { id: number; name: string; persona: Persona; loadout?: unknown; class?: unknown } | null;
+  // PR-D additions, optional until the routes land.
+  achievements?: MeAchievement[];
+  items?: MeItem[];
+  class?: unknown;
+  nextGate?: NextGate;
   canCreate: boolean;
   players: PlayerSummary[];
 };
@@ -59,6 +74,8 @@ export default function AtlasPage() {
   const [charName, setCharName] = useState("");
   const [persona, setPersona] = useState<Persona | null>(null);
   const [charError, setCharError] = useState<string | null>(null);
+  const [gameError, setGameError] = useState<string | null>(null);
+  const manifest = useSpriteManifest();
 
   const load = useCallback(async () => {
     const [d, m] = await Promise.all([
@@ -97,6 +114,34 @@ export default function AtlasPage() {
       body: JSON.stringify({ persona: to }),
     });
     setBusy(false);
+    load();
+  };
+
+  const consumeItem = async (item: MeItem) => {
+    setBusy(true);
+    setGameError(null);
+    const res = await fetch(`/api/atlas/items/${item.id}/use`, { method: "POST" }).catch(() => null);
+    setBusy(false);
+    if (!res?.ok) {
+      const d = await res?.json().catch(() => null);
+      setGameError(d?.error ?? "That didn't work — try again.");
+    }
+    load();
+  };
+
+  const saveLoadout = async (loadout: unknown) => {
+    setBusy(true);
+    setGameError(null);
+    const res = await fetch("/api/atlas/players/me", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ loadout }),
+    }).catch(() => null);
+    setBusy(false);
+    if (!res?.ok) {
+      const d = await res?.json().catch(() => null);
+      setGameError(d?.error ?? "Couldn't save that look.");
+    }
     load();
   };
 
@@ -236,6 +281,41 @@ export default function AtlasPage() {
               </div>
             );
           })}
+        </section>
+      )}
+
+      {loaded && me?.player && (
+        <section className="space-y-5 rounded-xl border border-neutral-800 bg-neutral-900 p-5">
+          <CharacterCard
+            name={me.player.name}
+            loadout={parseLoadout(me.player.loadout)}
+            classTitle={classTitleOf(me.player.class ?? me.class)}
+            totalLevel={me.players.find((p) => p.player.id === me.player?.id)?.totalLevel ?? 5}
+            nextGate={me.nextGate}
+          />
+          {gameError && <p className="text-sm text-red-400">{gameError}</p>}
+          <div>
+            <h2 className="mb-2 text-sm font-medium text-neutral-200">Achievements</h2>
+            <AchievementGallery achievements={me.achievements ?? []} />
+          </div>
+          <div>
+            <h2 className="mb-2 text-sm font-medium text-neutral-200">Pack</h2>
+            <Inventory items={me.items ?? []} busy={busy} onUse={consumeItem} />
+          </div>
+          {manifest && (
+            <div>
+              <h2 className="mb-2 text-sm font-medium text-neutral-200">Look</h2>
+              <LoadoutPicker
+                // Remount when the saved loadout changes so the draft resyncs.
+                key={JSON.stringify(me.player.loadout ?? null)}
+                manifest={manifest}
+                items={me.items ?? []}
+                loadout={parseLoadout(me.player.loadout)}
+                busy={busy}
+                onSave={saveLoadout}
+              />
+            </div>
+          )}
         </section>
       )}
 
