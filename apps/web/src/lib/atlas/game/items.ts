@@ -16,6 +16,7 @@ import { and, desc, eq } from "drizzle-orm";
 import type { DB } from "../../../db/client";
 import { atlasClassOffers, atlasItems } from "../../../db/schema";
 import { logEvent } from "../events";
+import { isItemRevealed } from "./achievements";
 import {
   buildOptions,
   currentClass,
@@ -94,6 +95,8 @@ export const useItem = (db: DB, playerId: number, itemId: number): UseItemResult
     .where(and(eq(atlasItems.id, itemId), eq(atlasItems.playerId, playerId)))
     .get();
   if (!item) return { ok: false, error: "not-found" };
+  // An unopened chest's loot does not exist yet, as far as the player can tell.
+  if (!isItemRevealed(db, item)) return { ok: false, error: "not-found" };
   if (item.status !== "owned") return { ok: false, error: "not-usable" };
   const state = loadPlayerState(db, playerId);
   const now = new Date();

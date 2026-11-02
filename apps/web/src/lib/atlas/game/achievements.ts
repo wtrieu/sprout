@@ -237,6 +237,9 @@ export const BASE_RULES: readonly BaseRule[] = [
   },
 ];
 
+/** Slugs the base rules own; the model pass may not squat on them. */
+export const BASE_SLUGS: ReadonlySet<string> = new Set(BASE_RULES.map((r) => r.slug));
+
 export type GrantInput = {
   slug: string;
   title: string;
@@ -281,45 +284,63 @@ export const grantAchievement = (
   db: DB,
   playerId: number,
   input: GrantInput,
-): GrantedAchievement | null => {
-  const row = db
-    .insert(atlasAchievements)
-    .values({
+): GrantedAchievement | null =>
+  // One transaction: an achievement can never exist without its loot.
+  db.transaction((tx) => {
+    const t = tx as unknown as DB;
+    const row = t
+      .insert(atlasAchievements)
+      .values({
+        playerId,
+        slug: input.slug,
+        title: input.title,
+        flavor: input.flavor,
+        source: input.source,
+        hidden: input.hidden,
+        data: input.data ? JSON.stringify(input.data) : null,
+      })
+      .onConflictDoNothing()
+      .returning()
+      .get();
+    if (!row) return null;
+    const drops = rollLoot(lootSeed(playerId, input.slug), ownedRefs(t, playerId), {
+      hidden: input.hidden,
+    });
+    const items = drops.map((d) => ({
+      ...d,
+      id: t
+        .insert(atlasItems)
+        .values({ playerId, achievementId: row.id, kind: d.kind, ref: d.ref })
+        .returning({ id: atlasItems.id })
+        .get().id,
+    }));
+    logEvent(t, {
       playerId,
-      slug: input.slug,
-      title: input.title,
-      flavor: input.flavor,
-      source: input.source,
-      hidden: input.hidden,
-      data: input.data ? JSON.stringify(input.data) : null,
-    })
-    .onConflictDoNothing()
-    .returning()
+      verb: "grant_achievement",
+      data: {
+        achievementId: row.id,
+        slug: input.slug,
+        source: input.source,
+        hidden: input.hidden,
+        items: items.map((i) => ({ id: i.id, kind: i.kind, ref: i.ref })),
+      },
+    });
+    return { id: row.id, slug: row.slug, title: row.title, hidden: row.hidden, items };
+  });
+
+/**
+ * Loot is invisible until its chest is opened: an item is usable and
+ * visible when it came from no achievement or from a revealed one.
+ */
+export const isItemRevealed = (db: DB, item: { achievementId: number | null }): boolean => {
+  if (item.achievementId === null) return true;
+  const a = db
+    .select({ revealedAt: atlasAchievements.revealedAt })
+    .from(atlasAchievements)
+    .where(eq(atlasAchievements.id, item.achievementId))
     .get();
-  if (!row) return null;
-  const drops = rollLoot(lootSeed(playerId, input.slug), ownedRefs(db, playerId), {
-    hidden: input.hidden,
-  });
-  const items = drops.map((d) => ({
-    ...d,
-    id: db
-      .insert(atlasItems)
-      .values({ playerId, achievementId: row.id, kind: d.kind, ref: d.ref })
-      .returning({ id: atlasItems.id })
-      .get().id,
-  }));
-  logEvent(db, {
-    playerId,
-    verb: "grant_achievement",
-    data: {
-      achievementId: row.id,
-      slug: input.slug,
-      source: input.source,
-      hidden: input.hidden,
-      items: items.map((i) => ({ id: i.id, kind: i.kind, ref: i.ref })),
-    },
-  });
-  return { id: row.id, slug: row.slug, title: row.title, hidden: row.hidden, items };
+  // A deleted achievement nulls the link (set null), so a missing row is also free loot.
+  return !a || a.revealedAt !== null;
 };
 
 /**

@@ -12,7 +12,7 @@
  *
  * Run by hand through `runEngine(db, deps)`; scripts/atlas.ts wraps it.
  */
-import { and, desc, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gte, lt } from "drizzle-orm";
 import { z } from "zod";
 import type { DB } from "../../../db/client";
 import {
@@ -25,7 +25,7 @@ import {
 import { eventData, eventsForPlayer, type EventRow } from "../events";
 import { atlasModels, cliLlm, type AtlasLlm } from "../llm";
 import { PERSONA_LABELS } from "../persona";
-import { checkBaseAchievements, grantAchievement, slugsOf } from "./achievements";
+import { BASE_SLUGS, checkBaseAchievements, grantAchievement, slugsOf } from "./achievements";
 import { maybeCreateOffer } from "./classes";
 import { loadNodes, type PlayerNode } from "./data";
 import { seededRng } from "./loot";
@@ -90,6 +90,7 @@ Rules: family-friendly, always. Humor points at the material and the persona's o
 Notice a real pattern in the activity (a streak, a habit, an odd detour, a comeback, a favorite corner of the map) and grant AT MOST ${MAX_GRANTS_PER_RUN} one-off hidden achievements. Grant fewer, or none, if nothing stands out. Every grant must cite the event ids that prove it.
 
 Existing achievement slugs (do not reuse): ${input.existingSlugs.join(", ") || "(none)"}
+Reserved slugs (never use, they belong to built-in rules): ${[...BASE_SLUGS].join(", ")}
 
 Activity:
 ${input.lines.join("\n")}
@@ -105,7 +106,7 @@ export const validateGrants = (
   const kept: ModelGrant[] = [];
   const used = new Set(takenSlugs);
   for (const g of grants) {
-    if (used.has(g.slug)) continue;
+    if (used.has(g.slug) || BASE_SLUGS.has(g.slug)) continue;
     if (!g.basisEventIds.every((id) => windowEventIds.has(id))) continue;
     used.add(g.slug);
     kept.push(g);
@@ -139,22 +140,55 @@ export const backfillRareNodes = (db: DB): number => {
   return marked;
 };
 
-const reachedByFailedRun = (db: DB, playerId: number, runIds: ReadonlySet<number>): boolean => {
-  if (runIds.size === 0) return false;
-  return db
+/**
+ * Data-driven double-grant guard: a player who already holds a model
+ * achievement granted inside this window was reached by an earlier run that
+ * never advanced the watermark (failed, killed, or ad hoc). The last ready
+ * nightly run is exempt — its grants land just after its own window end,
+ * which is exactly where this window starts.
+ */
+const alreadyReached = (
+  db: DB,
+  playerId: number,
+  windowStart: Date,
+  exemptRunId: number | null,
+): boolean =>
+  db
     .select({ data: atlasAchievements.data })
     .from(atlasAchievements)
-    .where(and(eq(atlasAchievements.playerId, playerId), eq(atlasAchievements.source, "model")))
+    .where(
+      and(
+        eq(atlasAchievements.playerId, playerId),
+        eq(atlasAchievements.source, "model"),
+        gte(atlasAchievements.grantedAt, windowStart),
+      ),
+    )
     .all()
     .some((r) => {
       try {
         const runId = (JSON.parse(r.data ?? "{}") as { runId?: unknown }).runId;
-        return typeof runId === "number" && runIds.has(runId);
+        return exemptRunId === null || runId !== exemptRunId;
       } catch {
-        return false;
+        return true;
       }
     });
-};
+
+/** A drafting run older than this was killed mid-pass. */
+export const ENGINE_STALE_MS = 15 * 60 * 1000;
+
+/** Flip engine runs stuck `drafting` past the deadline to `failed`. */
+export const reapStaleEngineRuns = (db: DB, now = new Date()): number =>
+  db
+    .update(atlasEngineRuns)
+    .set({ status: "failed", error: "No result came back in time — the run may have died." })
+    .where(
+      and(
+        eq(atlasEngineRuns.status, "drafting"),
+        lt(atlasEngineRuns.createdAt, new Date(now.getTime() - ENGINE_STALE_MS)),
+      ),
+    )
+    .returning({ id: atlasEngineRuns.id })
+    .all().length;
 
 export type EngineDeps = {
   llm?: AtlasLlm;
@@ -181,6 +215,10 @@ export const runEngine = (db: DB, deps: EngineDeps = {}): EngineResult => {
   const log = deps.log ?? (() => {});
   // Event timestamps are whole seconds; keep the window on the same grid.
   const windowEnd = new Date(Math.floor((deps.now ?? new Date()).getTime() / 1000) * 1000);
+  reapStaleEngineRuns(db, deps.now ?? new Date());
+  // By-hand runs (--player, --window-days) are ad hoc: their own window, and
+  // their row never moves the nightly watermark.
+  const adhoc = deps.playerId !== undefined || deps.windowDays !== undefined;
   const lastReady = db
     .select()
     .from(atlasEngineRuns)
@@ -188,23 +226,15 @@ export const runEngine = (db: DB, deps: EngineDeps = {}): EngineResult => {
     .orderBy(desc(atlasEngineRuns.id))
     .get();
   const windowStart =
-    lastReady?.windowEnd ??
-    new Date(windowEnd.getTime() - (deps.windowDays ?? DEFAULT_WINDOW_DAYS) * DAY_MS);
+    adhoc || !lastReady
+      ? new Date(windowEnd.getTime() - (deps.windowDays ?? DEFAULT_WINDOW_DAYS) * DAY_MS)
+      : lastReady.windowEnd;
   const run = db
     .insert(atlasEngineRuns)
-    .values({ kind: "nightly", status: "drafting", windowStart, windowEnd })
+    .values({ kind: adhoc ? "adhoc" : "nightly", status: "drafting", windowStart, windowEnd })
     .returning()
     .get();
 
-  // Failed runs since the last ready one: their window is being re-covered.
-  const retryRunIds = new Set(
-    db
-      .select({ id: atlasEngineRuns.id })
-      .from(atlasEngineRuns)
-      .where(and(eq(atlasEngineRuns.status, "failed"), gt(atlasEngineRuns.id, lastReady?.id ?? 0)))
-      .all()
-      .map((r) => r.id),
-  );
   const errors: string[] = [];
   let grants = 0;
   try {
@@ -229,8 +259,8 @@ export const runEngine = (db: DB, deps: EngineDeps = {}): EngineResult => {
         );
         const activity = inWindow.filter((e) => !BOOKKEEPING.has(e.verb));
         if (activity.length === 0) continue;
-        // A failed run re-covers its window; don't double-grant to someone it already reached.
-        if (reachedByFailedRun(db, player.id, retryRunIds)) continue;
+        // Don't double-grant to someone an earlier unfinished or ad hoc run reached.
+        if (alreadyReached(db, player.id, windowStart, adhoc ? null : (lastReady?.id ?? null))) continue;
 
         const taken = slugsOf(db, player.id);
         const result = llm(

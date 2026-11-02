@@ -23,6 +23,7 @@ import {
   type GameNode,
   type NodeTier,
 } from "./game";
+import { isItemRevealed } from "./game/achievements";
 import { classHistory, currentClass, hasFogBonus, nextGateFor } from "./game/classes";
 import { parseLoadout, type Loadout } from "./game/loadout";
 import { pendingFor, type Pending } from "./game/pending";
@@ -180,7 +181,9 @@ export const meGamePayload = (db: DB, player: PlayerRow) => {
     .from(atlasItems)
     .where(eq(atlasItems.playerId, player.id))
     .orderBy(asc(atlasItems.id))
-    .all();
+    .all()
+    // Loot from an unopened chest stays invisible until the reveal.
+    .filter((i) => isItemRevealed(db, i));
   return {
     ...playerGameView(db, player),
     achievements,

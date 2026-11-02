@@ -4,6 +4,7 @@ import * as schema from "../../../db/schema";
 import type { DB } from "../../../db/client";
 import { eventData, eventsForPlayer } from "../events";
 import type { AtlasLlm } from "../llm";
+import { BASE_SLUGS, grantAchievement } from "./achievements";
 import { GrantsSchema, backfillRareNodes, runEngine, type EngineDeps } from "./engine";
 import { makeDb, makePlayer, open, pass, read, seedWorld } from "./testkit";
 
@@ -210,5 +211,88 @@ describe("runEngine", () => {
       db.select().from(schema.atlasNodes).where(eq(schema.atlasNodes.rare, true)).all().map((n) => n.id).sort(),
     ).toEqual(before);
     expect(backfillRareNodes(db)).toBe(0);
+  });
+});
+
+describe("run lifecycle", () => {
+  it("reaps stale drafting runs to failed, leaving fresh ones alone", () => {
+    const { db } = setup();
+    const old = db
+      .insert(schema.atlasEngineRuns)
+      .values({ windowStart: day(1), windowEnd: day(2), createdAt: new Date(NOW.getTime() - 3600_000) })
+      .returning()
+      .get();
+    const fresh = db
+      .insert(schema.atlasEngineRuns)
+      .values({ windowStart: day(1), windowEnd: day(2), createdAt: new Date(NOW.getTime() - 60_000) })
+      .returning()
+      .get();
+    run(db, { llm: canned(() => []).llm });
+    const status = (id: number) =>
+      db.select().from(schema.atlasEngineRuns).where(eq(schema.atlasEngineRuns.id, id)).get()!.status;
+    expect(status(old.id)).toBe("failed");
+    expect(status(fresh.id)).toBe("drafting");
+  });
+
+  it("does not double-grant to a player an unfinished run already reached", () => {
+    const { db, player, ids } = setup();
+    // A run died after granting: its row is still drafting, no watermark moved.
+    grantAchievement(db, player.id, {
+      slug: "earlier-grant",
+      title: "t",
+      flavor: "f",
+      source: "model",
+      hidden: true,
+      data: { basisEventIds: [ids[2]], runId: 999 },
+    });
+    let calls = 0;
+    const result = run(db, {
+      llm: canned(() => {
+        calls += 1;
+        return [grant("another", [ids[2]!])];
+      }).llm,
+    });
+    expect(calls).toBe(0);
+    expect(result.grants).toBe(0);
+    expect(modelRows(db).map((r) => r.slug)).toEqual(["earlier-grant"]);
+  });
+
+  it("ad hoc runs keep their own window and never move the nightly watermark", () => {
+    const { db } = setup();
+    const first = run(db, { llm: canned(() => []).llm });
+    const adhoc = run(db, {
+      llm: canned(() => []).llm,
+      playerId: 1,
+      now: new Date(NOW.getTime() + 2 * 86400_000),
+    });
+    expect(
+      db.select().from(schema.atlasEngineRuns).where(eq(schema.atlasEngineRuns.id, adhoc.runId)).get()!.kind,
+    ).toBe("adhoc");
+    // Default 7 days back, not the nightly watermark.
+    expect(adhoc.windowStart).toEqual(new Date(adhoc.windowEnd.getTime() - 7 * 86400_000));
+
+    const days = run(db, {
+      llm: canned(() => []).llm,
+      windowDays: 2,
+      now: new Date(NOW.getTime() + 3 * 86400_000),
+    });
+    expect(days.windowStart).toEqual(new Date(days.windowEnd.getTime() - 2 * 86400_000));
+
+    const nightly = run(db, { llm: canned(() => []).llm, now: new Date(NOW.getTime() + 4 * 86400_000) });
+    expect(nightly.windowStart).toEqual(first.windowEnd);
+  });
+
+  it("refuses model grants that squat on base-rule slugs, and reserves them in the prompt", () => {
+    const { db, ids } = setup();
+    const { llm, prompts } = canned(() => [
+      grant("night-owl", [ids[2]!]),
+      grant("comeback", [ids[2]!]),
+      grant("fine-slug", [ids[2]!]),
+    ]);
+    run(db, { llm });
+    expect(modelRows(db).map((r) => r.slug)).toEqual(["fine-slug"]);
+    expect(prompts[0]).toContain("Reserved slugs");
+    expect(prompts[0]).toContain("night-owl");
+    expect(BASE_SLUGS.has("night-owl")).toBe(true);
   });
 });

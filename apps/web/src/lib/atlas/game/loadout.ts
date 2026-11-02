@@ -10,9 +10,35 @@ import { z } from "zod";
 import type { DB } from "../../../db/client";
 import { atlasItems, atlasPlayers } from "../../../db/schema";
 import { logEvent } from "../events";
+import { isItemRevealed } from "./achievements";
 
 /** Parts every character has from the start (manifest `grantedBy: null`). */
 export const BASE_LOADOUT = ["body-default", "outfit-tunic", "hair-short"] as const;
+
+/**
+ * The seven sprite slots and every known part's slot. The source of truth is
+ * `public/sprite/classic/manifest.json`; loadout.test.ts reads it and fails
+ * if these drift. Kept as a const so this route never loads the manifest.
+ */
+export const SPRITE_SLOTS = [
+  "aura-back",
+  "cape",
+  "body",
+  "outfit",
+  "hair",
+  "item",
+  "aura-front",
+] as const;
+
+export const PART_SLOTS: Record<string, (typeof SPRITE_SLOTS)[number]> = {
+  "body-default": "body",
+  "outfit-tunic": "outfit",
+  "hair-short": "hair",
+  "cape-scholar": "cape",
+  "item-lantern": "item",
+  "hair-laurel": "hair",
+  "aura-spark": "aura-front",
+};
 
 const Ref = z.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/, "bad id");
 
@@ -21,7 +47,7 @@ export const LoadoutPatchSchema = z
   .object({
     frame: Ref.nullable().optional(),
     mapStyle: Ref.nullable().optional(),
-    sprite: z.record(z.string().regex(/^[a-z][a-z-]{0,20}$/, "bad slot"), Ref.nullable()).optional(),
+    sprite: z.record(z.enum(SPRITE_SLOTS), Ref.nullable()).optional(),
   })
   .strict();
 export type LoadoutPatch = z.infer<typeof LoadoutPatchSchema>;
@@ -47,14 +73,16 @@ export type EquipResult =
   | { ok: true; loadout: Loadout }
   | { ok: false; error: string };
 
+/** Owned means in hand: loot from an unopened chest does not count yet. */
 const owns = (db: DB, playerId: number, kind: string, ref: string): boolean =>
-  !!db
-    .select({ id: atlasItems.id })
+  db
+    .select()
     .from(atlasItems)
     .where(
       and(eq(atlasItems.playerId, playerId), eq(atlasItems.kind, kind), eq(atlasItems.ref, ref)),
     )
-    .get();
+    .all()
+    .some((i) => isItemRevealed(db, i));
 
 /** Merge a validated patch into the stored loadout and log `equip`. */
 export const equipLoadout = (db: DB, playerId: number, patch: LoadoutPatch): EquipResult => {
@@ -82,6 +110,7 @@ export const equipLoadout = (db: DB, playerId: number, patch: LoadoutPatch): Equ
       delete next.sprite[slot];
       continue;
     }
+    if (PART_SLOTS[part] !== slot) return { ok: false, error: `part ${part} does not fit slot ${slot}` };
     const allowed =
       (BASE_LOADOUT as readonly string[]).includes(part) || owns(db, playerId, "sprite_part", part);
     if (!allowed) return { ok: false, error: `you do not own part ${part}` };
