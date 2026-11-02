@@ -21,6 +21,8 @@ export const GET = (req: NextRequest) => {
     items: game?.items ?? [],
     class: game?.class ?? null,
     classHistory: game?.classHistory ?? [],
+    totalLevel: game?.totalLevel ?? null,
+    nextGate: game?.nextGate ?? null,
     canCreate: !!email && email !== "service-token" && !player,
     players: playerSummaries(db),
   });

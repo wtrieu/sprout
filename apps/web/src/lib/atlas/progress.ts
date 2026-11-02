@@ -151,6 +151,8 @@ export const mapGamePayload = (
 
 /** The /me additions: everything granted (revealedAt says what the UI may show), items, class history. */
 export const meGamePayload = (db: DB, player: PlayerRow) => {
+  const events = eventsForPlayer(db, player.id);
+  const total = totalLevel(disciplineLevels(gameNodes(db), deriveTiers(events)));
   const achievements = db
     .select({
       id: atlasAchievements.id,
@@ -183,6 +185,8 @@ export const meGamePayload = (db: DB, player: PlayerRow) => {
     ...playerGameView(db, player),
     achievements,
     items,
-    classHistory: classHistory(eventsForPlayer(db, player.id)),
+    classHistory: classHistory(events),
+    totalLevel: total,
+    nextGate: nextGateFor(total),
   };
 };
