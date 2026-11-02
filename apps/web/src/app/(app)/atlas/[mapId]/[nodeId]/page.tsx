@@ -255,10 +255,10 @@ function SavePanel({ nodeId, initialOpen }: { nodeId: string; initialOpen: boole
     return () => clearInterval(t);
   }, [load, drafting]);
 
-  // Blank = "now"; otherwise 1–25 years. null result = invalid.
+  // Blank = "now"; otherwise whole years 1–25. null result = invalid.
   const ageBody = () => {
     const n = age.trim() === "" ? null : Number(age);
-    return n === null || (Number.isFinite(n) && n >= 1 && n <= 25) ? { targetAgeYears: n } : null;
+    return n === null || (Number.isInteger(n) && n >= 1 && n <= 25) ? { targetAgeYears: n } : null;
   };
 
   // One request helper: runs the call, surfaces the server's error, applies the row.

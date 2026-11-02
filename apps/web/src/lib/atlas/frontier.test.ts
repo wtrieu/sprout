@@ -224,11 +224,11 @@ describe("runWeeklyFrontier", () => {
     expect(sent[0].subject).toBe("Atlas · The Presocratics");
     const html = sent[0].html;
     const page = `${BASE}/atlas/${map.id}/${a.id}`;
-    // Three buttons now; the spec's fourth ("Save for the child") waits for PR3.
+    // All four buttons since PR3 added the save panel.
     expect(html).toContain(`href="${page}?from=note"`);
     expect(html).toContain(`href="${page}?rung=deepdive&amp;from=note"`);
+    expect(html).toContain(`href="${page}?action=save&amp;from=note"`);
     expect(html).toContain(`href="${page}?action=skip&amp;from=note"`);
-    expect(html).not.toContain("action=save");
     expect(html).toContain("This week in Atlas · Philosophy</p>"); // a branch node has no branch crumb
     expect(html).toContain("<strong>Hook: The Presocratics</strong>");
     expect(html).toContain("Read next");

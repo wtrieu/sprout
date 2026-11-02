@@ -187,22 +187,37 @@ export const placePendingSeeds = async (
       continue;
     }
 
+    // Every resolution is conditional on the seed still being pending: the
+    // model call above is slow (spawnSync), and a concurrent note/draft-map
+    // run may have resolved this seed in the meantime. A write that lands on
+    // 0 rows lost the race — skip, never double-resolve.
     const resolvedAt = new Date();
+    const stillPending = and(eq(atlasSeeds.id, seed.id), eq(atlasSeeds.status, "pending"));
     if (placement.action === "dismiss") {
-      db.update(atlasSeeds)
+      const r = db
+        .update(atlasSeeds)
         .set({ status: "dismissed", resolution: placement.reason, resolvedAt })
-        .where(eq(atlasSeeds.id, seed.id))
+        .where(stillPending)
         .run();
+      if (r.changes === 0) {
+        log(`seed #${seed.id}: already resolved by another run — skipped`);
+        continue;
+      }
       result.dismissed += 1;
       log(`seed #${seed.id}: dismissed — ${placement.reason}`);
       continue;
     }
 
     if (placement.action === "new_map") {
-      db.update(atlasSeeds)
+      const r = db
+        .update(atlasSeeds)
         .set({ status: "new_map", resolution: placement.title ?? placement.reason, resolvedAt })
-        .where(eq(atlasSeeds.id, seed.id))
+        .where(stillPending)
         .run();
+      if (r.changes === 0) {
+        log(`seed #${seed.id}: already resolved by another run — skipped`);
+        continue;
+      }
       result.newMap += 1;
       log(`seed #${seed.id}: suggests a new map "${placement.title ?? placement.reason}"`);
       continue;
@@ -220,10 +235,15 @@ export const placePendingSeeds = async (
     const dupe = nodes.find((n) => normalizeTitle(n.title) === normalizeTitle(title));
     if (dupe) {
       const reason = `Already on the map as "${dupe.title}".`;
-      db.update(atlasSeeds)
+      const r = db
+        .update(atlasSeeds)
         .set({ status: "dismissed", resolution: reason, resolvedAt })
-        .where(eq(atlasSeeds.id, seed.id))
+        .where(stillPending)
         .run();
+      if (r.changes === 0) {
+        log(`seed #${seed.id}: already resolved by another run — skipped`);
+        continue;
+      }
       result.dismissed += 1;
       log(`seed #${seed.id}: dismissed — ${reason}`);
       continue;
@@ -242,6 +262,21 @@ export const placePendingSeeds = async (
 
     const nodeId = db.transaction((tx) => {
       const t = tx as unknown as DB;
+      // Claim the seed first: if it is no longer pending another run attached
+      // (or dismissed) it while our model call ran, and inserting the node
+      // would duplicate it. 0 changes = lost the race, insert nothing.
+      const claim = t
+        .update(atlasSeeds)
+        .set({
+          status: "attached",
+          mapId,
+          resolution: placement.reason,
+          resolvedAt,
+          url: seed.url ?? url,
+        })
+        .where(stillPending)
+        .run();
+      if (claim.changes === 0) return null;
       const top = t
         .select({ p: max(atlasNodes.position) })
         .from(atlasNodes)
@@ -262,19 +297,13 @@ export const placePendingSeeds = async (
         .returning()
         .get();
       storeReadings(t, node.id, "seed", outcome.verified, outcome.rejected, 0);
-      t.update(atlasSeeds)
-        .set({
-          status: "attached",
-          nodeId: node.id,
-          mapId,
-          resolution: placement.reason,
-          resolvedAt,
-          url: seed.url ?? url,
-        })
-        .where(eq(atlasSeeds.id, seed.id))
-        .run();
+      t.update(atlasSeeds).set({ nodeId: node.id }).where(eq(atlasSeeds.id, seed.id)).run();
       return node.id;
     });
+    if (nodeId == null) {
+      log(`seed #${seed.id}: already resolved by another run — skipped`);
+      continue;
+    }
     result.attached.push({ seedId: seed.id, nodeId });
     log(
       `seed #${seed.id}: attached as node #${nodeId} "${title}"${url ? ` (${outcome.verified.length} verified, ${outcome.rejected.length} rejected link reading)` : ""}`,

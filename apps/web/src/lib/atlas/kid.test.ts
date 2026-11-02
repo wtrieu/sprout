@@ -184,6 +184,23 @@ describe("generateKidVersion", () => {
     }
   });
 
+  it("rejects links and HTML even from a model that skips the schema (kid_md feeds mdToHtml)", async () => {
+    const payloads = [
+      { kid_md: "Bees make honey. <img src=x onerror=alert(1)>", today: "Look for a bee." },
+      { kid_md: "Bees make honey.", today: "[tap](javascript:alert%281%29)" },
+      { kid_md: "Read more at https://example.com today.", today: "Look for a bee." },
+      { kid_md: "See www.example.com for bees.", today: "Look for a bee." },
+    ];
+    for (const bad of payloads) {
+      const db = makeDb();
+      const { bookmark } = seed(db);
+      const res = await generateKidVersion(db, bookmark.id, { llm: lax(bad), now: NOW, log: () => {} });
+      expect(res.ok).toBe(false);
+      expect(row(db, bookmark.id).kidStatus).toBe("failed");
+      expect(row(db, bookmark.id).kidError).toMatch(/links or URLs|HTML/);
+    }
+  });
+
   it("gets one repair pass: over-budget first, fixed second", async () => {
     const db = makeDb();
     const { bookmark } = seed(db, { months: 12 });

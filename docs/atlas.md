@@ -858,7 +858,7 @@ comes from the same event-derived set, and the run logs a `frontier_note`
 event per household player (`atlas_events.player_id` is NOT NULL, so none
 without a character; `onEventsLogged` is not called — it is not a player
 action). Other deviations from the text below: the "Save for the child"
-link is omitted until PR3, so the note has three buttons; a failed deep
+link was omitted until PR3, which added it (the note has its four buttons); a failed deep
 dive drops "Go deeper" instead of sinking the note (a failed one-pager
 still aborts); a send that throws withdraws the pick row so a retry can
 re-deliver the same node (a dry-run keeps it — "already delivered", as

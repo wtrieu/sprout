@@ -51,6 +51,16 @@ export const kidProblems = (draft: { kid_md: string; today: string }, months: nu
   if (hasNonLatinLetters(draft.kid_md) || hasNonLatinLetters(draft.today)) {
     problems.push("write in English using Latin letters only");
   }
+  // kid_md feeds mdToHtml like a rung body does, so it gets the same lint:
+  // links and raw markup must never reach the renderer (rungs.ts does this
+  // for rung bodies; a prompt rule alone is not a guarantee).
+  const spoken = `${draft.kid_md}\n${draft.today}`;
+  if (/\]\(|https?:\/\/|www\./i.test(spoken)) {
+    problems.push("no links or URLs — plain spoken words only");
+  }
+  if (/<[a-z/!]/i.test(spoken)) {
+    problems.push("no HTML or angle-bracket markup — plain spoken words only");
+  }
   return problems;
 };
 

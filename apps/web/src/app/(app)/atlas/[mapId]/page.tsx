@@ -151,7 +151,6 @@ export default function AtlasMapPage() {
     setPlayer(d.player ? { ...d.player, class: d.player.class ?? d.class, loadout: d.player.loadout ?? d.loadout } : null);
     setPending(d.pending ?? null);
     setNextGate(d.nextGate ?? null);
-    // Optional until the route change lands.
     setBookmarked(new Set<number>((d as { bookmarkedNodeIds?: number[] }).bookmarkedNodeIds ?? []));
   }, [mapId]);
 

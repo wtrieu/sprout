@@ -194,6 +194,49 @@ describe("placePendingSeeds: attach", () => {
     expect(logs.some((l) => l.includes("invalid placement"))).toBe(true);
   });
 
+  it("a seed resolved during the model call is skipped, never attached twice", async () => {
+    const db = makeDb();
+    const m = seedMap(db);
+    const seed = addSeed(db, "The Selfish Gene");
+    // A concurrent run resolves the seed while our (slow) placement call is
+    // out; the claim inside the transaction must then insert nothing.
+    const llm: AtlasLlm = (_prompt, zschema) => {
+      db.update(schema.atlasSeeds)
+        .set({ status: "dismissed", resolution: "the other run", resolvedAt: new Date() })
+        .where(eq(schema.atlasSeeds.id, seed.id))
+        .run();
+      return zschema.parse({
+        action: "attach",
+        parentId: m.b.id,
+        title: "Memes and replicators",
+        blurb: "Do ideas evolve like genes?",
+        kind: "text",
+        reason: "Belongs with the schools.",
+      });
+    };
+    const before = db.select().from(schema.atlasNodes).all().length;
+    const res = await placePendingSeeds(db, m.map.id, { llm, fetchImpl: noFetch, log: quiet });
+    expect(res.attached).toHaveLength(0);
+    expect(db.select().from(schema.atlasNodes).all().length).toBe(before);
+    expect(seedRow(db, seed.id)).toMatchObject({ status: "dismissed", resolution: "the other run" });
+  });
+
+  it("a dismiss landing after another run resolved the seed changes nothing", async () => {
+    const db = makeDb();
+    const m = seedMap(db);
+    const seed = addSeed(db, "Some idea about change");
+    const llm: AtlasLlm = (_prompt, zschema) => {
+      db.update(schema.atlasSeeds)
+        .set({ status: "attached", nodeId: m.b1.id, mapId: m.map.id, resolution: "won the race", resolvedAt: new Date() })
+        .where(eq(schema.atlasSeeds.id, seed.id))
+        .run();
+      return zschema.parse({ action: "dismiss", reason: "too vague" });
+    };
+    const res = await placePendingSeeds(db, m.map.id, { llm, fetchImpl: noFetch, log: quiet });
+    expect(res.dismissed).toBe(0);
+    expect(seedRow(db, seed.id)).toMatchObject({ status: "attached", resolution: "won the race" });
+  });
+
   it("a model failure leaves the seed pending and later seeds still run", async () => {
     const db = makeDb();
     const m = seedMap(db);
