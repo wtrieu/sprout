@@ -48,7 +48,9 @@ apps/web/src/lib/atlas/
   quiz.ts       parse/strip/grade the stored quiz; answers never leave the server
   persona.ts    hand-written voice lines per persona per moment (seeded pick)
   disciplines.ts  the five definitions + the per-branch backfill classifier
-scripts/atlas.ts            draft-map | rung | preload | disciplines  (PR2 adds: note; PR3 adds: kid)
+  game/         the PR-D engine: achievements (base rules), loot, classes,
+                engine (nightly model pass + rare backfill), items, hooks
+scripts/atlas.ts            draft-map | rung | preload | disciplines | engine  (PR2 adds: note; PR3 adds: kid)
 apps/web/src/app/api/atlas  maps, maps/[id], maps/[id]/preload, nodes/[id], nodes/[id]/rungs/[level],
                             /visit, /skip, nodes/[id]/quiz, me, players, players/me
 apps/web/src/app/(app)/atlas  /atlas, /atlas/[mapId], /atlas/[mapId]/[nodeId]
@@ -103,6 +105,12 @@ readings rule for pictures).
   and `pnpm --filter web run job:atlas disciplines --map <id> [--force]` (the
   PR-C backfill for maps drafted before discipline tags).
   Detached runs started from the web process log nothing; run by hand to watch.
+  The nightly achievement pass is
+  `pnpm --filter web run job:atlas engine [--player <id>] [--window-days <n>]`
+  (launchd runs it daily at 04:30, `com.sprout.atlas-engine.plist`); inspect
+  grants with `select slug,source,hidden,title from atlas_achievements order
+  by granted_at desc` and loot with
+  `select kind,ref,status from atlas_items`.
 - The quiz UI is on the node page's one-pager tab (PR-C). Inspect stored
   quizzes with
   `select n.title, json_extract(q.value,'$.question') from atlas_rungs r join atlas_nodes n on n.id = r.node_id, json_each(r.quiz_json) q where r.level='onepager'`.
@@ -130,10 +138,9 @@ readings rule for pictures).
   levels, fog + collection grid, personas. Spec below. It reached `main`
   while PR-B was still in review, so PR-B's migration was renumbered 0016.
 
-**Order of what's left:** PR-B (built, in review as #102) → PR-D, then PR2
-and PR3 (the owner's PR1 feedback put the v2 track first). **Next up:
-PR-D (engine).** It has no build spec yet — only the decisions above; the
-first job is the spec.
+**Order of what's left:** PR-D (built with the spec below, in review),
+then PR2 and PR3 (the owner's PR1 feedback put the v2 track first). PR-B
+merged as #102 on 2026-10-31.
 
 Follow-ups from PR-A, not scheduled (fold into whichever PR touches them):
 
@@ -783,8 +790,10 @@ contact-sheet test.
   with their flavor), the inventory row with Use buttons, and a loadout
   picker over owned cosmetics.
 - **`scripts/atlas.ts engine [--player <id>] [--window-days <n>]`** +
-  `infra/launchd/com.sprout.atlas-engine.plist` (daily 02:30, logs to
-  `/tmp/sprout-atlas-engine.log`, same PATH note as the stories plist);
+  `infra/launchd/com.sprout.atlas-engine.plist` (daily 04:30 — after the
+  2:30 nightly pipeline's SQLite bursts, before the 5:00 stories run —
+  logs to `/tmp/sprout-atlas-engine.log`, same PATH note as the stories
+  plist);
   README jobs-table row. The first run backfills `atlas_nodes.rare` as
   above. No web-spawn route: the test fortnight runs it by hand.
 - **Tests.** `achievements.test.ts` (every base rule fires exactly once,

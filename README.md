@@ -125,6 +125,7 @@ batch time.
 | Atlas drafts (map outline, rungs) | on demand, detached from the app | `pnpm --filter web run job:atlas rung --node <id> --level onepager` |
 | Atlas preload (every one-pager + quiz, then one "map is ready" email) | after each map draft, detached | `pnpm --filter web run job:atlas preload --map <id> [--shard <k> --shards <n>]` |
 | Atlas discipline backfill (tag pre-PR-C maps for the game layer) | once per old map, by hand | `pnpm --filter web run job:atlas disciplines --map <id> [--force]` |
+| Atlas engine (nightly achievement pass: base-rule sweep + model grants) | 04:30 daily | `pnpm --filter web run job:atlas engine [--player <id>] [--window-days <n>]` |
 
 Install launchd agents (after fixing paths/env in the plists):
 

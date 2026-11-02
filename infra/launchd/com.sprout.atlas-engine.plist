@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Atlas engine: the nightly achievement pass — deterministic base-rule sweep
+  plus one headless `claude -p` call per player over the week's event log
+  (docs/atlas.md "PR-D — engine"). 4:30am: after the 2:30 nightly pipeline's
+  SQLite write bursts, before the 5:00 stories run. PATH must include
+  ~/.local/bin (the claude CLI); the Max-subscription OAuth token lives in
+  the login keychain, unlocked in the user's GUI session where LaunchAgents
+  run. The runner strips ANTHROPIC_API_KEY so runs can never bill the API.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sprout.atlas-engine</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/pnpm</string>
+    <string>--filter</string>
+    <string>web</string>
+    <string>run</string>
+    <string>job:atlas</string>
+    <string>engine</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/waylantrieu/repos/sprout</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/waylantrieu/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>DATABASE_URL</key>
+    <string>/Users/waylantrieu/repos/sprout/data/sprout.db</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>4</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/sprout-atlas-engine.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/sprout-atlas-engine.err.log</string>
+</dict>
+</plist>
