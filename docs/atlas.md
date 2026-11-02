@@ -637,6 +637,173 @@ a persona chosen at character creation speaks in hand-written lines.
   migrate, kickstart, first visit creates the owner's character and imports
   their progress; the second household email creates its own, fresh.
 
+### PR-D — engine (spec agreed 2026-11-01)
+
+Goal: the system starts noticing. Achievements are granted two ways — a small
+deterministic base rule set that fires the moment an event earns it, and a
+nightly model pass over the event log (headless `claude -p` via
+`lib/stories/claudeCli.ts`, never qwen3) that grants at most two one-off
+hidden achievements per player per run. Every achievement carries a loot box.
+Boxes and class offers **queue** and are revealed on the next map screen,
+never mid-lesson. Classes arrive at visible total-level gates and change
+title, look, persona treatment and one habit perk — never a lock. The
+character gets a face: layered sprite parts composed in code from
+`apps/web/public/sprite/<style>/<slot>/` plus a `manifest.json`; real parts
+are produced in the separate `atlas-sprites` repo, so PR-D builds against the
+manifest format with committed placeholder parts and a golden-set
+contact-sheet test.
+
+- **Migration 0017** (atlas-core; nothing existing changes shape).
+  `atlas_achievements`: `playerId`, `slug`, `title`, `flavor` (the persona-
+  voiced line), `source` (`base`/`model`), `hidden` (0/1), `data` JSON
+  (basis event ids; optional `wildcard` class id), `grantedAt`, `revealedAt`
+  (null = queued for the next map screen); **unique (playerId, slug)** so
+  grants are idempotent by construction. `atlas_items` (the loot, and the
+  inventory): `playerId`, `achievementId` (set null on delete), `kind`
+  **TEXT, no enum** — item kinds are data like verbs (`frame`, `map_style`,
+  `sprite_part`, `respec_token`, `fog_reveal`, `rare_node_key`), `ref` (the
+  frame/style/part id), `status` (`owned`/`consumed`), `consumedAt`.
+  `atlas_class_offers`: `playerId`, `gateLevel`, `options` JSON (three:
+  two pattern-derived, one wildcard or null), `status`
+  (`queued`/`revealed`/`accepted`/`expired`), `choice`, `deadline`,
+  `createdAt`, `decidedAt`; **unique (playerId, gateLevel)** — one offer
+  per gate. A respec expires the accepted row and inserts a fresh `queued`
+  row at the **current** total level (≥ the old gate, and gates only cross
+  once, so the unique index holds; a second respec at the same level is
+  refused until the level moves).
+  `atlas_engine_runs` (the row is the job status): `kind` (`nightly`),
+  `status` drafting/ready/failed, `error`, `windowStart`, `windowEnd`,
+  `grantsCount`, `createdAt`. `atlas_players.loadout` (nullable JSON text:
+  `{frame?, mapStyle?, sprite: {slot → partId}}`). `atlas_nodes.rare`
+  (0/1 default 0; drafted maps mark rares later — a learning-engine
+  follow-up — so the engine's first run backfills one seeded child per
+  branch on maps that have none).
+- **`lib/atlas/game/` (progression-engine)** — a new directory; PR-C's flat
+  files stay put and keep their owners. New verbs appended to `KNOWN_VERBS`
+  (reference only, verbs stay data): `grant_achievement`, `reveal_loot`,
+  `offer_class`, `accept_class`, `use_item`, `reveal_node`, `equip`.
+  - `achievements.ts` — `BASE_RULES`: ~12 hand-written deterministic rules
+    over `(events, nodes)`: first open / first stamp / first mastery /
+    5 and 15 masteries / first deep dive / a branch ≥ 50 / first cape (99) /
+    a mastered node in all five disciplines / dawn reader (3 reads before
+    06:00 local, hidden) / night owl (3 reads after 23:00, hidden) /
+    comeback (pass a quiz after ≥ 3 fails on that node, hidden). A few
+    hidden ones carry `wildcard` class ids. `checkBaseAchievements(db,
+    playerId)` grants idempotently (insert-or-ignore on the unique index),
+    rolls loot, logs `grant_achievement`; called after every event write and
+    swept by the nightly run.
+  - `loot.ts` — pools in one constants block: cosmetics (4 frames, 3 map
+    styles, the manifest's grantable sprite parts) and functional items.
+    `rollLoot(seed, owned)` is a pure seeded roll (hash of
+    `playerId:slug`): one cosmetic the player does not own (pool exhausted →
+    respec token) plus a 25% functional item (respec / fog-reveal /
+    rare-node key, weighted 2/2/1); hidden achievements always add a
+    functional item. Deterministic: same grant, same loot, testable.
+  - `classes.ts` — `CLASS_GATES = [10, 20, 35, 55, 80, 120, 160, 200]`
+    (total level = sum of the five discipline levels, so 5 is the floor).
+    A class = **affinity × style**: affinity from the top discipline by XP
+    (reasoning → Analytic, evidence → Empirical, language → Lyrical,
+    systems → Systemic, creativity → Inventive), style from behavior ratios
+    over the whole log (Scout = breadth of branches opened, Scholar = deep-
+    dive share of reads, Skeptic = quiz attempts per node read, Synthesist =
+    share of active days touching ≥ 2 branches). Two options from the top
+    two affinity/style pairings, the third from an unconsumed `wildcard`
+    achievement or null. **Signal floor**: fewer than 25 events or fewer
+    than 2 branches touched → no offer yet, re-checked on later events
+    ("an offer waits"). Soft deadline 14 days after reveal; past it, the
+    next map load accepts the first option, logged `{defaulted: true}`.
+    Perk is data on the class def; PR-D wires **Scout's fog bonus only**
+    (fog reveals one extra unrevealed child per touched branch); the other
+    perks ship as inert data with their copy.
+  - `engine.ts` — the nightly pass. Window = since the last `ready` run
+    (default 7 days). Per player: render compact event lines (id, verb,
+    node title, branch, local time) + existing achievement slugs into one
+    prompt → one `claudeCli` call on `atlasModels().writer`, zod
+    `{grants: ≤2 × {slug, title, flavor, why, basisEventIds}}` with the
+    one-repair pass; code verifies every basis id is a real event of that
+    player inside the window and the slug is free — a grant failing either
+    check is dropped, never repaired into. Prompt carries the persona rules
+    (family-friendly, humor at the material never the learner). Grants
+    store + roll loot exactly as base ones. The run row flips
+    drafting → ready/failed.
+  - `items.ts` — `useItem(db, playerId, itemId)`: respec token → the
+    accepted offer expires and a fresh `queued` offer is built at the
+    current total level; fog-reveal → `reveal_node` events on up to 3
+    fogged nodes adjacent to recent activity; rare-node key →
+    `reveal_node` on the nearest unrevealed `rare` node. Reveals are
+    events, so fog stays a render rule derived from the log.
+  - `hooks.ts` — `onEventsLogged(db, playerId)` = checkBaseAchievements +
+    maybeCreateOffer; called from the visit, skip and quiz routes after
+    they log.
+  - `game.ts` (flat) gains two things only: `reveal_node` counts toward
+    fog reveal, and `revealedNodeIds` takes an options arg for the Scout
+    perk. `progress.ts` composes the new payloads.
+- **Routes** (progression-engine). Map GET adds `pending` —
+  `{achievements: [{id, slug, title, flavor, hidden, items: [{id, kind,
+  ref}]}], offer: {id, gateLevel, options: [{classId, title, affinity,
+  style, blurb, perk}], deadline, status} | null}` — plus `nextGate`
+  `{level, at} | null` and the player's `class` + `loadout`. `POST
+  /api/atlas/reveals` marks queued achievements + offer revealed (logs
+  `reveal_loot` / `offer_class`). `POST /api/atlas/offers/[id]` `{choice}`
+  accepts (logs `accept_class`; title history is permanent via events).
+  `POST /api/atlas/items/[id]/use`. `PATCH /api/atlas/players/me` gains
+  `loadout`, validated against the manifest and owned items. `GET
+  /api/atlas/me` adds achievements, items, class and class history.
+  Event-writing endpoints still 401 without a character.
+- **Sprite** (skill-tree-ui). `public/sprite/classic/<slot>/
+  <id>-<anim>-<frame>.png` + `public/sprite/classic/manifest.json`: canvas
+  32×40, one indexed palette ≤ 32 colors, slots in z order aura-back <
+  cape < body < outfit < hair < item < aura-front, each with its allowed
+  region; anchors (head-top row, shoulder row, left/right hand pixel, foot
+  row); per part: slot, animations (`idle` 2 frames, `celebrate` 4),
+  palette-swap groups (skin, hair), `grantedBy` (null = always available,
+  else an achievement or class id). ~8 committed placeholder parts
+  generated by `scripts/sprite-placeholders.ts` (new devDependency
+  `pngjs`; runtime never decodes PNGs in Node — the browser composes on a
+  canvas). `components/atlas/sprite/`: the zod manifest schema, a pure
+  RGBA compositor (z order, palette swaps, a part lacking an animation
+  falls back to its idle frame) and a `SpriteCanvas` client component with
+  the two-frame idle. Tests are the mechanical validation from the
+  workflow: manifest schema; every committed part checked for size,
+  palette membership, untouched anchor pixels and painting inside its
+  slot's region; and a **golden-set contact sheet** — a fixed set of 6
+  combinations composed and hashed against a committed snapshot
+  (`UPDATE_SPRITE_GOLDEN=1` regenerates).
+- **UI** (skill-tree-ui; the node page is untouched — nothing reveals
+  mid-lesson). Map page: a chest banner when `pending` is non-empty →
+  reveal modal (achievement title + flavor + loot, then the class offer
+  card: three options, perk copy, soft-deadline note, the first option
+  marked as the default), POSTing `/api/atlas/reveals` on open; persona
+  frames the reveal in-voice (new `loot_reveal` / `class_offer` moments in
+  `persona.ts` — granted to skill-tree-ui this run). Header gains the
+  sprite (idle), class title, and "Total level N · next offer at G".
+  Equipped frame and map style apply as data-driven accent treatments.
+  `/atlas`: character card (sprite, class title, total level), the
+  achievements gallery (hidden ones invisible until earned, then shown
+  with their flavor), the inventory row with Use buttons, and a loadout
+  picker over owned cosmetics.
+- **`scripts/atlas.ts engine [--player <id>] [--window-days <n>]`** +
+  `infra/launchd/com.sprout.atlas-engine.plist` (daily 02:30, logs to
+  `/tmp/sprout-atlas-engine.log`, same PATH note as the stories plist);
+  README jobs-table row. The first run backfills `atlas_nodes.rare` as
+  above. No web-spawn route: the test fortnight runs it by hand.
+- **Tests.** `achievements.test.ts` (every base rule fires exactly once,
+  hidden flags, loot rolled deterministically, dedupe against owned
+  cosmetics); `engine.test.ts` (canned llm: grants validated and stored,
+  fake basis ids dropped, cap of 2, run row drafting → ready, window
+  advances, idempotent re-run); `classes.test.ts` (affinity/style exact on
+  fixture logs, one offer per gate, waits below the signal floor, accept /
+  respec / deadline default); `items.test.ts` (each kind's semantics, the
+  events logged, fog honors `reveal_node`); `game.test.ts` additions
+  (reveal verb, Scout bonus); the sprite tests above.
+- **Verify.** Locally (`DEV_BYPASS_AUTH=true`): master two nodes → chest
+  on the next map screen with loot; `pnpm --filter web run job:atlas
+  engine` on a seeded log grants ≤ 2 with persona flavor; seed events to
+  cross gate 10 → offer queued, revealed on the map, accept → title, perk
+  and sprite frame change. On the mini after merge: migrate, kickstart,
+  `launchctl load -w` the engine plist, read
+  `select slug,source,title from atlas_achievements` the next morning.
+
 ### PR2 — weekly frontier note (~800 LOC)
 
 One unvisited node a week, next to where the reader left off, pre-drafted
