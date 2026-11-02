@@ -37,7 +37,7 @@ apps/web/src/lib/atlas/
   visuals.ts    model-drawn visual specs (sidebyside/diagram/geomap), [[visual:slug]] markers, validateVisuals
   verifyImages.ts  deterministic, keyless Wikimedia Commons image verification
   worldOutline.ts  generated Natural Earth 110m land outline for the geomap renderer
-  picker.ts     frontier ordering: child → sibling → next-branch → fallback (pure)
+  picker.ts     frontier ordering: seed → child → sibling → next-branch → fallback (pure)
   frontier.ts   the weekly note: weekStartOf, activeMapId, currentPick,
                 household memory from the event log, runWeeklyFrontier
   runner.ts     detached spawn of scripts/atlas.ts (+ preload shards) + stale-drafting reaper
@@ -50,13 +50,18 @@ apps/web/src/lib/atlas/
   quiz.ts       parse/strip/grade the stored quiz; answers never leave the server
   persona.ts    hand-written voice lines per persona per moment (seeded pick)
   disciplines.ts  the five definitions + the per-branch backfill classifier
+  kid.ts        generateKidVersion (age-band budgets, Latin-script check) +
+                storyTopicForBookmark (HOOK(atlas-story), button stays disabled)
+  seeds.ts      detectSeedKind + placePendingSeeds (attach / new_map / dismiss;
+                URL seeds get a verified web reading)
   game/         the PR-D engine: achievements (base rules), loot, classes,
                 engine (nightly model pass + rare backfill), items, hooks
-scripts/atlas.ts            draft-map | rung | preload | disciplines | engine | note  (PR3 adds: kid)
+scripts/atlas.ts            draft-map | rung | preload | disciplines | engine | note | kid
 apps/web/src/app/api/atlas  maps, maps/[id], maps/[id]/preload, nodes/[id], nodes/[id]/rungs/[level],
                             /visit, /skip, nodes/[id]/quiz, me, players, players/me,
-                            frontier, frontier/run
-apps/web/src/app/(app)/atlas  /atlas, /atlas/[mapId], /atlas/[mapId]/[nodeId]
+                            frontier, frontier/run, bookmarks, bookmarks/[id],
+                            seeds, seeds/[id]
+apps/web/src/app/(app)/atlas  /atlas, /atlas/bookmarks, /atlas/[mapId], /atlas/[mapId]/[nodeId]
 ```
 
 Rules the code enforces:
@@ -154,8 +159,9 @@ readings rule for pictures).
   engine's first run backfilled rare nodes; launchd runs it daily at 04:30.
 
 **Order of what's left:** PR2 (built with the spec below, re-based on the
-event log; in review), then PR3 (the owner's PR1 feedback put the v2 track
-first). PR-B merged as #102 on 2026-10-31.
+event log; merged as #106) and PR3 (built with the spec below, re-based on
+the event log; in review) are the last scheduled Atlas PRs. PR-B merged as
+#102 on 2026-10-31.
 
 Follow-ups from PR-A, not scheduled (fold into whichever PR touches them):
 
@@ -852,7 +858,7 @@ comes from the same event-derived set, and the run logs a `frontier_note`
 event per household player (`atlas_events.player_id` is NOT NULL, so none
 without a character; `onEventsLogged` is not called — it is not a player
 action). Other deviations from the text below: the "Save for the child"
-link is omitted until PR3, so the note has three buttons; a failed deep
+link was omitted until PR3, which added it (the note has its four buttons); a failed deep
 dive drops "Go deeper" instead of sinking the note (a failed one-pager
 still aborts); a send that throws withdraws the pick row so a retry can
 re-deliver the same node (a dry-run keeps it — "already delivered", as
@@ -913,9 +919,26 @@ the two agree and the backfill skips those maps).
   already delivered; on the mini fill the plist, `launchctl load -w`,
   `launchctl start com.sprout.atlas`, check the inbox.
 
-### PR3 — Save for the child, kid version, capture (~800 LOC)
+### PR3 — Save for the child, kid version, capture (built with this spec)
 
 Tables already exist (`atlas_bookmarks`, `atlas_seeds`).
+
+As built (the spec predates PR-C/PR-D): saves and captures are typed events —
+the bookmark POST logs `save_for_child` and the seed POST logs `add_seed`
+when the request resolves to a character (the routes do not 401 without one:
+bookmarks and seeds are household data, not per-player progress). Other
+deviations: a link seed's `web` reading takes the seed text minus the URL as
+its title (a bare URL would never match the page title), falling back to the
+proposed node title; an attach whose title normalizes to an existing node's
+is dismissed as already-on-the-map; a placement failure (model error, bad
+`parentId`) leaves that seed pending and never sinks `note` or `draft-map`
+(placement runs in a try/catch); the frontier's seed preference covers any
+unvisited, never-picked seed node, not only one attached that run; and the
+rare-at-draft-time follow-up PR3 was to carry had already landed with PR2
+(`draftMap` marks one seeded rare child per branch; the engine's
+maps-with-none backfill is unchanged). Known gap: a kid draft that dies
+silently shows `drafting` until "Try again" — a reaper needs a started-at
+column (schema change, not scheduled).
 
 - **`lib/atlas/kid.ts`** — `generateKidVersion(db, bookmarkId, deps)`:
   read `children.name` and `ageInMonths(dob)` (never hardcode a name — code

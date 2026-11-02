@@ -56,6 +56,18 @@ const PERSONAS: Record<Persona, { title: string; pitch: string }> = {
   },
 };
 
+type Seed = {
+  id: number;
+  text: string;
+  kind: "url" | "title" | "idea";
+  url: string | null;
+  status: "pending" | "attached" | "new_map" | "dismissed";
+  resolution: string | null;
+  nodeId: number | null;
+  mapId: number | null;
+  createdAt: string;
+};
+
 const DISCIPLINE_ORDER = ["reasoning", "evidence", "language", "systems", "creativity"];
 
 /**
@@ -77,12 +89,23 @@ export default function AtlasPage() {
   const [charError, setCharError] = useState<string | null>(null);
   const [gameError, setGameError] = useState<string | null>(null);
   const manifest = useSpriteManifest();
+  const [seeds, setSeeds] = useState<Seed[]>([]);
+  const [pendingSeeds, setPendingSeeds] = useState(0);
+  const [seedText, setSeedText] = useState("");
+  const [seedError, setSeedError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<{ childName: string | null; count: number } | null>(null);
 
   const load = useCallback(async () => {
-    const [d, m] = await Promise.all([
+    const [d, m, sd, bk] = await Promise.all([
       fetch("/api/atlas/maps").then((r) => r.json()),
       fetch("/api/atlas/me").then((r) => r.json()),
+      // Capture and bookmarks are additive; a failed fetch just hides them.
+      fetch("/api/atlas/seeds").then((r) => r.json()).catch(() => null),
+      fetch("/api/atlas/bookmarks").then((r) => r.json()).catch(() => null),
     ]);
+    setSeeds(sd?.seeds ?? []);
+    setPendingSeeds(sd?.pendingCount ?? 0);
+    setSaved(bk ? { childName: bk.childName ?? null, count: (bk.bookmarks ?? []).length } : null);
     setMaps(d.maps ?? []);
     setPresets(d.presets ?? []);
     setMe(m ?? null);
@@ -173,6 +196,29 @@ export default function AtlasPage() {
     load();
   };
 
+  const addSeed = async () => {
+    setBusy(true);
+    setSeedError(null);
+    const res = await fetch("/api/atlas/seeds", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: seedText.trim() }),
+    }).catch(() => null);
+    setBusy(false);
+    if (!res?.ok) {
+      const d = await res?.json().catch(() => null);
+      setSeedError(d?.error ?? "Couldn't add that — try again.");
+      return;
+    }
+    setSeedText("");
+    load();
+  };
+
+  const dismissSeed = async (id: number) => {
+    await fetch(`/api/atlas/seeds/${id}`, { method: "DELETE" }).catch(() => null);
+    load();
+  };
+
   const remove = async (m: MapRow) => {
     if (!confirm(`Remove the map "${m.title}" and everything in it?`)) return;
     await fetch(`/api/atlas/maps/${m.id}`, { method: "DELETE" });
@@ -191,6 +237,15 @@ export default function AtlasPage() {
           you see it. The atlas remembers where you&apos;ve been.
         </p>
       </div>
+
+      {loaded && saved && (
+        <Link
+          href="/atlas/bookmarks"
+          className="block rounded-xl border border-neutral-800 bg-neutral-900 px-5 py-3 text-sm text-neutral-300 hover:border-amber-500/50"
+        >
+          🔖 Saved for {saved.childName ?? "the child"} · {saved.count}
+        </Link>
+      )}
 
       {loaded && maps.length > 0 && (
         <FrontierCard mapTitles={Object.fromEntries(maps.map((m) => [m.id, m.title]))} />
@@ -396,6 +451,84 @@ export default function AtlasPage() {
             )}
           </div>
         ))}
+      </section>
+
+      <section className="space-y-3 rounded-xl border border-neutral-800 bg-neutral-900 p-5">
+        <h2 className="text-sm font-medium text-neutral-200">Add to Atlas</h2>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            addSeed();
+          }}
+          className="flex flex-wrap gap-2"
+        >
+          <input
+            value={seedText}
+            onChange={(e) => setSeedText(e.target.value)}
+            minLength={2}
+            maxLength={500}
+            placeholder="a title, a link, or an idea…"
+            className="min-w-0 flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-amber-500"
+          />
+          <button
+            type="submit"
+            disabled={busy || seedText.trim().length < 2}
+            className="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-amber-400 disabled:opacity-50"
+          >
+            Add
+          </button>
+        </form>
+        {seedError && <p className="text-sm text-red-400">{seedError}</p>}
+        {pendingSeeds > 0 && (
+          <p className="text-xs text-amber-400/80">{pendingSeeds} waiting for the next draft</p>
+        )}
+        {seeds.length > 0 && (
+          <ul className="space-y-1.5">
+            {seeds.slice(0, 5).map((sd) => (
+              <li key={sd.id} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="min-w-0 truncate text-neutral-300">{sd.text}</span>
+                {sd.status === "pending" && (
+                  <>
+                    <span className="rounded-full border border-neutral-700 px-2 py-0.5 text-[10px] text-neutral-500">
+                      pending
+                    </span>
+                    <button
+                      onClick={() => dismissSeed(sd.id)}
+                      title="Dismiss"
+                      className="text-xs text-neutral-600 hover:text-neutral-300"
+                    >
+                      ✕
+                    </button>
+                  </>
+                )}
+                {sd.status === "attached" && (
+                  <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-[10px] text-amber-400/90">
+                    {sd.nodeId && sd.mapId ? (
+                      <Link href={`/atlas/${sd.mapId}/${sd.nodeId}`} className="hover:underline">
+                        attached
+                      </Link>
+                    ) : (
+                      "attached"
+                    )}
+                  </span>
+                )}
+                {sd.status === "new_map" && (
+                  <span className="text-xs text-neutral-500">
+                    <span className="rounded-full border border-neutral-700 px-2 py-0.5 text-[10px]">
+                      new map suggested
+                    </span>
+                    {sd.resolution && <> {sd.resolution}</>}
+                  </span>
+                )}
+                {sd.status === "dismissed" && (
+                  <span className="rounded-full border border-neutral-800 px-2 py-0.5 text-[10px] text-neutral-600">
+                    dismissed
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <form
