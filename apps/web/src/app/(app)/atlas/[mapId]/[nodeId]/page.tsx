@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { AtlasImageData } from "@/components/atlas/AtlasImage";
 import { RungBody } from "@/components/atlas/RungBody";
+import { Markdown } from "@/components/Markdown";
 
 type Level = "eli10" | "onepager" | "deepdive";
 const LEVELS: Level[] = ["eli10", "onepager", "deepdive"];
@@ -63,6 +64,23 @@ type GradeResponse = {
   passed: boolean;
   explanations: string[] | null;
   personaLine: string;
+};
+
+type Bookmark = {
+  id: number;
+  nodeId: number;
+  nodeTitle: string;
+  mapId: number;
+  mapTitle: string;
+  note: string | null;
+  targetAgeYears: number | null;
+  kidStatus: "drafting" | "ready" | "failed";
+  kidMd: string | null;
+  kidToday: string | null;
+  kidAgeMonths: number | null;
+  kidError: string | null;
+  storyTopic: string;
+  createdAt: string;
 };
 
 const KIND_LABEL: Record<Reading["kind"], string> = {
@@ -201,6 +219,238 @@ function QuizBlock({
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * "Save for <child>" — a bookmark is a time capsule (node + note + optional
+ * target age). Saving drafts a kid version in the background; like the rungs,
+ * the UI only polls the row's status. Opens pre-expanded from the weekly
+ * note's `?action=save` link.
+ */
+function SavePanel({ nodeId, initialOpen }: { nodeId: string; initialOpen: boolean }) {
+  const [childName, setChildName] = useState<string | null>(null);
+  const [bookmark, setBookmark] = useState<Bookmark | null>(null);
+  const [open, setOpen] = useState(initialOpen);
+  const [note, setNote] = useState("");
+  const [age, setAge] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/atlas/bookmarks?nodeId=${nodeId}`).catch(() => null);
+    if (!res?.ok) return;
+    const d = (await res.json()) as { childName: string | null; bookmarks: Bookmark[] };
+    setChildName(d.childName);
+    setBookmark(d.bookmarks[0] ?? null);
+  }, [nodeId]);
+
+  const drafting = bookmark?.kidStatus === "drafting";
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, drafting ? 5000 : 30000);
+    return () => clearInterval(t);
+  }, [load, drafting]);
+
+  // Blank = "now"; otherwise 1–25 years. null result = invalid.
+  const ageBody = () => {
+    const n = age.trim() === "" ? null : Number(age);
+    return n === null || (Number.isFinite(n) && n >= 1 && n <= 25) ? { targetAgeYears: n } : null;
+  };
+
+  // One request helper: runs the call, surfaces the server's error, applies the row.
+  const send = async (url: string, init: RequestInit, onOk: (d: { bookmark?: Bookmark }) => void) => {
+    setBusy(true);
+    setError(null);
+    const res = await fetch(url, {
+      ...init,
+      headers: { "content-type": "application/json" },
+    }).catch(() => null);
+    setBusy(false);
+    const d = await res?.json().catch(() => null);
+    if (res?.status === 409) {
+      load(); // already saved from another tab — just show it
+      return;
+    }
+    if (!res?.ok) {
+      setError(d?.error ?? "Couldn't save that.");
+      return;
+    }
+    onOk(d ?? {});
+  };
+
+  const save = () => {
+    const target = ageBody();
+    if (!target) return setError("Age should be between 1 and 25, or blank for now.");
+    send(
+      "/api/atlas/bookmarks",
+      { method: "POST", body: JSON.stringify({ nodeId: Number(nodeId), note: note.trim() || undefined, ...target }) },
+      (d) => d.bookmark && setBookmark(d.bookmark),
+    );
+  };
+
+  const patch = (body: Record<string, unknown>, after?: () => void) =>
+    bookmark &&
+    send(`/api/atlas/bookmarks/${bookmark.id}`, { method: "PATCH", body: JSON.stringify(body) }, (d) => {
+      if (d.bookmark) setBookmark(d.bookmark);
+      after?.();
+    });
+
+  const saveEdits = () => {
+    const target = ageBody();
+    if (!target) return setError("Age should be between 1 and 25, or blank for now.");
+    patch({ note: note.trim(), ...target }, () => setEditing(false));
+  };
+
+  const remove = () =>
+    bookmark &&
+    send(`/api/atlas/bookmarks/${bookmark.id}`, { method: "DELETE" }, () => {
+      setBookmark(null);
+      setNote("");
+      setAge("");
+      setOpen(false);
+    });
+
+  const name = childName ?? "the child";
+  const field =
+    "w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-200 placeholder:text-neutral-600 focus:border-amber-500/60 focus:outline-none";
+
+  if (!bookmark && !open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="rounded-md border border-neutral-700 px-3 py-1.5 text-neutral-300 hover:border-amber-500/50 hover:text-amber-400"
+      >
+        {childName ? `Save for ${childName}` : "Save for the child"}
+      </button>
+    );
+  }
+
+  const form = (onSubmit: () => void, label: string, onCancel: () => void) => (
+    <div className="space-y-3">
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value.slice(0, 600))}
+        rows={3}
+        placeholder="Why this mattered (optional)"
+        className={field}
+      />
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-neutral-500">
+          Target age (years)
+          <input
+            type="number"
+            min={1}
+            max={25}
+            value={age}
+            onChange={(e) => setAge(e.target.value)}
+            placeholder="now"
+            className={`${field} w-20`}
+          />
+        </label>
+        <button
+          disabled={busy}
+          onClick={onSubmit}
+          className="rounded-md bg-amber-500 px-4 py-1.5 font-medium text-neutral-950 hover:bg-amber-400 disabled:opacity-50"
+        >
+          {label}
+        </button>
+        <button onClick={onCancel} className="px-2 py-1.5 text-neutral-500 hover:text-neutral-300">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="w-full space-y-3 rounded-xl border border-neutral-800 bg-neutral-900 p-4 text-sm">
+      <h2 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+        {bookmark ? `Saved for ${name}` : `Save for ${name}`}
+      </h2>
+
+      {!bookmark &&
+        form(save, "Save", () => {
+          setOpen(false);
+          setError(null);
+        })}
+
+      {bookmark &&
+        editing &&
+        form(saveEdits, "Update", () => {
+          setEditing(false);
+          setError(null);
+        })}
+
+      {bookmark && !editing && (
+        <>
+          <div className="space-y-1 text-neutral-400">
+            {bookmark.note && <p className="whitespace-pre-wrap">{bookmark.note}</p>}
+            <p className="text-xs text-neutral-500">
+              {bookmark.targetAgeYears ? `For age ${bookmark.targetAgeYears}` : "For now"}
+              <button
+                onClick={() => {
+                  setNote(bookmark.note ?? "");
+                  setAge(bookmark.targetAgeYears?.toString() ?? "");
+                  setEditing(true);
+                }}
+                className="ml-3 text-neutral-600 hover:text-neutral-300"
+              >
+                Edit
+              </button>
+            </p>
+          </div>
+
+          <div className="space-y-2 border-t border-neutral-800 pt-3">
+            {bookmark.kidStatus === "drafting" && (
+              <p className="text-neutral-400">Writing {name}&apos;s version…</p>
+            )}
+            {bookmark.kidStatus === "ready" && bookmark.kidMd && (
+              <>
+                <Markdown md={bookmark.kidMd} />
+                {bookmark.kidToday && (
+                  <p className="rounded-md border border-amber-500/30 px-3 py-2 text-neutral-200">
+                    <span className="text-amber-400">Today:</span> {bookmark.kidToday}
+                  </p>
+                )}
+              </>
+            )}
+            {bookmark.kidStatus === "failed" && (
+              <div className="space-y-2">
+                <p className="text-xs text-red-400">{bookmark.kidError ?? "The kid version failed."}</p>
+                <button
+                  disabled={busy}
+                  onClick={() => patch({ regenerateKid: true })}
+                  className="rounded-md border border-neutral-700 px-3 py-1.5 text-neutral-300 hover:border-amber-500/50 disabled:opacity-50"
+                >
+                  Try again
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 border-t border-neutral-800 pt-3">
+            {/* HOOK(atlas-story): posts storyTopicForBookmark to /api/stories/express when wired. */}
+            <button
+              disabled
+              className="rounded-md border border-neutral-800 px-3 py-1.5 text-neutral-600 opacity-60"
+            >
+              Make it a story
+            </button>
+            <span className="text-xs text-neutral-600">coming soon</span>
+            <button
+              disabled={busy}
+              onClick={remove}
+              className="ml-auto text-neutral-600 hover:text-red-400 disabled:opacity-50"
+            >
+              Remove
+            </button>
+          </div>
+        </>
+      )}
+      {error && <p className="text-sm text-red-400">{error}</p>}
     </div>
   );
 }
@@ -510,6 +760,7 @@ function NodePageInner() {
       )}
 
       <section className="flex flex-wrap items-center gap-3 border-t border-neutral-900 pt-4 text-xs">
+        <SavePanel nodeId={nodeId} initialOpen={search.get("action") === "save"} />
         {confirmSkip ? (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-neutral-400">

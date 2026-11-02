@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db/client";
-import { premises } from "@/db/schema";
+import { children, premises } from "@/db/schema";
 
 /**
  * The premise inbox: proposed premises ranked best-first (stage-A score),
@@ -9,13 +9,15 @@ import { premises } from "@/db/schema";
  */
 export const GET = (req: NextRequest) => {
   const status = req.nextUrl.searchParams.get("status");
+  const child = db.select({ name: children.name }).from(children).orderBy(children.id).get();
+  const childName = child?.name ?? null;
   const proposed = db
     .select()
     .from(premises)
     .where(eq(premises.status, "proposed"))
     .orderBy(desc(premises.score), desc(premises.id))
     .all();
-  if (status === "proposed") return NextResponse.json({ premises: proposed });
+  if (status === "proposed") return NextResponse.json({ premises: proposed, childName });
   const recent = db
     .select()
     .from(premises)
@@ -23,5 +25,5 @@ export const GET = (req: NextRequest) => {
     .orderBy(desc(premises.decidedAt), desc(premises.id))
     .limit(12)
     .all();
-  return NextResponse.json({ premises: proposed, recent });
+  return NextResponse.json({ premises: proposed, recent, childName });
 };
