@@ -706,6 +706,9 @@ contact-sheet test.
     respec token) plus a 25% functional item (respec / fog-reveal /
     rare-node key, weighted 2/2/1); hidden achievements always add a
     functional item. Deterministic: same grant, same loot, testable.
+    Loot from an unopened chest stays invisible and unusable — the
+    inventory payload, `useItem` and the loadout count only items whose
+    achievement has been revealed.
   - `classes.ts` — `CLASS_GATES = [10, 20, 35, 55, 80, 120, 160, 200]`
     (total level = sum of the five discipline levels, so 5 is the floor).
     A class = **affinity × style**: affinity from the top discipline by XP
@@ -722,8 +725,13 @@ contact-sheet test.
     Perk is data on the class def; PR-D wires **Scout's fog bonus only**
     (fog reveals one extra unrevealed child per touched branch); the other
     perks ship as inert data with their copy.
-  - `engine.ts` — the nightly pass. Window = since the last `ready` run
-    (default 7 days). Per player: render compact event lines (id, verb,
+  - `engine.ts` — the nightly pass. Window = since the last `ready`
+    nightly run (default 7 days); a by-hand `--player` / `--window-days`
+    run is recorded as kind `adhoc` and never moves that watermark. A run
+    `drafting` past 15 min is reaped `failed`; the retry guard is
+    data-driven (a player with a model grant inside the window is skipped,
+    the last ready nightly's own grants exempted by run id). Base-rule
+    slugs are reserved — a model grant naming one is dropped. Per player: render compact event lines (id, verb,
     node title, branch, local time) + existing achievement slugs into one
     prompt → one `claudeCli` call on `atlasModels().writer`, zod
     `{grants: ≤2 × {slug, title, flavor, why, basisEventIds}}` with the
