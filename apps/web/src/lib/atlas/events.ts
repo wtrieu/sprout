@@ -17,7 +17,7 @@ import type { DB } from "../../db/client";
 import { atlasEvents, atlasNodes, atlasRungs } from "../../db/schema";
 
 /**
- * The verbs PR-C writes. A reference list, not a contract: the schema
+ * The verbs PR-C and PR-D write. A reference list, not a contract: the schema
  * accepts any verb, and code treats this as documentation plus typo-safety
  * at call sites, never as an exhaustive set.
  */
@@ -30,6 +30,14 @@ export const KNOWN_VERBS = [
   "fail_quiz",
   "skip_branch",
   "unskip_branch",
+  // PR-D: the engine's verbs. Rewards, offers and reveals are events too.
+  "grant_achievement",
+  "reveal_loot",
+  "offer_class",
+  "accept_class",
+  "use_item",
+  "reveal_node",
+  "equip",
 ] as const;
 export type KnownVerb = (typeof KNOWN_VERBS)[number];
 

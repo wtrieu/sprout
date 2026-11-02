@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db/client";
 import { getAuthenticatedEmail } from "@/lib/auth";
 import { playerForEmail } from "@/lib/atlas/players";
-import { playerSummaries } from "@/lib/atlas/progress";
+import { meGamePayload, playerSummaries } from "@/lib/atlas/progress";
 
 /**
  * Who am I in the Atlas, and who else lives here. `player` is null until
@@ -14,8 +14,13 @@ import { playerSummaries } from "@/lib/atlas/progress";
 export const GET = (req: NextRequest) => {
   const email = getAuthenticatedEmail(req);
   const player = playerForEmail(db, email);
+  const game = player ? meGamePayload(db, player) : null;
   return NextResponse.json({
-    player,
+    player: player && game ? { ...player, class: game.class, loadout: game.loadout } : null,
+    achievements: game?.achievements ?? [],
+    items: game?.items ?? [],
+    class: game?.class ?? null,
+    classHistory: game?.classHistory ?? [],
     canCreate: !!email && email !== "service-token" && !player,
     players: playerSummaries(db),
   });

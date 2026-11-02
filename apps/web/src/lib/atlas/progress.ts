@@ -4,15 +4,16 @@
  * and shapes the result. Maps are small (≤60 nodes) and the household's log
  * is short, so everything recomputes on read: no stored XP, nothing to drift.
  */
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import type { DB } from "../../db/client";
-import { atlasNodes } from "../../db/schema";
+import { atlasAchievements, atlasItems, atlasNodes } from "../../db/schema";
 import { eventsForPlayer } from "./events";
 import {
   branchLevels,
   deriveTiers,
   disciplineLevels,
   fieldLevel,
+  revealedByEvents,
   revealedNodeIds,
   tierFor,
   totalLevel,
@@ -22,6 +23,9 @@ import {
   type GameNode,
   type NodeTier,
 } from "./game";
+import { classHistory, currentClass, hasFogBonus, nextGateFor } from "./game/classes";
+import { parseLoadout, type Loadout } from "./game/loadout";
+import { pendingFor, type Pending } from "./game/pending";
 import { listPlayers, type PlayerRow } from "./players";
 import { quizState, type QuizState } from "./quiz";
 
@@ -57,7 +61,12 @@ export const mapProgressFor = (db: DB, playerId: number, mapId: number): MapProg
   return {
     playerId,
     tiers: Object.fromEntries(mapNodes.map((n) => [n.id, tierFor(tiers, n.id)])),
-    revealed: [...revealedNodeIds(mapNodes, tiers)],
+    revealed: [
+      ...revealedNodeIds(mapNodes, tiers, {
+        revealed: revealedByEvents(events),
+        scoutBonus: hasFogBonus(db, playerId),
+      }),
+    ],
     branches,
     field: fieldLevel(branches),
     disciplines,
@@ -113,4 +122,67 @@ export const mapGreetingCounts = (
     if (t.mastered) masteredCount += 1;
   }
   return { unexploredCount, masteredCount };
+};
+
+export type PlayerGameView = {
+  /** The accepted class (id + title), or null before the first offer is taken. */
+  class: { id: string; title: string } | null;
+  loadout: Loadout | null;
+};
+
+export const playerGameView = (db: DB, player: PlayerRow): PlayerGameView => {
+  const cls = currentClass(db, player.id);
+  return {
+    class: cls ? { id: cls.id, title: cls.title } : null,
+    loadout: parseLoadout(player.loadout),
+  };
+};
+
+/** The map GET's engine additions: what is queued and where the next gate is. */
+export const mapGamePayload = (
+  db: DB,
+  player: PlayerRow,
+  totalLevelNow: number,
+): { pending: Pending; nextGate: { level: number; at: number } | null } & PlayerGameView => ({
+  pending: pendingFor(db, player.id),
+  nextGate: nextGateFor(totalLevelNow),
+  ...playerGameView(db, player),
+});
+
+/** The /me additions: everything granted (revealedAt says what the UI may show), items, class history. */
+export const meGamePayload = (db: DB, player: PlayerRow) => {
+  const achievements = db
+    .select({
+      id: atlasAchievements.id,
+      slug: atlasAchievements.slug,
+      title: atlasAchievements.title,
+      flavor: atlasAchievements.flavor,
+      hidden: atlasAchievements.hidden,
+      source: atlasAchievements.source,
+      grantedAt: atlasAchievements.grantedAt,
+      revealedAt: atlasAchievements.revealedAt,
+    })
+    .from(atlasAchievements)
+    .where(eq(atlasAchievements.playerId, player.id))
+    .orderBy(asc(atlasAchievements.id))
+    .all();
+  const items = db
+    .select({
+      id: atlasItems.id,
+      achievementId: atlasItems.achievementId,
+      kind: atlasItems.kind,
+      ref: atlasItems.ref,
+      status: atlasItems.status,
+      createdAt: atlasItems.createdAt,
+    })
+    .from(atlasItems)
+    .where(eq(atlasItems.playerId, player.id))
+    .orderBy(asc(atlasItems.id))
+    .all();
+  return {
+    ...playerGameView(db, player),
+    achievements,
+    items,
+    classHistory: classHistory(eventsForPlayer(db, player.id)),
+  };
 };

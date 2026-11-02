@@ -5,7 +5,8 @@ import { atlasMaps, atlasNodes, atlasRungLevels, atlasRungs } from "@/db/schema"
 import { getAuthenticatedEmail } from "@/lib/auth";
 import { personaLine } from "@/lib/atlas/persona";
 import { playerForEmail } from "@/lib/atlas/players";
-import { mapGreetingCounts, mapProgressFor } from "@/lib/atlas/progress";
+import { defaultLapsedOffers } from "@/lib/atlas/game/classes";
+import { mapGamePayload, mapGreetingCounts, mapProgressFor } from "@/lib/atlas/progress";
 import { reapStaleMaps } from "@/lib/atlas/runner";
 
 export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
@@ -49,7 +50,10 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   const player = playerForEmail(db, getAuthenticatedEmail(req));
+  // Offers past their soft deadline take the first option on this load.
+  if (player) defaultLapsedOffers(db, player.id);
   const progress = player ? mapProgressFor(db, player.id, map.id) : null;
+  const game = player && progress ? mapGamePayload(db, player, progress.totalLevel) : null;
   const greeting = player
     ? personaLine(
         player.persona,
@@ -71,7 +75,18 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
       rungs: byNode.get(n.id) ?? Object.fromEntries(atlasRungLevels.map((l) => [l, null])),
     })),
     quizlessCount,
-    player: player ? { id: player.id, name: player.name, persona: player.persona } : null,
+    player:
+      player && game
+        ? {
+            id: player.id,
+            name: player.name,
+            persona: player.persona,
+            class: game.class,
+            loadout: game.loadout,
+          }
+        : null,
+    pending: game?.pending ?? null,
+    nextGate: game?.nextGate ?? null,
     progress,
     greeting,
   });

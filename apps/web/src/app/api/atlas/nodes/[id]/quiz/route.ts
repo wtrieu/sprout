@@ -4,6 +4,7 @@ import { db } from "@/db/client";
 import { atlasNodes } from "@/db/schema";
 import { getAuthenticatedEmail } from "@/lib/auth";
 import { logEvent } from "@/lib/atlas/events";
+import { onEventsLogged } from "@/lib/atlas/game/hooks";
 import { personaLine } from "@/lib/atlas/persona";
 import { playerForEmail } from "@/lib/atlas/players";
 import { nodeProgressFor } from "@/lib/atlas/progress";
@@ -40,6 +41,7 @@ export const POST = async (req: NextRequest, { params }: { params: Promise<{ id:
     nodeId: node.id,
     data: { score: result.score, answers: body.data.answers },
   });
+  onEventsLogged(db, player.id);
   const progress = nodeProgressFor(db, player.id, node.id);
   return NextResponse.json({
     ...result,

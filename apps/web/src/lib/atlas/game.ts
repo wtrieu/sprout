@@ -171,30 +171,61 @@ export const disciplineLevels = (
 export const totalLevel = (disciplines: DisciplineLevels): number =>
   atlasDisciplines.reduce((sum, d) => sum + disciplines[d].level, 0);
 
+/** Nodes the log revealed directly (a fog_reveal / rare_node_key item). */
+export const revealedByEvents = (events: readonly GameEvent[]): Set<number> => {
+  const ids = new Set<number>();
+  for (const e of events) {
+    if (e.verb === "reveal_node" && e.nodeId !== null && e.nodeId !== undefined) ids.add(e.nodeId);
+  }
+  return ids;
+};
+
+export type FogOptions = {
+  /** Nodes revealed by `reveal_node` events; see `revealedByEvents`. */
+  revealed?: Iterable<number>;
+  /** The Scout perk: one extra peek into every branch still unexplored. */
+  scoutBonus?: boolean;
+};
+
 /**
  * Fog is a render rule, never stored state: branch titles are always on the
  * map (they are its regions); a child is revealed once this player has
- * opened it, its branch, or any sibling. Everything else is a `?` tile —
- * still clickable (no hard locks), and opening it reveals it, so fog never
- * regrows (events only append).
+ * opened it, its branch, or any sibling, or a `reveal_node` event named it.
+ * Everything else is a `?` tile — still clickable (no hard locks), and
+ * opening it reveals it, so fog never regrows (events only append).
+ *
+ * The Scout perk is a breadth nudge: once any branch on the map has been
+ * touched, every branch still untouched shows one extra child (first in
+ * node order). A touched branch is already fully revealed by the sibling
+ * rule, so the peek goes where the fog actually is. Derived, never stored.
  */
 export const revealedNodeIds = (
   nodes: readonly GameNode[],
   tiers: Map<number, NodeTier>,
+  options: FogOptions = {},
 ): Set<number> => {
-  const revealed = new Set<number>();
+  const revealed = new Set<number>(options.revealed ?? []);
   const seen = (id: number) => tierFor(tiers, id).seen;
   const branchTouched = new Map<number, boolean>();
   for (const n of nodes) {
-    if (n.parentId === null) continue;
-    if (seen(n.id)) branchTouched.set(n.parentId, true);
+    if (n.parentId === null) {
+      if (seen(n.id)) branchTouched.set(n.id, true);
+    } else if (seen(n.id)) branchTouched.set(n.parentId, true);
   }
   for (const n of nodes) {
     if (n.parentId === null) {
       revealed.add(n.id);
       continue;
     }
-    if (seen(n.id) || seen(n.parentId) || branchTouched.get(n.parentId)) revealed.add(n.id);
+    if (seen(n.id) || branchTouched.get(n.parentId)) revealed.add(n.id);
+  }
+  if (options.scoutBonus && branchTouched.size > 0) {
+    const peeked = new Set<number>();
+    for (const n of nodes) {
+      if (n.parentId === null || branchTouched.get(n.parentId) || peeked.has(n.parentId)) continue;
+      peeked.add(n.parentId);
+      revealed.add(n.id);
+    }
   }
   return revealed;
 };
