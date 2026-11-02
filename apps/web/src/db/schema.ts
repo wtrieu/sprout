@@ -1074,7 +1074,9 @@ export const atlasClassOffers = sqliteTable(
   (t) => [uniqueIndex("atlas_class_offers_player_gate_idx").on(t.playerId, t.gateLevel)],
 );
 
-export const atlasEngineRunKinds = ["nightly"] as const;
+// "adhoc" = a by-hand run scoped by --player or --window-days; it never
+// moves the nightly watermark. TS-level enum only, so no migration needed.
+export const atlasEngineRunKinds = ["nightly", "adhoc"] as const;
 export type AtlasEngineRunKind = (typeof atlasEngineRunKinds)[number];
 
 // The row is the job status, like maps/rungs.
