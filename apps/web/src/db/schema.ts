@@ -715,6 +715,9 @@ export const atlasNodes = sqliteTable(
     visitedAt: integer("visited_at", { mode: "timestamp" }),
     lastOpenedAt: integer("last_opened_at", { mode: "timestamp" }),
     visitCount: integer("visit_count").notNull().default(0),
+    // A rare node (PR-D): drafted maps mark rares later; the engine's first
+    // run backfills. Surfaced via rare_node_key items.
+    rare: integer("rare", { mode: "boolean" }).notNull().default(false),
     // Set when an owner-captured seed created this node (no FK: seeds also
     // point back at nodes, and the pair would be circular).
     seedId: integer("seed_id"),
@@ -944,6 +947,9 @@ export const atlasPlayers = sqliteTable("atlas_players", {
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   persona: text("persona", { enum: atlasPersonas }).notNull(),
+  // Equipped cosmetics (JSON `{frame?, mapStyle?, sprite: {slot → partId}}`).
+  // Validated in lib, never here.
+  loadout: text("loadout"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -976,3 +982,113 @@ export const atlasEvents = sqliteTable(
     index("atlas_events_verb_idx").on(t.verb),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Module C, PR-D: engine (achievements, items, class offers, nightly runs)
+// ---------------------------------------------------------------------------
+
+export const atlasAchievementSources = ["base", "model"] as const;
+export type AtlasAchievementSource = (typeof atlasAchievementSources)[number];
+
+// Granted by the nightly engine pass. UNIQUE (player_id, slug) makes grants
+// idempotent by construction. `revealed_at` null = queued for the next map
+// screen.
+export const atlasAchievements = sqliteTable(
+  "atlas_achievements",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    playerId: integer("player_id")
+      .notNull()
+      .references(() => atlasPlayers.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    // The persona-voiced line.
+    flavor: text("flavor").notNull(),
+    source: text("source", { enum: atlasAchievementSources }).notNull(),
+    hidden: integer("hidden", { mode: "boolean" }).notNull().default(false),
+    // JSON: basis event ids, optional wildcard class id.
+    data: text("data"),
+    grantedAt: integer("granted_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    revealedAt: integer("revealed_at", { mode: "timestamp" }),
+  },
+  (t) => [
+    uniqueIndex("atlas_achievements_player_slug_idx").on(t.playerId, t.slug),
+    index("atlas_achievements_pending_idx").on(t.playerId, t.revealedAt),
+  ],
+);
+
+export const atlasItemStatuses = ["owned", "consumed"] as const;
+export type AtlasItemStatus = (typeof atlasItemStatuses)[number];
+
+// Loot. `kind` is deliberately TEXT with no enum: item kinds are data like
+// event verbs (frame, map_style, sprite_part, respec_token, fog_reveal,
+// rare_node_key today); new kinds must not need a schema change.
+export const atlasItems = sqliteTable(
+  "atlas_items",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    playerId: integer("player_id")
+      .notNull()
+      .references(() => atlasPlayers.id, { onDelete: "cascade" }),
+    achievementId: integer("achievement_id").references(() => atlasAchievements.id, {
+      onDelete: "set null",
+    }),
+    kind: text("kind").notNull(),
+    // The frame / style / part / node id this item refers to.
+    ref: text("ref"),
+    status: text("status", { enum: atlasItemStatuses }).notNull().default("owned"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    consumedAt: integer("consumed_at", { mode: "timestamp" }),
+  },
+  (t) => [index("atlas_items_player_status_idx").on(t.playerId, t.status)],
+);
+
+export const atlasClassOfferStatuses = ["queued", "revealed", "accepted", "expired"] as const;
+export type AtlasClassOfferStatus = (typeof atlasClassOfferStatuses)[number];
+
+// One offer per player per gate level (UNIQUE), so offers are idempotent.
+export const atlasClassOffers = sqliteTable(
+  "atlas_class_offers",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    playerId: integer("player_id")
+      .notNull()
+      .references(() => atlasPlayers.id, { onDelete: "cascade" }),
+    gateLevel: integer("gate_level").notNull(),
+    // JSON array of three options; the third may be null.
+    options: text("options").notNull(),
+    status: text("status", { enum: atlasClassOfferStatuses }).notNull().default("queued"),
+    // The accepted class id.
+    choice: text("choice"),
+    // Set at reveal.
+    deadline: integer("deadline", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    decidedAt: integer("decided_at", { mode: "timestamp" }),
+  },
+  (t) => [uniqueIndex("atlas_class_offers_player_gate_idx").on(t.playerId, t.gateLevel)],
+);
+
+// "adhoc" = a by-hand run scoped by --player or --window-days; it never
+// moves the nightly watermark. TS-level enum only, so no migration needed.
+export const atlasEngineRunKinds = ["nightly", "adhoc"] as const;
+export type AtlasEngineRunKind = (typeof atlasEngineRunKinds)[number];
+
+// The row is the job status, like maps/rungs.
+export const atlasEngineRuns = sqliteTable("atlas_engine_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  kind: text("kind", { enum: atlasEngineRunKinds }).notNull().default("nightly"),
+  status: text("status", { enum: atlasStatuses }).notNull().default("drafting"),
+  error: text("error"),
+  windowStart: integer("window_start", { mode: "timestamp" }).notNull(),
+  windowEnd: integer("window_end", { mode: "timestamp" }).notNull(),
+  grantsCount: integer("grants_count").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { atlasPersonas } from "../../db/schema";
 import { PERSONA_LABELS, personaLine, type PersonaMoment } from "./persona";
 
-const MOMENTS: PersonaMoment[] = ["creation", "map_greeting", "quiz_pass", "quiz_fail"];
+const MOMENTS: PersonaMoment[] = [
+  "creation",
+  "map_greeting",
+  "quiz_pass",
+  "quiz_fail",
+  "loot_reveal",
+  "class_offer",
+];
 
 describe("personaLine", () => {
   it("every persona speaks at every moment, deterministically per seed", () => {

@@ -10,6 +10,7 @@ import {
   fieldLevel,
   levelFromFraction,
   nodeXp,
+  revealedByEvents,
   revealedNodeIds,
   tierFor,
   totalLevel,
@@ -143,5 +144,35 @@ describe("fog", () => {
     // Opening branch 4 reveals its children.
     const viaBranch = revealedNodeIds(NODES, deriveTiers([ev("open_node", 4)]));
     expect(viaBranch.has(5)).toBe(true);
+  });
+});
+
+describe("fog: PR-D additions", () => {
+  it("a reveal_node event reveals just that node, nothing around it", () => {
+    const events = [ev("reveal_node", 5)];
+    expect([...revealedByEvents(events)]).toEqual([5]);
+    const fog = revealedNodeIds(NODES, deriveTiers(events), { revealed: revealedByEvents(events) });
+    expect(fog.has(5)).toBe(true);
+    expect(fog.has(2)).toBe(false);
+    // Revealing is not visiting: the tier stays unseen.
+    expect(tierFor(deriveTiers(events), 5).seen).toBe(false);
+  });
+
+  it("the Scout perk peeks one child in each untouched branch, once something is touched", () => {
+    const nodes: GameNode[] = [
+      ...NODES,
+      { id: 6, parentId: 4, discipline: null },
+      { id: 7, parentId: null, discipline: "evidence" },
+      { id: 8, parentId: 7, discipline: null },
+      { id: 9, parentId: 7, discipline: null },
+    ];
+    const tiers = deriveTiers([ev("open_node", 2)]);
+    const plain = revealedNodeIds(nodes, tiers);
+    expect([5, 6, 8, 9].some((id) => plain.has(id))).toBe(false);
+    const scout = revealedNodeIds(nodes, tiers, { scoutBonus: true });
+    expect([...scout].filter((id) => [5, 6].includes(id))).toEqual([5]);
+    expect([...scout].filter((id) => [8, 9].includes(id))).toEqual([8]);
+    // Nothing touched yet: the perk has nothing to build on.
+    expect(revealedNodeIds(nodes, deriveTiers([]), { scoutBonus: true }).has(5)).toBe(false);
   });
 });

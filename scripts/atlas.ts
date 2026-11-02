@@ -7,6 +7,7 @@
  *   pnpm --filter web run job:atlas draft-map --map <id>
  *   pnpm --filter web run job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]
  *   pnpm --filter web run job:atlas preload --map <id> [--shard k --shards n]
+ *   pnpm --filter web run job:atlas engine [--player <id>] [--window-days <n>]
  *
  * Exit codes: 0 done · 1 usage or unexpected error · 2 the work itself failed
  * (the map/rung row carries the reason for the UI).
@@ -16,6 +17,7 @@ import { db } from "../apps/web/src/db/client";
 import { assignDisciplines } from "../apps/web/src/lib/atlas/disciplines";
 import { draftMap } from "../apps/web/src/lib/atlas/draftMap";
 import { preloadMap } from "../apps/web/src/lib/atlas/preload";
+import { runEngine } from "../apps/web/src/lib/atlas/game/engine";
 import { ensureRung, isRungLevel } from "../apps/web/src/lib/atlas/rungs";
 import { spawnPreloadShards } from "../apps/web/src/lib/atlas/runner";
 
@@ -35,6 +37,7 @@ const usage = (): never => {
       "  job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]",
       "  job:atlas preload --map <id> [--shard <k> --shards <n>]",
       "  job:atlas disciplines --map <id> [--force]",
+      "  job:atlas engine [--player <id>] [--window-days <n>]",
     ].join("\n"),
   );
   process.exit(1);
@@ -72,6 +75,25 @@ const main = async (): Promise<number> => {
       console.log(`atlas disciplines #${mapId} starting ${startedAt}`);
       const res = assignDisciplines(db, mapId, { force: has("force") });
       return res.unknownTitles.length > 0 ? 2 : 0;
+    }
+    case "engine": {
+      // The nightly achievement pass (PR-D): base-rule sweep + one model
+      // call per player over the window's events. launchd runs it at 04:30
+      // (com.sprout.atlas-engine.plist); the flags are for test runs.
+      const player = flag("player");
+      const windowDays = flag("window-days");
+      if (player !== undefined && !Number.isInteger(Number(player))) usage();
+      if (windowDays !== undefined && !(Number(windowDays) > 0)) usage();
+      console.log(`atlas engine starting ${startedAt}`);
+      const res = runEngine(db, {
+        playerId: player === undefined ? undefined : Number(player),
+        windowDays: windowDays === undefined ? undefined : Number(windowDays),
+        log: (msg) => console.log(msg),
+      });
+      console.log(
+        `engine run #${res.runId}: ${res.status}, ${res.grants} grant(s), window ${res.windowStart.toISOString()} → ${res.windowEnd.toISOString()}${res.error ? `, error: ${res.error}` : ""}`,
+      );
+      return res.status === "ready" ? 0 : 2;
     }
     case "rung": {
       const nodeId = Number(flag("node"));

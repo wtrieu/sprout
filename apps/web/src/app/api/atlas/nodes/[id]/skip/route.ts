@@ -5,6 +5,7 @@ import { db } from "@/db/client";
 import { atlasNodes } from "@/db/schema";
 import { getAuthenticatedEmail } from "@/lib/auth";
 import { logEvent } from "@/lib/atlas/events";
+import { onEventsLogged } from "@/lib/atlas/game/hooks";
 import { playerForEmail } from "@/lib/atlas/players";
 
 const BodySchema = z.object({ skipped: z.boolean() });
@@ -37,6 +38,7 @@ export const POST = async (req: NextRequest, { params }: { params: Promise<{ id:
       mapId: node.mapId,
       nodeId: node.id,
     });
+    onEventsLogged(db, player.id);
   }
   return NextResponse.json({ node: updated });
 };

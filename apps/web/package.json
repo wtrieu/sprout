@@ -25,6 +25,7 @@
     "job:write-book": "tsx ../../scripts/write-book.ts",
     "job:express-story": "tsx ../../scripts/express-story.ts",
     "job:atlas": "tsx ../../scripts/atlas.ts",
+    "sprite:placeholders": "tsx ../../scripts/sprite-placeholders.ts",
     "story:import": "tsx ../../scripts/import-story-candidate.ts"
   },
   "dependencies": {
@@ -51,12 +52,14 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.5",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@types/three": "^0.185.1",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9.18.0",
     "eslint-config-next": "15.5.20",
+    "pngjs": "^7.0.0",
     "postcss": "^8.5.23",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.1",

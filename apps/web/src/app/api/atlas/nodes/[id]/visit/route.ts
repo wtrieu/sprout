@@ -5,6 +5,7 @@ import { db } from "@/db/client";
 import { atlasFrontierPicks, atlasNodes, atlasRungLevels, atlasRungs } from "@/db/schema";
 import { getAuthenticatedEmail } from "@/lib/auth";
 import { logEvent } from "@/lib/atlas/events";
+import { onEventsLogged } from "@/lib/atlas/game/hooks";
 import { playerForEmail } from "@/lib/atlas/players";
 import { rungFor } from "@/lib/atlas/rungs";
 
@@ -58,6 +59,9 @@ export const POST = async (req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
   }
+
+  // After every event this request wrote: earn what the log now earns.
+  if (player) onEventsLogged(db, player.id);
 
   if (body.data.from === "note") {
     const pick = db
