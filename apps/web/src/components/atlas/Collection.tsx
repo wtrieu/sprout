@@ -1,7 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { COSMETIC_LABELS, itemLabel, type Loadout } from "./loadout";
+import {
+  COSMETIC_LABELS,
+  itemLabel,
+  loadoutPatch,
+  type Loadout,
+  type LoadoutPatch,
+} from "./loadout";
 import type { SpriteManifest } from "./sprite/manifest";
 
 export type MeAchievement = {
@@ -100,7 +106,7 @@ export function LoadoutPicker({
   items: MeItem[];
   loadout: Loadout;
   busy?: boolean;
-  onSave: (next: Loadout) => void;
+  onSave: (patch: LoadoutPatch) => void;
 }) {
   const [draft, setDraft] = useState<Loadout>(loadout);
   const owned = (kind: string) =>
@@ -180,7 +186,7 @@ export function LoadoutPicker({
       <button
         type="button"
         disabled={busy}
-        onClick={() => onSave(draft)}
+        onClick={() => onSave(loadoutPatch(loadout, draft))}
         className="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-amber-400 disabled:opacity-50"
       >
         Save look

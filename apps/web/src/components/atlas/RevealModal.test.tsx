@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ChestBanner, RevealModal } from "./RevealModal";
 import { AchievementGallery, Inventory } from "./Collection";
 import { levelLine } from "./CharacterCard";
-import type { Pending } from "./loadout";
+import { loadoutPatch, type Pending } from "./loadout";
 
 const OPTION = (n: number) => ({
   classId: `class-${n}`,
@@ -116,5 +116,19 @@ describe("collection pieces", () => {
   it("formats the level line with the next gate", () => {
     expect(levelLine(12, { level: 20, at: 0 })).toBe("Total level 12 · next offer at 20");
     expect(levelLine(250, null)).toBe("Total level 250");
+  });
+});
+
+describe("loadout unequip", () => {
+  it("serializes cleared slots as explicit null and omits untouched ones", () => {
+    const saved = {
+      frame: "frame-oak",
+      mapStyle: "style-night",
+      sprite: { cape: "cape-scholar", hair: "hair-short" },
+    };
+    const draft = { frame: undefined, mapStyle: "style-night", sprite: { hair: "hair-short" } };
+    const body = JSON.parse(JSON.stringify({ loadout: loadoutPatch(saved, draft) }));
+    expect(body).toEqual({ loadout: { frame: null, sprite: { cape: null } } });
+    expect(loadoutPatch(saved, saved)).toEqual({});
   });
 });

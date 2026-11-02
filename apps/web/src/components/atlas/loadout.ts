@@ -112,6 +112,31 @@ export const KIND_LABELS: Record<string, string> = {
   rare_node_key: "Rare-node key",
 };
 
+export type LoadoutPatch = {
+  frame?: string | null;
+  mapStyle?: string | null;
+  sprite?: Record<string, string | null>;
+};
+
+/**
+ * The PATCH body for a picker save. The server treats an absent key as
+ * "leave alone" and only an explicit null as "clear", so anything the user
+ * emptied goes out as null; unchanged keys are omitted.
+ */
+export const loadoutPatch = (saved: Loadout, draft: Loadout): LoadoutPatch => {
+  const patch: LoadoutPatch = {};
+  for (const k of ["frame", "mapStyle"] as const) {
+    if (draft[k] !== saved[k]) patch[k] = draft[k] ?? null;
+  }
+  const sprite: Record<string, string | null> = {};
+  for (const slot of new Set([...Object.keys(saved.sprite), ...Object.keys(draft.sprite)])) {
+    const next = draft.sprite[slot] ?? null;
+    if (next !== (saved.sprite[slot] ?? null)) sprite[slot] = next;
+  }
+  if (Object.keys(sprite).length > 0) patch.sprite = sprite;
+  return patch;
+};
+
 export const itemLabel = (it: { kind: string; ref: string }): string =>
   COSMETIC_LABELS[it.ref] ??
   (it.kind === "sprite_part" ? it.ref.replace(/-/g, " ") : (KIND_LABELS[it.kind] ?? it.kind));
