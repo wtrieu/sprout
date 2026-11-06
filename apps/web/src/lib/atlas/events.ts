@@ -41,6 +41,9 @@ export const KNOWN_VERBS = [
   // PR2: the weekly note's own record, one household-wide event per player
   // ({ pickId, nodeId, weekStart, via, household: true }); not a player action.
   "frontier_note",
+  // PR3: the child bridge and capture.
+  "save_for_child",
+  "add_seed",
 ] as const;
 export type KnownVerb = (typeof KNOWN_VERBS)[number];
 

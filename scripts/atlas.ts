@@ -9,6 +9,7 @@
  *   pnpm --filter web run job:atlas preload --map <id> [--shard k --shards n]
  *   pnpm --filter web run job:atlas engine [--player <id>] [--window-days <n>]
  *   pnpm --filter web run job:atlas note [--force]
+ *   pnpm --filter web run job:atlas kid --bookmark <id>
  *
  * Exit codes: 0 done · 1 usage or unexpected error · 2 the work itself failed
  * (the map/rung row carries the reason for the UI).
@@ -17,11 +18,13 @@ import "./env";
 import { db } from "../apps/web/src/db/client";
 import { assignDisciplines } from "../apps/web/src/lib/atlas/disciplines";
 import { draftMap } from "../apps/web/src/lib/atlas/draftMap";
-import { runWeeklyFrontier } from "../apps/web/src/lib/atlas/frontier";
+import { activeMapId, runWeeklyFrontier } from "../apps/web/src/lib/atlas/frontier";
+import { generateKidVersion } from "../apps/web/src/lib/atlas/kid";
 import { preloadMap } from "../apps/web/src/lib/atlas/preload";
 import { runEngine } from "../apps/web/src/lib/atlas/game/engine";
 import { ensureRung, isRungLevel } from "../apps/web/src/lib/atlas/rungs";
 import { spawnPreloadShards } from "../apps/web/src/lib/atlas/runner";
+import { placePendingSeeds } from "../apps/web/src/lib/atlas/seeds";
 
 const args = process.argv.slice(2);
 const sub = args[0];
@@ -30,6 +33,16 @@ const flag = (name: string): string | undefined => {
   return i === -1 ? undefined : args[i + 1];
 };
 const has = (name: string): boolean => args.includes(`--${name}`);
+
+// Seed placement is best-effort: a hiccup there must not sink a map draft or
+// the weekly note, so the seed just stays pending for the next run.
+const placeSeeds = async (mapId: number): Promise<void> => {
+  try {
+    await placePendingSeeds(db, mapId, { log: (msg) => console.log(msg) });
+  } catch (err) {
+    console.error(`seed placement failed: ${err instanceof Error ? err.message : err}`);
+  }
+};
 
 const usage = (): never => {
   console.error(
@@ -41,6 +54,7 @@ const usage = (): never => {
       "  job:atlas disciplines --map <id> [--force]",
       "  job:atlas engine [--player <id>] [--window-days <n>]",
       "  job:atlas note [--force]",
+      "  job:atlas kid --bookmark <id>",
     ].join("\n"),
   );
   process.exit(1);
@@ -55,6 +69,9 @@ const main = async (): Promise<number> => {
       console.log(`atlas draft-map #${mapId} starting ${startedAt}`);
       const res = draftMap(db, mapId);
       if (!res.ok) return 2;
+      // Captured seeds find their place in the fresh map before the
+      // one-pagers are queued, so an attached node is preloaded with the rest.
+      await placeSeeds(mapId);
       // The map is browsable fog now; the one-pagers (and the ready email)
       // land in the background.
       const shards = spawnPreloadShards(mapId);
@@ -103,8 +120,20 @@ const main = async (): Promise<number> => {
       // per the atlasDelivery setting. launchd runs it Wednesdays 06:30
       // (com.sprout.atlas.plist); --force adds a second pick for the week.
       console.log(`atlas note starting ${startedAt}`);
+      // Seeds are placed first so a freshly attached node can win the week.
+      const seedMap = activeMapId(db);
+      if (seedMap !== null) await placeSeeds(seedMap);
       const res = await runWeeklyFrontier(db, { force: has("force"), log: (msg) => console.log(msg) });
       return res.status === "failed" ? 2 : 0;
+    }
+    case "kid": {
+      // The kid version of a bookmark (PR3); the bookmark row is the status
+      // the UI polls. Spawned by POST /api/atlas/bookmarks and the PATCH regenerate.
+      const bookmarkId = Number(flag("bookmark"));
+      if (!Number.isInteger(bookmarkId)) usage();
+      console.log(`atlas kid for bookmark #${bookmarkId} starting ${startedAt}`);
+      const res = await generateKidVersion(db, bookmarkId, { log: (msg) => console.log(msg) });
+      return res.ok ? 0 : 2;
     }
     case "rung": {
       const nodeId = Number(flag("node"));

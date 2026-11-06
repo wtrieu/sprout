@@ -64,27 +64,26 @@ export const renderMapReadyEmail = (
 // --- the weekly frontier note ----------------------------------------------------
 
 /** `deeper` is null when the deep dive failed to write — the button is dropped. */
-export type FrontierEmailLinks = { open: string; deeper: string | null; skip: string };
+export type FrontierEmailLinks = { open: string; deeper: string | null; save: string; skip: string };
 
 /**
  * The note's GET links (pages behind Cloudflare Access). `from=note` makes
  * the visit beacon log the open as coming from the note; the node page
- * already pre-opens its skip confirm bar on `action=skip`.
+ * pre-opens its skip confirm bar on `action=skip` and its save panel on
+ * `action=save` (PR3).
  */
 export const frontierLinks = (baseUrl: string, mapId: number, nodeId: number): FrontierEmailLinks => {
   const page = `${baseUrl.replace(/\/+$/, "")}/atlas/${mapId}/${nodeId}`;
   return {
     open: `${page}?from=note`,
     deeper: `${page}?rung=deepdive&from=note`,
+    save: `${page}?action=save&from=note`,
     skip: `${page}?action=skip&from=note`,
   };
 };
 
 export type FrontierEmailInput = {
-  /**
-   * From `children.name`. Reserved for the "Save for <child>" button, which
-   * ships with PR3's save panel — until then the note has no link to it.
-   */
+  /** From `children.name` — the "Save for <child>" button's label. */
   childName: string | null;
   map: { id: number; title: string };
   /** The node's branch; null when the node is itself a branch. */
@@ -131,7 +130,7 @@ export const renderFrontierEmail = (
   <ul style="list-style:none;padding:0;margin:0">\n${readings}\n  </ul>`
       : ""
   }
-  <p style="margin:24px 0 0">${button(links.open, "Open in Atlas", true)}${links.deeper ? button(links.deeper, "Go deeper", false) : ""}${button(links.skip, "Skip this branch", false)}</p>
+  <p style="margin:24px 0 0">${button(links.open, "Open in Atlas", true)}${links.deeper ? button(links.deeper, "Go deeper", false) : ""}${button(links.save, `Save for ${input.childName ?? "the child"}`, false)}${button(links.skip, "Skip this branch", false)}</p>
   <p style="color:#a3a3a3;font-size:12px;margin:20px 0 0">${progress.visited}/${progress.total} visited</p>
 </div>`;
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db/client";
-import { atlasMaps, atlasNodes, atlasRungLevels, atlasRungs } from "@/db/schema";
+import { atlasBookmarks, atlasMaps, atlasNodes, atlasRungLevels, atlasRungs } from "@/db/schema";
 import { getAuthenticatedEmail } from "@/lib/auth";
 import { personaLine } from "@/lib/atlas/persona";
 import { playerForEmail } from "@/lib/atlas/players";
@@ -51,6 +51,20 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
     if (r.level === "onepager" && r.status === "ready" && !r.quizJson) quizlessCount += 1;
   }
 
+  const bookmarkedNodeIds = nodes.length
+    ? db
+        .select({ nodeId: atlasBookmarks.nodeId })
+        .from(atlasBookmarks)
+        .where(
+          inArray(
+            atlasBookmarks.nodeId,
+            nodes.map((n) => n.id),
+          ),
+        )
+        .all()
+        .map((r) => r.nodeId)
+    : [];
+
   const player = playerForEmail(db, getAuthenticatedEmail(req));
   // Offers past their soft deadline take the first option on this load.
   if (player) defaultLapsedOffers(db, player.id);
@@ -77,6 +91,7 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
       rungs: byNode.get(n.id) ?? Object.fromEntries(atlasRungLevels.map((l) => [l, null])),
     })),
     quizlessCount,
+    bookmarkedNodeIds,
     player:
       player && game
         ? {

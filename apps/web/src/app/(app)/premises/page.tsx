@@ -53,11 +53,13 @@ export default function PremisesPage() {
   const [passing, setPassing] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [generating, setGenerating] = useState<string | null>(null);
+  const [childName, setChildName] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const d = await fetch("/api/premises").then((r) => r.json());
     setProposed(d.premises ?? []);
     setRecent(d.recent ?? []);
+    setChildName(d.childName ?? null);
   }, []);
 
   useEffect(() => {
@@ -102,7 +104,8 @@ export default function PremisesPage() {
         <div>
           <h1 className="text-2xl font-semibold">Premise inbox</h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Tonight&apos;s pitches for Jun&apos;s library. Greenlight the ones you love — the book
+            Tonight&apos;s pitches for {childName ? `${childName}’s library` : "the library"}.
+            Greenlight the ones you love — the book
             is written right away. Unreviewed premises are auto-picked after two days.
           </p>
         </div>

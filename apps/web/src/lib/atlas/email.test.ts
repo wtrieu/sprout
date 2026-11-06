@@ -67,10 +67,11 @@ const note = {
 };
 
 describe("frontierLinks", () => {
-  it("builds the three GET links off the base url", () => {
+  it("builds the four GET links off the base url", () => {
     expect(frontierLinks("https://sprout.example/", 1, 7)).toEqual({
       open: "https://sprout.example/atlas/1/7?from=note",
       deeper: "https://sprout.example/atlas/1/7?rung=deepdive&from=note",
+      save: "https://sprout.example/atlas/1/7?action=save&from=note",
       skip: "https://sprout.example/atlas/1/7?action=skip&from=note",
     });
   });
@@ -94,13 +95,14 @@ describe("renderFrontierEmail", () => {
     expect(html).toContain("<strong>Judge</strong>");
   });
 
-  it("links Open, Go deeper and Skip, and has no Save link until PR3", () => {
+  it("links Open, Go deeper, Save for the child and Skip", () => {
     const { html } = renderFrontierEmail(note);
     expect(html).toContain('href="https://sprout.example/atlas/1/7?from=note"');
     expect(html).toContain('href="https://sprout.example/atlas/1/7?rung=deepdive&amp;from=note"');
+    expect(html).toContain('href="https://sprout.example/atlas/1/7?action=save&amp;from=note"');
     expect(html).toContain('href="https://sprout.example/atlas/1/7?action=skip&amp;from=note"');
-    expect(html).not.toContain("action=save");
-    expect(html).not.toContain("Kid");
+    expect(html).toContain("Save for Kid");
+    expect(renderFrontierEmail({ ...note, childName: null }).html).toContain("Save for the child");
   });
 
   it("drops Go deeper when the deep dive is not ready", () => {

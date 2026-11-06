@@ -124,6 +124,7 @@ const toFrontierNodes = (
     skipped: n.skipped,
     visitedAt: memory.seen.has(n.id) ? (memory.lastOpened.get(n.id) ?? EPOCH) : null,
     lastOpenedAt: memory.lastOpened.get(n.id) ?? null,
+    seedId: n.seedId,
   }));
 
 /**
