@@ -7,6 +7,7 @@
  *   pnpm --filter web run job:atlas draft-map --map <id>
  *   pnpm --filter web run job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]
  *   pnpm --filter web run job:atlas preload --map <id> [--shard k --shards n]
+ *   pnpm --filter web run job:atlas prefetch --node <id>
  *   pnpm --filter web run job:atlas engine [--player <id>] [--window-days <n>]
  *   pnpm --filter web run job:atlas note [--force]
  *   pnpm --filter web run job:atlas kid --bookmark <id>
@@ -21,6 +22,7 @@ import { draftMap } from "../apps/web/src/lib/atlas/draftMap";
 import { activeMapId, runWeeklyFrontier } from "../apps/web/src/lib/atlas/frontier";
 import { generateKidVersion } from "../apps/web/src/lib/atlas/kid";
 import { preloadMap } from "../apps/web/src/lib/atlas/preload";
+import { prefetchFromNode } from "../apps/web/src/lib/atlas/prefetch";
 import { runEngine } from "../apps/web/src/lib/atlas/game/engine";
 import { ensureRung, isRungLevel } from "../apps/web/src/lib/atlas/rungs";
 import { spawnPreloadShards } from "../apps/web/src/lib/atlas/runner";
@@ -51,6 +53,7 @@ const usage = (): never => {
       "  job:atlas draft-map --map <id>",
       "  job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]",
       "  job:atlas preload --map <id> [--shard <k> --shards <n>]",
+      "  job:atlas prefetch --node <id>",
       "  job:atlas disciplines --map <id> [--force]",
       "  job:atlas engine [--player <id>] [--window-days <n>]",
       "  job:atlas note [--force]",
@@ -85,6 +88,17 @@ const main = async (): Promise<number> => {
       if (!Number.isInteger(mapId)) usage();
       console.log(`atlas preload #${mapId} shard ${shard}/${shards} starting ${startedAt}`);
       const res = await preloadMap(db, mapId, { shard, shards });
+      return res.failed > 0 ? 2 : 0;
+    }
+    case "prefetch": {
+      // Likely-next prefetch: on a node visit, draft the missing eli10 +
+      // one-pager rungs of the next few unvisited nodes (never deep dives).
+      // Spawned detached by the visit route via runner.spawnNodePrefetch.
+      const nodeId = Number(flag("node"));
+      if (!Number.isInteger(nodeId)) usage();
+      console.log(`atlas prefetch from node #${nodeId} starting ${startedAt}`);
+      const res = await prefetchFromNode(db, nodeId, { log: (msg) => console.log(msg) });
+      console.log(`prefetch summary: ${res.drafted} drafted, ${res.skipped} skipped, ${res.failed} failed`);
       return res.failed > 0 ? 2 : 0;
     }
     case "disciplines": {

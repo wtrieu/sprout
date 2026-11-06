@@ -8,6 +8,7 @@ import { logEvent } from "@/lib/atlas/events";
 import { onEventsLogged } from "@/lib/atlas/game/hooks";
 import { playerForEmail } from "@/lib/atlas/players";
 import { rungFor } from "@/lib/atlas/rungs";
+import { spawnNodePrefetch } from "@/lib/atlas/runner";
 
 const BodySchema = z.object({
   rung: z.enum(atlasRungLevels).optional(),
@@ -84,6 +85,11 @@ export const POST = async (req: NextRequest, { params }: { params: Promise<{ id:
         .run();
     }
   }
+
+  // Opening a node kicks a detached draft of the likely-next nodes' missing
+  // eli10/one-pager rungs (deep dives stay on-demand); the drafting row is the
+  // claim, so rapid clicks cannot double-draft. Rung-read beacons skip this.
+  if (!body.data.rung) spawnNodePrefetch(node.id);
 
   return NextResponse.json({ ok: true });
 };

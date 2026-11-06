@@ -13,26 +13,30 @@ export const GET = () => {
     .select({ id: atlasNodes.id, mapId: atlasNodes.mapId, visitedAt: atlasNodes.visitedAt })
     .from(atlasNodes)
     .all();
-  const readyOnepagers = new Set(
-    db
-      .select({ nodeId: atlasRungs.nodeId })
-      .from(atlasRungs)
-      .where(and(eq(atlasRungs.level, "onepager"), eq(atlasRungs.status, "ready")))
-      .all()
-      .map((r) => r.nodeId),
-  );
-  const counts = new Map<number, { nodeCount: number; visitedCount: number; onepagerReadyCount: number }>();
+  const readyNodeIds = (level: "eli10" | "onepager") =>
+    new Set(
+      db
+        .select({ nodeId: atlasRungs.nodeId })
+        .from(atlasRungs)
+        .where(and(eq(atlasRungs.level, level), eq(atlasRungs.status, "ready")))
+        .all()
+        .map((r) => r.nodeId),
+    );
+  const readyOnepagers = readyNodeIds("onepager");
+  const readyEli10s = readyNodeIds("eli10");
+  const counts = new Map<number, { nodeCount: number; visitedCount: number; onepagerReadyCount: number; eli10ReadyCount: number }>();
   for (const n of nodes) {
-    const c = counts.get(n.mapId) ?? { nodeCount: 0, visitedCount: 0, onepagerReadyCount: 0 };
+    const c = counts.get(n.mapId) ?? { nodeCount: 0, visitedCount: 0, onepagerReadyCount: 0, eli10ReadyCount: 0 };
     c.nodeCount += 1;
     if (n.visitedAt) c.visitedCount += 1;
     if (readyOnepagers.has(n.id)) c.onepagerReadyCount += 1;
+    if (readyEli10s.has(n.id)) c.eli10ReadyCount += 1;
     counts.set(n.mapId, c);
   }
   return NextResponse.json({
     maps: maps.map((m) => ({
       ...m,
-      ...(counts.get(m.id) ?? { nodeCount: 0, visitedCount: 0, onepagerReadyCount: 0 }),
+      ...(counts.get(m.id) ?? { nodeCount: 0, visitedCount: 0, onepagerReadyCount: 0, eli10ReadyCount: 0 }),
     })),
     presets: presetKeys,
   });

@@ -154,13 +154,15 @@ export default function AtlasMapPage() {
     setBookmarked(new Set<number>((d as { bookmarkedNodeIds?: number[] }).bookmarkedNodeIds ?? []));
   }, [mapId]);
 
-  // One-pagers are preloaded as soon as the map exists; the map is
-  // "preparing" until every node has one.
-  const onepagerReady = nodes.filter((n) => n.rungs.onepager === "ready").length;
-  const onepagerDrafting = nodes.some((n) => n.rungs.onepager === "drafting");
-  const onepagerMissing = nodes.some((n) => n.rungs.onepager === null);
-  const onepagerFailed = nodes.some((n) => n.rungs.onepager === "failed");
-  const preparing = map?.status === "ready" && (onepagerMissing || onepagerDrafting);
+  // Both the eli10 and the one-pager are preloaded as soon as the map
+  // exists; the map is "preparing" until every node has both (deep dives stay
+  // on-demand).
+  const levels = nodes.flatMap((n) => [n.rungs.eli10, n.rungs.onepager]);
+  const pagesReady = levels.filter((s) => s === "ready").length;
+  const pagesDrafting = levels.some((s) => s === "drafting");
+  const pagesMissing = levels.some((s) => s === null);
+  const pagesFailed = levels.some((s) => s === "failed");
+  const preparing = map?.status === "ready" && (pagesMissing || pagesDrafting);
 
   const drafting =
     map?.status === "drafting" ||
@@ -249,8 +251,8 @@ export default function AtlasMapPage() {
   const showPreloadButton =
     map.status === "ready" &&
     nodes.length > 0 &&
-    !onepagerDrafting &&
-    (onepagerFailed || onepagerMissing || quizlessCount > 0);
+    !pagesDrafting &&
+    (pagesFailed || pagesMissing || quizlessCount > 0);
 
   return (
     <div className="space-y-8">
@@ -305,7 +307,7 @@ export default function AtlasMapPage() {
         )}
         {preparing && (
           <p className="mt-2 text-xs text-amber-400/80">
-            Preparing · {onepagerReady} / {nodes.length} one-pagers
+            Preparing · {pagesReady} / {nodes.length * 2} pages
           </p>
         )}
         {showPreloadButton && (
@@ -314,7 +316,7 @@ export default function AtlasMapPage() {
             onClick={preloadRest}
             className="mt-2 rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-amber-500/50 disabled:opacity-50"
           >
-            {onepagerFailed || onepagerMissing
+            {pagesFailed || pagesMissing
               ? "Prepare the rest"
               : `Prepare quizzes (${quizlessCount} missing)`}
           </button>

@@ -30,6 +30,7 @@ one used in person; a request for a second map.
 ```
 apps/web/src/lib/atlas/
   llm.ts        atlasModels() + cliLlm: claudeCli + zod validation + one repair pass
+                (shared by malformed-JSON and zod failures; control-char sanitize first)
   presets.ts    PHILOSOPHY_BRIEF (anchors + the bar; not an outline)
   draftMap.ts   M1 outline call → M2 one call per branch → normalize (dedupe, trim ≤50) → store
   rungs.ts      ensureRung(): draft → validate (+1 repair) → judge (+1 revision) → verify readings + images → store
@@ -41,7 +42,10 @@ apps/web/src/lib/atlas/
   frontier.ts   the weekly note: weekStartOf, activeMapId, currentPick,
                 household memory from the event log, runWeeklyFrontier
   runner.ts     detached spawn of scripts/atlas.ts (+ preload shards) + stale-drafting reaper
-  preload.ts    preloadMap(): one shard's one-pagers + quiz backfill + the atomic "ready" email claim
+  preload.ts    preloadMap(): one shard's one-pagers, then eli10s (also the eli10 backfill)
+                + quiz/visuals backfill + the atomic "ready" email claim (waits for both levels)
+  prefetch.ts   prefetchTargets + prefetchFromNode (PR-E): on a visit, the next 3 unvisited
+                nodes' missing one-pager + eli10; never deep dives
   email.ts      renderMapReadyEmail() + renderFrontierEmail() (PR2)
   events.ts     the append-only event log: logEvent(), KNOWN_VERBS, legacy import
   players.ts    one character per Access email: create (first imports legacy), update
@@ -56,7 +60,7 @@ apps/web/src/lib/atlas/
                 URL seeds get a verified web reading)
   game/         the PR-D engine: achievements (base rules), loot, classes,
                 engine (nightly model pass + rare backfill), items, hooks
-scripts/atlas.ts            draft-map | rung | preload | disciplines | engine | note | kid
+scripts/atlas.ts            draft-map | rung | preload | prefetch | disciplines | engine | note | kid
 apps/web/src/app/api/atlas  maps, maps/[id], maps/[id]/preload, nodes/[id], nodes/[id]/rungs/[level],
                             /visit, /skip, nodes/[id]/quiz, me, players, players/me,
                             frontier, frontier/run, bookmarks, bookmarks/[id],
@@ -104,13 +108,16 @@ readings rule for pictures).
 - Env: `ATLAS_MODEL_WRITER` (default `claude-fable-5`), `ATLAS_MODEL_JUDGE`
   (default `claude-sonnet-5`), `ATLAS_JUDGE=false` to skip the editor-judge
   on deep dives (faster, less checked), `ATLAS_MODEL_ONEPAGER` (default
-  `claude-sonnet-5`; one-pagers are never judged), `ATLAS_PRELOAD_WORKERS`
+  `claude-sonnet-5`; one-pagers are never judged), `ATLAS_MODEL_ELI10`
+  (default `claude-sonnet-5`; eli10s are never judged), `ATLAS_PRELOAD_WORKERS`
   (default 3). The web plist must carry `RESEND_API_KEY`, `DIGEST_FROM`,
   `DIGEST_TO` and `SPROUT_BASE_URL` for the "map is ready" email.
 - By hand: `pnpm --filter web run job:atlas draft-map --map <id>`,
   `pnpm --filter web run job:atlas rung --node <id> --level <eli10|onepager|deepdive> [--force]`,
   `pnpm --filter web run job:atlas preload --map <id> [--shard k --shards n]`
-  and `pnpm --filter web run job:atlas disciplines --map <id> [--force]` (the
+  (also the eli10 backfill for maps preloaded before PR-E),
+  `pnpm --filter web run job:atlas prefetch --node <id>` (PR-E; normally
+  spawned by the visit route) and `pnpm --filter web run job:atlas disciplines --map <id> [--force]` (the
   PR-C backfill for maps drafted before discipline tags).
   Detached runs started from the web process log nothing; run by hand to watch.
   The nightly achievement pass is
@@ -224,7 +231,7 @@ to the learner because combinations of what they've learned produce things.
 | Axis | Decision |
 |---|---|
 | Order | PR-A (speed) → PR-B (visuals) → PR-C (game foundation) → PR-D (engine), then PR2, PR3. |
-| Preload | Every one-pager (with its quiz) is drafted as soon as a map is created, on Sonnet and **without** the editor-judge. A map may take some minutes; the owner gets one email when it is ready (push notifications deferred). Eli10 and deep dive stay on demand. |
+| Preload | Every one-pager (with its quiz) is drafted as soon as a map is created, on Sonnet and **without** the editor-judge. A map may take some minutes; the owner gets one email when it is ready (push notifications deferred). Eli10 and deep dive stay on demand (superseded 2026-11-06: eli10 preloads + prefetch, deep dive stays on demand). |
 | Visuals | Model-drawn diagrams, side-by-sides and maps (geographic or concept, by context), labeled as model-drawn; real images only (e.g. Wikimedia), never generated art. Atlas may be less strict than the medical half of the app. |
 | Players | Per-person progress from the start: shared maps, separate progress, separate characters. Built for the owner and their wife first; extended family / other users later. Sharing map, character and achievements between players is an option, never forced. |
 | "Learned" | Quizzes are **in** (reversed from the first pass): a node is mastered by reading + a quiz, not by a trust-based "mark complete". No flashcards or spaced-recall prompts. |
@@ -976,6 +983,62 @@ column (schema change, not scheduled).
 - **Tests:** `kid.test.ts` budgets by band + Latin-script check;
   `seeds.test.ts` kind detection, placement validation, URL seed → verified
   reading; `storyTopicForBookmark`.
+
+### PR-E — anticipatory generation (eli10 at creation, likely-next prefetch) (built with this spec)
+
+Owner-approved 2026-11-06. Supersedes the PR-A line "eli10 keeps `writer`, no
+judge" and the 2026-10-19 "Eli10 and deep dive stay on demand" decision (both
+left above as history).
+
+- **Eli10 at map creation.** `atlasModels()` gains `eli10:
+  ATLAS_MODEL_ELI10 ?? claude-sonnet-5`. Deviation from PR-A: the bulk
+  preload now pays for the fast model on eli10 too, and it is **never
+  judged** (the judge only runs for `deepdive`). `ensureRung` picks the model
+  per level: onepager → `models.onepager`, eli10 → `models.eli10`, deepdive →
+  `models.writer`.
+- **`preloadMap`** drafts, per shard, all one-pagers first (the default rung
+  lands fastest), then all eli10s. Same skip rule: a fresh `drafting` row is
+  another run's claim. An eli10 is written from its one-pager, so a node whose
+  one-pager is not `ready` at that point (just failed, or claimed elsewhere)
+  is skipped rather than letting `ensureRung` redraft it. **Backfill:** running
+  preload over a map with ready one-pagers drafts only the missing eli10s
+  (`ensureRung` no-ops on ready rows). Quiz and visuals backfills stay
+  one-pager-only.
+- **Ready email waits for both levels.** The map counts as done when no rung
+  is drafting and every node has a ready-or-failed one-pager AND a
+  ready-or-failed eli10 (a node whose one-pager failed has no eli10 to wait
+  for). `readyCount` in the email stays one-pager-based; `email.ts` is
+  unchanged. Progress counts both levels.
+- **Likely-next prefetch** (`lib/atlas/prefetch.ts`). On a node visit the
+  visit route calls `runner.spawnNodePrefetch(nodeId)` → detached
+  `job:atlas prefetch --node <id>` → `prefetchFromNode`, which takes
+  `prefetchTargets` (the picker's `frontierCandidates` from the visited node:
+  child → sibling → next-branch, visited/skipped excluded, first
+  `PREFETCH_COUNT = 3`) and drafts each target's missing one-pager then
+  eli10. **Deep dives are never prefetched** (owner's call): they stay
+  strictly on demand. Generation follows the reader's clicks; there is no
+  crawl-everything job.
+- **The drafting row is the claim.** Ready and fresh-`drafting` rungs are
+  skipped, so rapid clicks and overlapping prefetch/preload runs never
+  double-draft; a stale `drafting` row (10 min) is redrafted, reaping
+  unchanged.
+- **JSON repair fix.** `makeCliLlm` used to throw on malformed JSON before zod
+  ran, so the repair pass never fired (prod map 1: roughly 1 in 6 Sonnet
+  one-pagers died on "Bad control character in string literal" or "Expected
+  double-quoted property name"). Now the CLI call and extraction are separate:
+  a spawn/CLI failure still throws immediately and never spends the repair
+  budget; bare control characters inside JSON strings are escaped
+  deterministically first (free, not a repair); any remaining parse failure
+  feeds the SAME single repair call as a zod failure ("was not valid JSON: …
+  return the complete corrected JSON object only"). One repair per request,
+  shared across both paths; a malformed repair output throws a clear
+  final error naming both reasons.
+- **Files:** `lib/atlas/{llm,rungs,preload,runner,prefetch,frontier}.ts`
+  (frontier only exports `toFrontierNodes`), `scripts/atlas.ts prefetch`,
+  README jobs table. Tests: `llm.test.ts`, `prefetch.test.ts`, extended
+  `preload.test.ts`. **Wiring still needed:** the visit route (a
+  `progression-engine` file) must call `spawnNodePrefetch(node.id)` after
+  logging the visit; until then prefetch runs only by hand.
 
 ### Known gaps and follow-ups (not scheduled)
 

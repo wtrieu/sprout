@@ -24,6 +24,7 @@ type MapRow = {
   nodeCount: number;
   visitedCount: number;
   onepagerReadyCount: number;
+  eli10ReadyCount: number;
 };
 
 type Persona = "cartographer" | "protege";
@@ -412,11 +413,11 @@ export default function AtlasPage() {
                   <span>
                     {m.nodeCount > 0 && (
                       <span className="block">
-                        {m.onepagerReadyCount >= m.nodeCount ? (
+                        {m.onepagerReadyCount >= m.nodeCount && m.eli10ReadyCount >= m.nodeCount ? (
                           <>ready · {m.nodeCount} pages</>
                         ) : (
                           <span className="text-amber-400/80">
-                            preparing · {m.onepagerReadyCount} / {m.nodeCount}
+                            preparing · {m.onepagerReadyCount + m.eli10ReadyCount} / {m.nodeCount * 2}
                           </span>
                         )}
                       </span>

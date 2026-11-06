@@ -61,6 +61,14 @@ export const spawnPreloadShards = (mapId: number, shards = preloadWorkers()): nu
   return shards;
 };
 
+/**
+ * Spawn the detached likely-next prefetch for a node the reader just opened
+ * (called by the visit route). Drafts the missing eli10 + one-pager rungs of
+ * the next few unvisited nodes; never the deep dive.
+ */
+export const spawnNodePrefetch = (nodeId: number): void =>
+  spawnAtlasJob(["prefetch", "--node", String(nodeId)]);
+
 const STALE_MESSAGE = "No result came back in time — the background run may have died. Try again.";
 
 /** Flip maps that have been `drafting` past the deadline to `failed`. */

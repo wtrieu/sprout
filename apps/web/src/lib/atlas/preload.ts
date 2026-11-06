@@ -1,7 +1,11 @@
 /**
- * Preload — every one-pager (with its quiz) drafted as soon as a map exists,
- * so from then on every node opens instantly. Eli10 and deep dive stay on
- * demand.
+ * Preload — every one-pager (with its quiz) and every eli10 drafted as soon as
+ * a map exists, so from then on every node opens instantly at both of its
+ * cheap levels. A shard drafts its one-pagers first (the default rung lands
+ * fastest), then its eli10s (written from the one-pager, on the fast model,
+ * never judged). Running preload again over a map whose rungs are already
+ * ready is the backfill: ensureRung no-ops on ready rows, so only the missing
+ * eli10s get drafted. The deep dive stays on demand.
  *
  * callClaude is spawnSync, so one process is serial; the web process spawns
  * ATLAS_PRELOAD_WORKERS detached shards (runner.spawnPreloadShards) and each
@@ -9,7 +13,7 @@
  * nodes are nodes like any other — they keep their one-pagers.
  *
  * The "map is ready" email is sent exactly once: the shard that finds every
- * node's one-pager ready-or-failed (and nothing still drafting) atomically
+ * node's one-pager and eli10 ready-or-failed (and nothing still drafting) atomically
  * claims `atlas_maps.notified_at` — the UPDATE that returns a row sends, so
  * two shards finishing together cannot send twice.
  */
@@ -123,6 +127,36 @@ export const preloadMap = async (
     else skipped += 1;
   }
 
+  // Eli10s, after every one-pager of this shard. Same shape as the loop above:
+  // a fresh drafting row is someone else's claim, a ready row is a no-op (the
+  // backfill for maps preloaded before eli10s were drafted at creation). An
+  // eli10 is written from its one-pager, so a node whose one-pager is not
+  // ready here (it just failed, or another run holds the drafting claim) is
+  // skipped rather than letting ensureRung redraft the one-pager out from
+  // under that claim or burn a second attempt on a failure.
+  for (const node of mine) {
+    const onepager = rungFor(db, node.id, "onepager");
+    if (onepager?.status !== "ready") {
+      log(`node #${node.id} "${node.title}": eli10 skipped — one-pager is ${onepager?.status ?? "missing"}`);
+      skipped += 1;
+      continue;
+    }
+    const existing = rungFor(db, node.id, "eli10");
+    if (existing?.status === "drafting" && !isStale(existing.startedAt, RUNG_STALE_MS, deps.now)) {
+      log(`node #${node.id} "${node.title}": eli10 already drafting — skipped`);
+      skipped += 1;
+      continue;
+    }
+    const res = await ensureRung(db, node.id, "eli10", {
+      llm: deps.llm,
+      fetchImpl: deps.fetchImpl,
+      log,
+    });
+    if (!res.ok) failed += 1;
+    else if (res.fresh) drafted += 1;
+    else skipped += 1;
+  }
+
   // Quiz backfill for maps drafted before PR-A: one quiz-only call per ready
   // one-pager whose quiz_json is still null. A failure here never fails the
   // rung — the row stays null and the next preload run retries it.
@@ -207,19 +241,24 @@ export const preloadMap = async (
   }
 
   // This shard is done. If the whole map is done — no rung of the map still
-  // drafting, every node's one-pager ready-or-failed — claim the notification.
+  // drafting, every node's one-pager and eli10 ready-or-failed — claim the
+  // notification. A node whose one-pager failed never gets an eli10 (nothing
+  // to write it from), so that node counts as settled.
   const nodeIds = nodes.map((n) => n.id);
   const rungRows = nodeIds.length
     ? db.select().from(atlasRungs).where(inArray(atlasRungs.nodeId, nodeIds)).all()
     : [];
   const anyDrafting = rungRows.some((r) => r.status === "drafting");
   const onepagers = new Map(rungRows.filter((r) => r.level === "onepager").map((r) => [r.nodeId, r]));
+  const eli10s = new Map(rungRows.filter((r) => r.level === "eli10").map((r) => [r.nodeId, r]));
+  const settled = (status: string | undefined) => status === "ready" || status === "failed";
   const complete =
     nodes.length > 0 &&
     !anyDrafting &&
     nodes.every((n) => {
-      const s = onepagers.get(n.id)?.status;
-      return s === "ready" || s === "failed";
+      const op = onepagers.get(n.id)?.status;
+      if (!settled(op)) return false;
+      return op === "failed" || settled(eli10s.get(n.id)?.status);
     });
 
   let notified = false;
