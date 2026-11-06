@@ -53,7 +53,11 @@ export const escapeControlCharsInStrings = (text: string): string => {
     const ch = text[i];
     const code = ch.charCodeAt(0);
     if (inString && code < 0x20) {
-      out += ch === "\n" ? "\\n" : ch === "\r" ? "\\r" : ch === "\t" ? "\\t" : `\\u${code.toString(16).padStart(4, "0")}`;
+      const esc = ch === "\n" ? "n" : ch === "\r" ? "r" : ch === "\t" ? "t" : `u${code.toString(16).padStart(4, "0")}`;
+      // After a lone backslash ("\<LF>") the backslash is already in `out`:
+      // emit only the escape letter, or "\<LF>" would become "\\n" and a
+      // corrupted escape would be silently accepted as literal text.
+      out += (escaped ? "" : "\\") + esc;
       escaped = false;
       continue;
     }
@@ -75,8 +79,11 @@ const parseModelJson = (stdout: string): unknown => {
     if (cleaned === text) throw err;
     try {
       return extractJsonBlock(cleaned);
-    } catch {
-      throw err; // report the original failure
+    } catch (err2) {
+      // Report the sanitized parse's failure: the control characters are
+      // already fixed, so naming them would send the repair call after an
+      // error that no longer exists.
+      throw err2;
     }
   }
 };

@@ -196,7 +196,8 @@ describe("prefetchFromNode", () => {
       "onepager:Hellenistic",
       "eli10:Hellenistic",
     ]);
-    expect(res).toEqual({ drafted: 6, skipped: 0, failed: 0 });
+    // skipped 1: the visited anchor's own eli10 waits for its missing one-pager.
+    expect(res).toEqual({ drafted: 6, skipped: 1, failed: 0 });
     for (const n of [t.A2, t.A3, t.B]) {
       const rows = rungs(db, n.id);
       expect(rows.map((r) => r.level).sort()).toEqual(["eli10", "onepager"]);
@@ -250,8 +251,9 @@ describe("prefetchFromNode", () => {
     const calls: string[] = [];
     const res = await prefetchFromNode(db, t.A1.id, { llm: fakeLlm(calls), now, log: quiet });
     expect(calls).toEqual(["eli10:Hellenistic"]);
-    // Heraclitus x2 + Parmenides x2 (one-pager claimed, eli10 waits on it) skipped.
-    expect(res).toEqual({ drafted: 1, skipped: 5, failed: 0 });
+    // Heraclitus x2 + Parmenides x2 (one-pager claimed, eli10 waits on it)
+    // + the anchor's own eli10 (one-pager missing) skipped.
+    expect(res).toEqual({ drafted: 1, skipped: 6, failed: 0 });
     expect(rungs(db, t.A3.id).find((r) => r.level === "onepager")?.status).toBe("drafting");
     expect(rungs(db, t.A3.id).some((r) => r.level === "eli10")).toBe(false);
     expect(rungs(db, t.B.id).find((r) => r.level === "eli10")?.status).toBe("ready");
@@ -277,7 +279,7 @@ describe("prefetchFromNode", () => {
     const calls: string[] = [];
     const res = await prefetchFromNode(db, t.A1.id, { llm: fakeLlm(calls), log: quiet });
     expect(calls).toEqual([]);
-    expect(res).toEqual({ drafted: 0, skipped: 6, failed: 0 });
+    expect(res).toEqual({ drafted: 0, skipped: 7, failed: 0 });
   });
 
   it("a failed one-pager counts as failed and its eli10 is skipped, not retried", async () => {
@@ -286,9 +288,44 @@ describe("prefetchFromNode", () => {
     visit(db, t.A1.id);
     const calls: string[] = [];
     const res = await prefetchFromNode(db, t.A1.id, { llm: fakeLlm(calls, "Heraclitus"), log: quiet });
-    expect(res).toEqual({ drafted: 4, skipped: 1, failed: 1 });
+    expect(res).toEqual({ drafted: 4, skipped: 2, failed: 1 });
     expect(calls).not.toContain("eli10:Heraclitus");
     expect(rungs(db, t.A2.id).map((r) => `${r.level}:${r.status}`)).toEqual(["onepager:failed"]);
+  });
+
+  it("fills the visited node's own missing eli10 first", async () => {
+    const db = makeDb();
+    const t = seed(db);
+    visit(db, t.A1.id);
+    insertRung(db, t.A1.id, "onepager", "ready");
+    const calls: string[] = [];
+    await prefetchFromNode(db, t.A1.id, { llm: fakeLlm(calls), log: quiet });
+    expect(calls[0]).toBe("eli10:Thales");
+    expect(rungs(db, t.A1.id).find((r) => r.level === "eli10")?.status).toBe("ready");
+    // The anchor's one-pager is the node page's own job, never prefetch's.
+    expect(calls).not.toContain("onepager:Thales");
+  });
+
+  it("sends the ready email when it settles the map's last missing rungs", async () => {
+    const db = makeDb();
+    const t = seed(db);
+    visit(db, t.A1.id);
+    // Everything ready except Heraclitus (A2), the first target.
+    for (const n of [t.A, t.A1, t.A3, t.B, t.B1, t.B2, t.C, t.C1]) {
+      insertRung(db, n.id, "onepager", "ready");
+      insertRung(db, n.id, "eli10", "ready");
+    }
+    const sent: { subject: string }[] = [];
+    const send = async (e: { subject: string; html: string }) => {
+      sent.push(e);
+      return { sent: true, id: "test" };
+    };
+    await prefetchFromNode(db, t.A1.id, { llm: fakeLlm([]), send, log: quiet });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].subject).toContain("ready");
+    // The notified_at claim is spent: a second run never sends again.
+    await prefetchFromNode(db, t.A1.id, { llm: fakeLlm([]), send, log: quiet });
+    expect(sent).toHaveLength(1);
   });
 
   it("an unknown node id returns zeros without throwing", async () => {

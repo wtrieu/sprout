@@ -398,25 +398,33 @@ describe("preloadMap", () => {
   });
 
   it("drafts an eli10 for every node, one-pagers first, on the eli10 model", async () => {
+    // A distinct env override, or the assertion below could not tell the
+    // eli10 model apart from the onepager model (both default to the same).
+    process.env.ATLAS_MODEL_ELI10 = "test-eli10-model";
     const db = makeDb();
     const { map, nodes } = seed(db);
     const order: string[] = [];
     const models: string[] = [];
     const inner = fakeLlm(newRec());
     const { sent, send } = capturingSend();
-    const res = await preloadMap(db, map.id, {
-      llm: (prompt, zschema, opts) => {
-        const isOnepager = prompt.includes("Write the ONE-PAGER");
-        order.push(isOnepager ? "onepager" : "eli10");
-        if (!isOnepager) models.push(opts.model);
-        return inner(prompt, zschema, opts);
-      },
-      send,
-      log: quiet,
-    });
+    let res;
+    try {
+      res = await preloadMap(db, map.id, {
+        llm: (prompt, zschema, opts) => {
+          const isOnepager = prompt.includes("Write the ONE-PAGER");
+          order.push(isOnepager ? "onepager" : "eli10");
+          if (!isOnepager) models.push(opts.model);
+          return inner(prompt, zschema, opts);
+        },
+        send,
+        log: quiet,
+      });
+    } finally {
+      delete process.env.ATLAS_MODEL_ELI10;
+    }
     expect(res).toMatchObject({ drafted: 12, failed: 0, notified: true });
     expect(order).toEqual([...Array(6).fill("onepager"), ...Array(6).fill("eli10")]);
-    expect(new Set(models)).toEqual(new Set([atlasModels().eli10]));
+    expect(new Set(models)).toEqual(new Set(["test-eli10-model"]));
     const rows = eli10Rows(db);
     expect(rows.map((r) => r.nodeId).sort()).toEqual(nodes.map((n) => n.id).sort());
     expect(rows.every((r) => r.status === "ready" && r.judgeVerdict === null)).toBe(true);

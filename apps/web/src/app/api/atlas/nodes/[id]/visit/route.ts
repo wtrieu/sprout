@@ -88,7 +88,7 @@ export const POST = async (req: NextRequest, { params }: { params: Promise<{ id:
 
   // Opening a node kicks a detached draft of the likely-next nodes' missing
   // eli10/one-pager rungs (deep dives stay on-demand); the drafting row is the
-  // claim, so rapid clicks cannot double-draft. Rung-read beacons skip this.
+  // claim, so rapid clicks skip each other's work. Rung-read beacons skip this.
   if (!body.data.rung) spawnNodePrefetch(node.id);
 
   return NextResponse.json({ ok: true });

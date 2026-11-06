@@ -1019,9 +1019,21 @@ left above as history).
   strictly on demand. Generation follows the reader's clicks; there is no
   crawl-everything job.
 - **The drafting row is the claim.** Ready and fresh-`drafting` rungs are
-  skipped, so rapid clicks and overlapping prefetch/preload runs never
-  double-draft; a stale `drafting` row (10 min) is redrafted, reaping
-  unchanged.
+  skipped, so rapid clicks and overlapping prefetch/preload runs skip each
+  other's work; a stale `drafting` row (10 min) is redrafted, reaping
+  unchanged. The check-then-mark is not atomic, so a sub-millisecond photo
+  finish between two detached runs can still collide (the unique index makes
+  the loser throw); prefetch wraps each target in a try/catch so a collision
+  never sinks the rest of the run. An atomic claim
+  (`INSERT … ON CONFLICT … WHERE status != 'drafting'`) is a follow-up.
+- **The prefetch also fills the visited node's own missing eli10** (a click
+  job drafted only the one-pager, or the map predates eli10-at-creation) —
+  the reader is on that page. Its one-pager stays the node page's own job.
+- **Any run can send the ready email.** The completion check + the atomic
+  `notified_at` claim live in `maybeNotifyMapReady` (preload.ts), called at
+  the end of every run that can finish the map's last rung: preload shards,
+  the prefetch, and the single-rung click job. Stale drafting rows do not
+  hold the email back.
 - **JSON repair fix.** `makeCliLlm` used to throw on malformed JSON before zod
   ran, so the repair pass never fired (prod map 1: roughly 1 in 6 Sonnet
   one-pagers died on "Bad control character in string literal" or "Expected
@@ -1034,11 +1046,15 @@ left above as history).
   shared across both paths; a malformed repair output throws a clear
   final error naming both reasons.
 - **Files:** `lib/atlas/{llm,rungs,preload,runner,prefetch,frontier}.ts`
-  (frontier only exports `toFrontierNodes`), `scripts/atlas.ts prefetch`,
+  (frontier only exports `toFrontierNodes`), `scripts/atlas.ts` (`prefetch`
+  subcommand; the `rung` job also runs the ready-email claim), the visit
+  route (`nodes/[id]/visit` calls `spawnNodePrefetch` on a node open, not on
+  rung-read beacons), `api/atlas/maps/route.ts` (+`eli10ReadyCount`,
+  `+pendingPagesCount`), the map page and `/atlas` cards (progress over both
+  levels, `X / 2N pages`; a node whose one-pager failed is settled, so a
+  failure shows the "Prepare the rest" button, not "Preparing" forever),
   README jobs table. Tests: `llm.test.ts`, `prefetch.test.ts`, extended
-  `preload.test.ts`. **Wiring still needed:** the visit route (a
-  `progression-engine` file) must call `spawnNodePrefetch(node.id)` after
-  logging the visit; until then prefetch runs only by hand.
+  `preload.test.ts`.
 
 ### Known gaps and follow-ups (not scheduled)
 

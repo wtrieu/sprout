@@ -11,13 +11,18 @@
  *
  * The drafting row is the claim. A rung that is `drafting` and not stale is
  * someone else's work (a click, a preload shard, an earlier prefetch) and is
- * skipped, so rapid clicks and overlapping runs never double-draft; stale
- * reaping is unchanged and a stale `drafting` row is simply redrafted.
+ * skipped, so rapid clicks and overlapping runs skip each other's work; stale
+ * reaping is unchanged and a stale `drafting` row is simply redrafted. The
+ * check-then-mark is not atomic (markRungDrafting), so a sub-millisecond
+ * photo finish between two detached runs can still double-draft or trip the
+ * unique index — each target is wrapped in its own try/catch so one such
+ * collision never sinks the rest of the run.
  */
 import { asc, eq } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import { atlasNodes, type AtlasRungLevel } from "../../db/schema";
 import { householdMemory, toFrontierNodes } from "./frontier";
+import { maybeNotifyMapReady, type SendEmailFn } from "./preload";
 import type { AtlasLlm } from "./llm";
 import { frontierCandidates, type FrontierNode } from "./picker";
 import { ensureRung, rungFor } from "./rungs";
@@ -46,6 +51,7 @@ export const prefetchTargets = (
 export type PrefetchDeps = {
   llm?: AtlasLlm;
   fetchImpl?: FetchLike;
+  send?: SendEmailFn;
   log?: (msg: string) => void;
   now?: Date;
 };
@@ -76,9 +82,18 @@ export const prefetchFromNode = async (
   const titles = new Map(rows.map((r) => [r.id, r.title]));
   log(`prefetch from node #${node.id} "${node.title}": ${targets.length} target(s)`);
 
-  for (const targetId of targets) {
+  // The opened node itself may be missing its eli10 (a click job drafted only
+  // the one-pager, or the map predates eli10-at-creation and the backfill has
+  // not reached it) — the reader is on that page, so fill it first. The
+  // one-pager itself is the node page's own job, never prefetch's.
+  const work: { nodeId: number; levels: readonly AtlasRungLevel[] }[] = [
+    { nodeId: node.id, levels: ["eli10"] },
+    ...targets.map((t) => ({ nodeId: t, levels: PREFETCH_LEVELS })),
+  ];
+
+  for (const { nodeId: targetId, levels } of work) {
     const label = `node #${targetId} "${titles.get(targetId)}"`;
-    for (const level of PREFETCH_LEVELS) {
+    for (const level of levels) {
       // An eli10 is written from its one-pager: if the one-pager is not ready
       // here (it just failed, or another run holds its claim) leave the eli10
       // for a later visit, rather than ensureRung redrafting under that claim.
@@ -96,16 +111,28 @@ export const prefetchFromNode = async (
         result.skipped += 1;
         continue;
       }
-      const res = await ensureRung(db, targetId, level, {
-        llm: deps.llm,
-        fetchImpl: deps.fetchImpl,
-        log,
-      });
-      if (!res.ok) result.failed += 1;
-      else if (res.fresh) result.drafted += 1;
-      else result.skipped += 1;
+      try {
+        const res = await ensureRung(db, targetId, level, {
+          llm: deps.llm,
+          fetchImpl: deps.fetchImpl,
+          log,
+        });
+        if (!res.ok) result.failed += 1;
+        else if (res.fresh) result.drafted += 1;
+        else result.skipped += 1;
+      } catch (err) {
+        // e.g. the unique-index race when another run claimed this rung in the
+        // same instant — that run owns it now; carry on with the other targets.
+        log(`${label}: ${level} errored (${err instanceof Error ? err.message : err}) — skipped`);
+        result.failed += 1;
+      }
     }
   }
+
+  // This run may have settled the map's last missing rung (above all during a
+  // backfill), so give the "map is ready" claim the same chance a preload
+  // shard gets. Idempotent: the notified_at guard means at most one email ever.
+  await maybeNotifyMapReady(db, node.mapId, { send: deps.send, log, now: deps.now });
 
   log(
     `prefetch from node #${node.id} done: ${result.drafted} drafted, ${result.skipped} skipped, ${result.failed} failed`,

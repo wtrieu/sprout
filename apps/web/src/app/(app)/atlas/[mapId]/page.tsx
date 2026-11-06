@@ -156,11 +156,15 @@ export default function AtlasMapPage() {
 
   // Both the eli10 and the one-pager are preloaded as soon as the map
   // exists; the map is "preparing" until every node has both (deep dives stay
-  // on-demand).
+  // on-demand). A node whose one-pager failed is settled — no eli10 can be
+  // written from it — so a failed rung shows the button, not "Preparing"
+  // (and not the fast poll) forever.
   const levels = nodes.flatMap((n) => [n.rungs.eli10, n.rungs.onepager]);
   const pagesReady = levels.filter((s) => s === "ready").length;
   const pagesDrafting = levels.some((s) => s === "drafting");
-  const pagesMissing = levels.some((s) => s === null);
+  const pagesMissing = nodes.some(
+    (n) => n.rungs.onepager === null || (n.rungs.eli10 === null && n.rungs.onepager !== "failed"),
+  );
   const pagesFailed = levels.some((s) => s === "failed");
   const preparing = map?.status === "ready" && (pagesMissing || pagesDrafting);
 

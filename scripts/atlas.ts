@@ -16,12 +16,14 @@
  * (the map/rung row carries the reason for the UI).
  */
 import "./env";
+import { eq } from "drizzle-orm";
 import { db } from "../apps/web/src/db/client";
+import { atlasNodes } from "../apps/web/src/db/schema";
 import { assignDisciplines } from "../apps/web/src/lib/atlas/disciplines";
 import { draftMap } from "../apps/web/src/lib/atlas/draftMap";
 import { activeMapId, runWeeklyFrontier } from "../apps/web/src/lib/atlas/frontier";
 import { generateKidVersion } from "../apps/web/src/lib/atlas/kid";
-import { preloadMap } from "../apps/web/src/lib/atlas/preload";
+import { maybeNotifyMapReady, preloadMap } from "../apps/web/src/lib/atlas/preload";
 import { prefetchFromNode } from "../apps/web/src/lib/atlas/prefetch";
 import { runEngine } from "../apps/web/src/lib/atlas/game/engine";
 import { ensureRung, isRungLevel } from "../apps/web/src/lib/atlas/rungs";
@@ -155,6 +157,11 @@ const main = async (): Promise<number> => {
       if (!Number.isInteger(nodeId) || !isRungLevel(level)) usage();
       console.log(`atlas rung ${level} for node #${nodeId} starting ${startedAt}`);
       const res = await ensureRung(db, nodeId, level, { force: has("force") });
+      // A click job can be the map's last missing rung (e.g. during a
+      // backfill), so it gets the same "map is ready" claim a preload shard
+      // does. Idempotent: notified_at guards against a second email.
+      const node = db.select({ mapId: atlasNodes.mapId }).from(atlasNodes).where(eq(atlasNodes.id, nodeId)).get();
+      if (node) await maybeNotifyMapReady(db, node.mapId, { log: (msg) => console.log(msg) });
       return res.ok ? 0 : 2;
     }
     default:

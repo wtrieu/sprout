@@ -48,6 +48,27 @@ describe("makeCliLlm", () => {
     expect(escapeControlCharsInStrings("no json here")).toBe("no json here");
   });
 
+  it("a lone backslash before a control character becomes one escape, not corrupted text", () => {
+    // "a\<LF>b": the backslash is already there, so only the letter is added —
+    // emitting "\\n" would silently accept a corrupted escape as literal text.
+    const bad = '{"body_md": "line a\\\nline b"}';
+    expect(escapeControlCharsInStrings(bad)).toBe('{"body_md": "line a\\nline b"}');
+    const { prompts, call } = scripted([bad]);
+    expect(makeCliLlm(call)("P", Schema, opts).body_md).toBe("line a\nline b");
+    expect(prompts).toHaveLength(1);
+  });
+
+  it("the repair prompt names the error left after the sanitize, not the fixed one", () => {
+    // A control character AND a trailing structural error: the sanitize fixes
+    // the first, so the repair prompt must cite the second.
+    const bad = '{"body_md": "line a\nline b",}';
+    const { prompts, call } = scripted([bad, GOOD]);
+    expect(makeCliLlm(call)("P", Schema, opts).body_md).toBe("hello world");
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("was not valid JSON");
+    expect(prompts[1]).not.toMatch(/control character/i);
+  });
+
   it("parse failure (unquoted key) then valid: one repair call that names the parse error", () => {
     const { prompts, call } = scripted(['{body_md: "hello world"}', GOOD]);
     expect(makeCliLlm(call)("P", Schema, opts)).toEqual({ body_md: "hello world" });
