@@ -67,7 +67,11 @@ follow-up work, ordered by priority. Spec of record stays `docs/atlas.md`.
 ## Ops reference
 
 Deploy a merge on the mini: `git pull && pnpm install &&
-pnpm --filter web db:migrate && launchctl kickstart -k
-gui/$(id -u)/com.sprout.web`. Engine by hand:
+pnpm --filter web db:migrate && pnpm --filter web build &&
+launchctl kickstart -k gui/$(id -u)/com.sprout.web`.
+**The build step is mandatory**: launchd runs `next start`, which serves
+the prebuilt `.next` — a deploy without `build` restarts the old bundle
+(this bit us 2026-11-07: prod served an Oct 31 build for a week; raw
+`[[visual:…]]` tokens and a missing game UI were the symptoms). Engine by hand:
 `pnpm --filter web run job:atlas engine`; note by hand:
 `EMAIL_DRY_RUN=true pnpm --filter web run job:atlas note`.
