@@ -139,14 +139,31 @@ describe("enqueueMapDraft", () => {
 describe("reapStaleMaps", () => {
   const afterDeadline = new Date(T0.getTime() + MAP_STALE_MS + 60_000);
 
-  it("never reaps queued rows, however old", () => {
+  it("never reaps queued rows, however old (they wait behind a fresh drafting map)", () => {
     const db = makeDb();
+    const busy = addMap(db, "Busy", "drafting", new Date(T0.getTime() + 10 * MAP_STALE_MS));
     const q = addMap(db, "Waiting", "queued", T0);
     const rec = recorder();
     expect(reapStaleMaps(db, new Date(T0.getTime() + 10 * MAP_STALE_MS), rec)).toBe(0);
     expect(statusOf(db, q.id)).toBe("queued");
-    // No reap, no promotion either: nothing was drafting, nothing crashed.
+    expect(statusOf(db, busy.id)).toBe("drafting");
     expect(rec.spawned).toEqual([]);
+  });
+
+  it("promotes a queued map even when nothing was reaped and nothing is drafting (job died after ready)", () => {
+    const db = makeDb();
+    const done = addMap(db, "Done", "ready", T0);
+    const waiting = addMap(db, "Waiting", "queued", minutes(1));
+    const rec = recorder();
+
+    expect(reapStaleMaps(db, minutes(5), rec)).toBe(0);
+    expect(statusOf(db, done.id)).toBe("ready");
+    expect(statusOf(db, waiting.id)).toBe("drafting");
+    expect(rec.spawned).toEqual([waiting.id]);
+
+    // Idempotent: the next poll sees a drafting map and does nothing.
+    expect(reapStaleMaps(db, minutes(6), rec)).toBe(0);
+    expect(rec.spawned).toEqual([waiting.id]);
   });
 
   it("reaps a stale drafting map to failed and promotes the next queued map", () => {

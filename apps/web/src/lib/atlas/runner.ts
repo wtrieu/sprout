@@ -137,9 +137,9 @@ export const enqueueMapDraft = (
 
 /**
  * Flip maps that have been `drafting` past the deadline to `failed`, then
- * promote the next queued map so the queue cannot deadlock behind a crashed
- * draft. `queued` rows are never reaped: they are not running, and createdAt
- * says nothing about how long they have been working.
+ * (always) try to promote the next queued map so the queue cannot deadlock
+ * behind a crashed draft. `queued` rows are never reaped: they are not
+ * running, and createdAt says nothing about how long they have been working.
  */
 export const reapStaleMaps = (db: DB, now = new Date(), deps: MapQueueDeps = {}): number => {
   const reaped = db
@@ -150,7 +150,12 @@ export const reapStaleMaps = (db: DB, now = new Date(), deps: MapQueueDeps = {})
     )
     .returning({ id: atlasMaps.id })
     .all().length;
-  if (reaped > 0) promoteNextQueuedMap(db, { ...deps, now });
+  // Unconditional, not just when something was reaped: a draft job can die
+  // after the map went `ready` but before its own finally promoted (the window
+  // includes onReady's seed placement), leaving queued rows and nothing
+  // drafting with nothing stale to reap. The claim is atomic and a no-op while
+  // a map is drafting or the queue is empty, so every poll can self-heal that.
+  promoteNextQueuedMap(db, { ...deps, now });
   return reaped;
 };
 
