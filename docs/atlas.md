@@ -164,11 +164,35 @@ readings rule for pictures).
 - PR-D (#105, merged 2026-11-01) — the engine: nightly achievement pass,
   class offers, loot, the layered sprite against placeholder parts. The
   engine's first run backfilled rare nodes; launchd runs it daily at 04:30.
+- PR-E (#109, merged 2026-11-06) — eli10 drafted at map creation (with a
+  backfill pass), likely-next prefetch on node visit, and the JSON repair
+  path in `llm.ts` (parse failures now get a deterministic control-char
+  sanitize plus the one model repair instead of failing outright). After
+  deploy + re-preload, both live maps reached 120/120 ready one-pagers and
+  eli10s.
+- PR-F (in review) — game activation: the Scholar / Skeptic / Synthesist
+  perks are wired as derived hint marks in the map payload (`perkMarks`:
+  bookmark / reminder / bridge — read-time, additive, never gating), the
+  skill tree renders them, and the reward reveal modal got its loot-drop
+  sequencing with a reduced-motion fallback. Known gap: level-ups are not
+  in the queued-rewards data, so they have no reveal step yet. Also in
+  PR-F: map drafting queues — `POST /api/atlas/maps` inserts `queued`
+  (202, never 409) while another map drafts; promotion to drafting is an
+  atomic claim in `runner.ts` (`promoteNextQueuedMap`), fired when a draft
+  finishes, fails, or is reaped, so drafts stay strictly sequential.
+  Promotion resets `createdAt` (the reaper's "drafting since" clock).
+  Known gap: a hand-run `job:atlas draft-map` bypasses the queue and can
+  make a second drafting map. And: the sprite contract moved to a 64×64
+  canvas with authoritative anchors from atlas-sprites `base_body_v1.png`
+  (headTopRow 4, shoulderRow 29, leftHand 23,34, grip 17,34,
+  rightHand 37,42, footRow 58), a separate held-item grip anchor, and
+  hair allowed one row above the head.
 
 **Order of what's left:** PR2 (built with the spec below, re-based on the
 event log; merged as #106) and PR3 (built with the spec below, re-based on
-the event log; in review) are the last scheduled Atlas PRs. PR-B merged as
-#102 on 2026-10-31.
+the event log; merged as #107) were the last scheduled Atlas PRs — the
+roadmap is complete; open follow-ups live in `docs/atlas-backlog.md`.
+PR-B merged as #102 on 2026-10-31.
 
 Follow-ups from PR-A, not scheduled (fold into whichever PR touches them):
 
@@ -211,7 +235,11 @@ Then:
 3. Branch from `main` as `claude/atlas-<slug>`, run the three quality gates
    before every push, never push to `main` (`.claude/loops/OPERATIONS.md`).
 4. Deploying a merge on the mini: `git pull && pnpm install &&
-   pnpm --filter web db:migrate && launchctl kickstart -k gui/$(id -u)/com.sprout.web`.
+   pnpm --filter web db:migrate && pnpm --filter web build &&
+   launchctl kickstart -k gui/$(id -u)/com.sprout.web`. The `build` step is
+   mandatory — launchd runs `next start`, so without it the restart serves
+   the previous `.next` bundle (the scripts under `scripts/` run from
+   source via tsx and mask the staleness).
 
 ## Owner feedback on PR1 and the v2 direction (2026-10-19)
 
@@ -353,13 +381,22 @@ sprite itself is PR-D work, but the spec below lets art start any time.
 
 Workflow for producing and refining the parts:
 
-1. **Fix the spec before any art.** Canvas `32×40` (16×20 is too light for
-   a readable face and hands), one indexed palette of ≤32 colors, one
+1. **Fix the spec before any art.** Canvas `64×64` (updated 2026-11-07 to
+   match the sprites session's approved base; was 32×40 — and 16×20 is too
+   light for a readable face and hands), one indexed palette of ≤32 colors, one
    front-facing anchor pose with the arms slightly off the body so held
    items never overlap the torso. Write down the layer order (aura-back,
    cape, body, outfit, hair, item, aura-front) and the **anchor pixels**
    every part must respect: head-top row, shoulder row, left and right
-   hand pixel, foot row. Animations: idle 2 frames, celebrate 4, per layer.
+   hand pixel, foot row, and a separate **held-item grip point** 6px
+   screen-left of the left hand on the same row — item layers paint the
+   hand-to-grip extension themselves, so the bare body never covers the
+   grip pixel. Hair may paint one row above the head-top row. The base is
+   a 3/4 front view facing viewer-left, left arm forward at waist height.
+   Authoritative 64×64 values (from atlas-sprites `base_body_v1.png`,
+   2026-11-07): headTopRow 4, shoulderRow 29, leftHand (23,34),
+   grip (17,34), rightHand (37,42), footRow 58.
+   Animations: idle 2 frames, celebrate 4, per layer.
 2. **Draw the base body first.** It defines the silhouette and the
    anchors; export it as a template PNG with the anchor pixels marked in a
    reserved color. Every other part is drawn on a copy of that template.
@@ -795,7 +832,9 @@ contact-sheet test.
   Event-writing endpoints still 401 without a character.
 - **Sprite** (skill-tree-ui). `public/sprite/classic/<slot>/
   <id>-<anim>-<frame>.png` + `public/sprite/classic/manifest.json`: canvas
-  32×40, one indexed palette ≤ 32 colors, slots in z order aura-back <
+  64×64 (since 2026-11-07; anchors are authoritative, measured from the
+  atlas-sprites approved base `base_body_v1.png` — canonical copy at
+  atlas-sprites/base/anchors_64.json), one indexed palette ≤ 32 colors, slots in z order aura-back <
   cape < body < outfit < hair < item < aura-front, each with its allowed
   region; anchors (head-top row, shoulder row, left/right hand pixel, foot
   row); per part: slot, animations (`idle` 2 frames, `celebrate` 4),

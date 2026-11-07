@@ -31,8 +31,9 @@ follow-up work, ordered by priority. Spec of record stays `docs/atlas.md`.
 
 ## P3 — game polish
 
-6. **Wire the remaining class perks** — only Scout's fog bonus is active;
-   Scholar/Skeptic/Synthesist perks ship as inert data with copy.
+6. **Level-up reveal step** — PR-F's reveal modal covers achievements, loot
+   and class offers, but level-ups are not in the queued-rewards data, so
+   they get no reveal moment. Add them to `lib/atlas/game/pending.ts`.
    Owner: `progression-engine`.
 7. **Real sprite parts** — the `atlas-sprites` repo session produces the
    actual art; parts land as data in `apps/web/public/sprite/<style>/` +
@@ -53,6 +54,11 @@ follow-up work, ordered by priority. Spec of record stays `docs/atlas.md`.
 
 ## Done recently (for orientation)
 
+- Wire the remaining class perks (old item 6) — PR-F: Scholar/Skeptic/
+  Synthesist now emit derived hint marks (`perkMarks` in the map payload),
+  rendered on the skill tree; reveal modal got loot-drop sequencing.
+- PR-E (#109): eli10 at map creation + backfill, likely-next prefetch,
+  JSON repair fix — both live maps at 120/120 ready.
 - Draft-time rare marking and the hardcoded "Jun" copy — folded into PR3.
 - Engine first run: 27 rares backfilled, run row `ready`, nightly at 04:30
   (`com.sprout.atlas-engine.plist`); frontier note Wednesdays 06:30
@@ -61,7 +67,11 @@ follow-up work, ordered by priority. Spec of record stays `docs/atlas.md`.
 ## Ops reference
 
 Deploy a merge on the mini: `git pull && pnpm install &&
-pnpm --filter web db:migrate && launchctl kickstart -k
-gui/$(id -u)/com.sprout.web`. Engine by hand:
+pnpm --filter web db:migrate && pnpm --filter web build &&
+launchctl kickstart -k gui/$(id -u)/com.sprout.web`.
+**The build step is mandatory**: launchd runs `next start`, which serves
+the prebuilt `.next` — a deploy without `build` restarts the old bundle
+(this bit us 2026-11-07: prod served an Oct 31 build for a week; raw
+`[[visual:…]]` tokens and a missing game UI were the symptoms). Engine by hand:
 `pnpm --filter web run job:atlas engine`; note by hand:
 `EMAIL_DRY_RUN=true pnpm --filter web run job:atlas note`.

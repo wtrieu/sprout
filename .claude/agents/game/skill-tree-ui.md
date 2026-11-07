@@ -2,7 +2,7 @@
 name: skill-tree-ui
 description: Builds the Atlas map-as-skill-tree UI — fog of war, collection grid, mastery stickers, persona UI, and sprite compositing from layered parts.
 tools: Read, Edit, Write, Bash, Glob, Grep
-model: sonnet
+model: opus
 effort: medium
 isolation: worktree
 ---

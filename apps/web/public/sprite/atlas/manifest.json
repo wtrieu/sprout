@@ -1,0 +1,336 @@
+{
+  "version": 1,
+  "style": "atlas",
+  "canvas": {
+    "width": 64,
+    "height": 64
+  },
+  "palette": [
+    {
+      "name": "c-0099db",
+      "hex": "#0099db"
+    },
+    {
+      "name": "c-124e89",
+      "hex": "#124e89"
+    },
+    {
+      "name": "c-262b44",
+      "hex": "#262b44"
+    },
+    {
+      "name": "c-5a6988",
+      "hex": "#5a6988"
+    },
+    {
+      "name": "c-68386c",
+      "hex": "#68386c"
+    },
+    {
+      "name": "c-8b9bb4",
+      "hex": "#8b9bb4"
+    },
+    {
+      "name": "c-b55088",
+      "hex": "#b55088"
+    },
+    {
+      "name": "c-b86f50",
+      "hex": "#b86f50"
+    },
+    {
+      "name": "c-be4a2f",
+      "hex": "#be4a2f"
+    },
+    {
+      "name": "c-c0cbdc",
+      "hex": "#c0cbdc"
+    },
+    {
+      "name": "c-e4a672",
+      "hex": "#e4a672"
+    },
+    {
+      "name": "c-f6757a",
+      "hex": "#f6757a"
+    },
+    {
+      "name": "c-ffffff",
+      "hex": "#ffffff"
+    },
+    {
+      "name": "hair-base",
+      "hex": "#733e39"
+    },
+    {
+      "name": "hair-shade",
+      "hex": "#3e2731"
+    },
+    {
+      "name": "outline",
+      "hex": "#181425"
+    },
+    {
+      "name": "skin-base",
+      "hex": "#ead4aa"
+    },
+    {
+      "name": "skin-shade",
+      "hex": "#c28569"
+    }
+  ],
+  "slots": [
+    {
+      "id": "aura-back",
+      "z": 0,
+      "region": {
+        "x0": 0,
+        "y0": 0,
+        "x1": 63,
+        "y1": 63
+      },
+      "keepClear": [],
+      "mustCover": []
+    },
+    {
+      "id": "cape",
+      "z": 1,
+      "region": {
+        "x0": 0,
+        "y0": 0,
+        "x1": 63,
+        "y1": 63
+      },
+      "keepClear": [],
+      "mustCover": []
+    },
+    {
+      "id": "body",
+      "z": 2,
+      "region": {
+        "x0": 19,
+        "y0": 3,
+        "x1": 42,
+        "y1": 59
+      },
+      "keepClear": [],
+      "mustCover": [
+        "headTopRow",
+        "shoulderRow",
+        "leftHand",
+        "rightHand",
+        "footRow"
+      ]
+    },
+    {
+      "id": "outfit",
+      "z": 3,
+      "region": {
+        "x0": 22,
+        "y0": 25,
+        "x1": 39,
+        "y1": 42
+      },
+      "keepClear": [
+        "leftHand",
+        "rightHand"
+      ],
+      "mustCover": []
+    },
+    {
+      "id": "hair",
+      "z": 4,
+      "region": {
+        "x0": 18,
+        "y0": 3,
+        "x1": 43,
+        "y1": 36
+      },
+      "keepClear": [
+        "leftHand",
+        "rightHand"
+      ],
+      "mustCover": []
+    },
+    {
+      "id": "item",
+      "z": 5,
+      "region": {
+        "x0": 8,
+        "y0": 6,
+        "x1": 26,
+        "y1": 59
+      },
+      "keepClear": [
+        "leftHand",
+        "rightHand"
+      ],
+      "mustCover": []
+    },
+    {
+      "id": "aura-front",
+      "z": 6,
+      "region": {
+        "x0": 0,
+        "y0": 0,
+        "x1": 63,
+        "y1": 63
+      },
+      "keepClear": [
+        "leftHand",
+        "rightHand"
+      ],
+      "mustCover": []
+    }
+  ],
+  "anchors": {
+    "headTopRow": 4,
+    "shoulderRow": 29,
+    "leftHand": {
+      "x": 23,
+      "y": 34
+    },
+    "rightHand": {
+      "x": 37,
+      "y": 42
+    },
+    "footRow": 58,
+    "grip": {
+      "x": 17,
+      "y": 34
+    }
+  },
+  "animations": {
+    "idle": {
+      "frames": 2,
+      "fps": 2
+    },
+    "celebrate": {
+      "frames": 4,
+      "fps": 6
+    }
+  },
+  "swapGroups": {
+    "skin": {
+      "colors": [
+        "skin-base",
+        "skin-shade"
+      ],
+      "tones": {
+        "default": [
+          "#ead4aa",
+          "#c28569"
+        ],
+        "fair": [
+          "#f1c9a5",
+          "#d9a37f"
+        ],
+        "tan": [
+          "#c98e5f",
+          "#a66f45"
+        ],
+        "deep": [
+          "#8a5a3c",
+          "#6a4129"
+        ]
+      }
+    },
+    "hair": {
+      "colors": [
+        "hair-base",
+        "hair-shade"
+      ],
+      "tones": {
+        "brown": [
+          "#733e39",
+          "#3e2731"
+        ],
+        "black": [
+          "#4a4a55",
+          "#2b2b36"
+        ],
+        "red": [
+          "#a8452e",
+          "#6e2a1e"
+        ],
+        "gold": [
+          "#d9a441",
+          "#9c6f23"
+        ]
+      }
+    }
+  },
+  "parts": [
+    {
+      "id": "body-default",
+      "slot": "body",
+      "animations": [
+        "idle"
+      ],
+      "swap": [
+        "skin"
+      ],
+      "grantedBy": null
+    },
+    {
+      "id": "hair-crop",
+      "slot": "hair",
+      "animations": [
+        "idle"
+      ],
+      "swap": [
+        "hair"
+      ],
+      "grantedBy": null
+    },
+    {
+      "id": "hair-hood",
+      "slot": "hair",
+      "animations": [
+        "idle"
+      ],
+      "swap": [],
+      "grantedBy": "loot"
+    },
+    {
+      "id": "outfit-vest",
+      "slot": "outfit",
+      "animations": [
+        "idle"
+      ],
+      "swap": [],
+      "grantedBy": null
+    },
+    {
+      "id": "outfit-vest-rare",
+      "slot": "outfit",
+      "animations": [
+        "idle"
+      ],
+      "swap": [],
+      "grantedBy": "loot"
+    },
+    {
+      "id": "outfit-vest-epic",
+      "slot": "outfit",
+      "animations": [
+        "idle"
+      ],
+      "swap": [],
+      "grantedBy": "loot"
+    },
+    {
+      "id": "item-staff",
+      "slot": "item",
+      "animations": [
+        "idle"
+      ],
+      "swap": [],
+      "grantedBy": "loot"
+    }
+  ],
+  "cosmetics": {
+    "frames": [],
+    "mapStyles": []
+  }
+}

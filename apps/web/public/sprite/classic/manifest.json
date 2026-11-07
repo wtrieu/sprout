@@ -2,8 +2,8 @@
   "version": 1,
   "style": "classic",
   "canvas": {
-    "width": 32,
-    "height": 40
+    "width": 64,
+    "height": 64
   },
   "palette": [
     {
@@ -138,8 +138,8 @@
       "region": {
         "x0": 0,
         "y0": 0,
-        "x1": 31,
-        "y1": 39
+        "x1": 63,
+        "y1": 63
       },
       "keepClear": [],
       "mustCover": []
@@ -148,10 +148,10 @@
       "id": "cape",
       "z": 1,
       "region": {
-        "x0": 7,
-        "y0": 17,
-        "x1": 24,
-        "y1": 38
+        "x0": 14,
+        "y0": 28,
+        "x1": 49,
+        "y1": 61
       },
       "keepClear": [],
       "mustCover": []
@@ -160,10 +160,10 @@
       "id": "body",
       "z": 2,
       "region": {
-        "x0": 6,
-        "y0": 5,
-        "x1": 25,
-        "y1": 39
+        "x0": 16,
+        "y0": 4,
+        "x1": 47,
+        "y1": 63
       },
       "keepClear": [],
       "mustCover": [
@@ -178,10 +178,10 @@
       "id": "outfit",
       "z": 3,
       "region": {
-        "x0": 8,
-        "y0": 17,
-        "x1": 23,
-        "y1": 34
+        "x0": 16,
+        "y0": 29,
+        "x1": 47,
+        "y1": 52
       },
       "keepClear": [
         "leftHand",
@@ -193,10 +193,10 @@
       "id": "hair",
       "z": 4,
       "region": {
-        "x0": 8,
+        "x0": 18,
         "y0": 3,
-        "x1": 23,
-        "y1": 18
+        "x1": 45,
+        "y1": 24
       },
       "keepClear": [
         "leftHand",
@@ -208,10 +208,10 @@
       "id": "item",
       "z": 5,
       "region": {
-        "x0": 2,
-        "y0": 20,
-        "x1": 29,
-        "y1": 39
+        "x0": 4,
+        "y0": 30,
+        "x1": 59,
+        "y1": 63
       },
       "keepClear": [
         "leftHand",
@@ -225,8 +225,8 @@
       "region": {
         "x0": 0,
         "y0": 0,
-        "x1": 31,
-        "y1": 39
+        "x1": 63,
+        "y1": 63
       },
       "keepClear": [
         "leftHand",
@@ -236,17 +236,21 @@
     }
   ],
   "anchors": {
-    "headTopRow": 6,
-    "shoulderRow": 18,
+    "headTopRow": 4,
+    "shoulderRow": 29,
     "leftHand": {
-      "x": 9,
-      "y": 28
+      "x": 23,
+      "y": 34
     },
     "rightHand": {
-      "x": 22,
-      "y": 28
+      "x": 37,
+      "y": 42
     },
-    "footRow": 37
+    "footRow": 58,
+    "grip": {
+      "x": 17,
+      "y": 34
+    }
   },
   "animations": {
     "idle": {

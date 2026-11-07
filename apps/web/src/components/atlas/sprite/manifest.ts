@@ -6,7 +6,7 @@
 import { z } from "zod";
 
 const hex = z.string().regex(/^#[0-9a-f]{6}$/i);
-const anchorName = z.enum(["headTopRow", "shoulderRow", "leftHand", "rightHand", "footRow"]);
+const anchorName = z.enum(["headTopRow", "shoulderRow", "leftHand", "rightHand", "footRow", "grip"]);
 const point = z.object({ x: z.number().int().min(0), y: z.number().int().min(0) });
 
 export const SLOT_ORDER = [
@@ -52,6 +52,8 @@ export const SpriteManifestSchema = z
       leftHand: point,
       rightHand: point,
       footRow: z.number().int(),
+      // Held-item alignment point; the bare body leaves it unpainted.
+      grip: point,
     }),
     animations: z.object({
       idle: z.object({ frames: z.literal(2), fps: z.number().positive() }),

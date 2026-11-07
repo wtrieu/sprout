@@ -8,9 +8,11 @@
  * screen (never mid-lesson), with a soft 14-day deadline: past it the next
  * map load takes the first option on their behalf, logged `defaulted`.
  *
- * Perks are data on the class def. Only Scout's `fog_bonus` is wired (see
- * game.ts revealedNodeIds); the rest ship inert with their copy, so a perk
- * can only ever nudge a habit.
+ * Perks are data on the class def. Scout's `fog_bonus` reveals more fog (see
+ * game.ts revealedNodeIds); Scholar, Skeptic and Synthesist mark nodes on the
+ * map payload (`perkMarks`, below). Marks are derived from the log on read,
+ * only ever add a hint, and never gate or subtract, so a perk can only nudge
+ * a habit.
  */
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import type { DB } from "../../../db/client";
@@ -381,6 +383,69 @@ export const currentClass = (db: DB, playerId: number): CurrentClass | null => {
 /** Scout's fog bonus is the one wired perk. */
 export const hasFogBonus = (db: DB, playerId: number): boolean =>
   currentClass(db, playerId)?.perk?.id === STYLE_DEFS.scout.perk.id;
+
+export type PerkMarks = {
+  perkId: string;
+  /** What the UI should draw: a bookmark, a reminder, or a bridge marker. */
+  mark: "bookmark" | "reminder" | "bridge";
+  nodeIds: number[];
+};
+
+const MARK_OF: Record<string, PerkMarks["mark"]> = {
+  [STYLE_DEFS.scholar.perk.id]: "bookmark",
+  [STYLE_DEFS.skeptic.perk.id]: "reminder",
+  [STYLE_DEFS.synthesist.perk.id]: "bridge",
+};
+
+/**
+ * Pure: the nodes a nudge perk marks, from tiers and nodes alone.
+ * - deepdive_nudge: studied (one-pager read) but deep dive not yet read.
+ * - quiz_nudge: read at any rung but quiz not yet passed.
+ * - bridge_nudge: unopened entries whose discipline already runs through two
+ *   or more touched branches. The schema has no cross-branch links, so a
+ *   shared discipline is the nearest enforceable "links two of your branches".
+ */
+export const perkMarkNodeIds = (perkId: string, state: PlayerState): number[] => {
+  const tier = (id: number) => state.tiers.get(id);
+  if (perkId === STYLE_DEFS.scholar.perk.id) {
+    return state.nodes.filter((n) => tier(n.id)?.onepager && !tier(n.id)?.deepdive).map((n) => n.id);
+  }
+  if (perkId === STYLE_DEFS.skeptic.perk.id) {
+    return state.nodes
+      .filter((n) => {
+        const t = tier(n.id);
+        return t && (t.eli10 || t.onepager || t.deepdive) && !t.mastered;
+      })
+      .map((n) => n.id);
+  }
+  if (perkId === STYLE_DEFS.synthesist.perk.id) {
+    const branches = new Map<string, Set<number>>();
+    for (const n of state.nodes) {
+      if (!n.discipline || !tier(n.id)?.seen) continue;
+      const set = branches.get(n.discipline) ?? new Set<number>();
+      set.add(branchOf(n));
+      branches.set(n.discipline, set);
+    }
+    return state.nodes
+      .filter(
+        (n) =>
+          n.parentId !== null &&
+          !tier(n.id)?.seen &&
+          n.discipline !== null &&
+          (branches.get(n.discipline)?.size ?? 0) >= 2,
+      )
+      .map((n) => n.id);
+  }
+  return [];
+};
+
+/** The marks for the player's current class, or null when its perk does not mark. */
+export const perkMarksFor = (db: DB, playerId: number, state: PlayerState): PerkMarks | null => {
+  const perkId = currentClass(db, playerId)?.perk?.id;
+  const mark = perkId ? MARK_OF[perkId] : undefined;
+  if (!perkId || !mark) return null;
+  return { perkId, mark, nodeIds: perkMarkNodeIds(perkId, state) };
+};
 
 export type AcceptResult =
   | { ok: true; offer: OfferRow }

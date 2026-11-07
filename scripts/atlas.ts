@@ -20,7 +20,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../apps/web/src/db/client";
 import { atlasNodes } from "../apps/web/src/db/schema";
 import { assignDisciplines } from "../apps/web/src/lib/atlas/disciplines";
-import { draftMap } from "../apps/web/src/lib/atlas/draftMap";
+import { runDraftMapJob } from "../apps/web/src/lib/atlas/draftMap";
 import { activeMapId, runWeeklyFrontier } from "../apps/web/src/lib/atlas/frontier";
 import { generateKidVersion } from "../apps/web/src/lib/atlas/kid";
 import { maybeNotifyMapReady, preloadMap } from "../apps/web/src/lib/atlas/preload";
@@ -72,16 +72,21 @@ const main = async (): Promise<number> => {
       const mapId = Number(flag("map"));
       if (!Number.isInteger(mapId)) usage();
       console.log(`atlas draft-map #${mapId} starting ${startedAt}`);
-      const res = draftMap(db, mapId);
-      if (!res.ok) return 2;
-      // Captured seeds find their place in the fresh map before the
-      // one-pagers are queued, so an attached node is preloaded with the rest.
-      await placeSeeds(mapId);
-      // The map is browsable fog now; the one-pagers (and the ready email)
-      // land in the background.
-      const shards = spawnPreloadShards(mapId);
-      console.log(`spawned ${shards} preload shards for map #${mapId}`);
-      return 0;
+      // The job also promotes the oldest queued map when it ends (success or
+      // failure), so queued drafts start whether this run came from the API
+      // or from a hand-run command.
+      const res = await runDraftMapJob(db, mapId, {
+        onReady: async () => {
+          // Captured seeds find their place in the fresh map before the
+          // one-pagers are queued, so an attached node is preloaded with the rest.
+          await placeSeeds(mapId);
+          // The map is browsable fog now; the one-pagers (and the ready email)
+          // land in the background.
+          const shards = spawnPreloadShards(mapId);
+          console.log(`spawned ${shards} preload shards for map #${mapId}`);
+        },
+      });
+      return res.ok ? 0 : 2;
     }
     case "preload": {
       const mapId = Number(flag("map"));

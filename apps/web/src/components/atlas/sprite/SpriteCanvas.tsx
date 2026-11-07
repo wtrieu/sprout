@@ -69,7 +69,7 @@ export function SpriteFallback({
       aria-label={label}
       title={missing ? "Character art unavailable" : undefined}
       data-sprite-fallback={missing ? "missing" : "loading"}
-      style={{ width: 32 * scale, height: 40 * scale }}
+      style={{ width: 64 * scale, height: 64 * scale }}
       className="flex items-end justify-center rounded-md bg-neutral-800/60"
     >
       <span className="pb-1 text-neutral-600" style={{ fontSize: 10 * scale }}>

@@ -9,7 +9,7 @@ describe("sprite manifest", () => {
   const m = readManifest();
 
   it("matches the agreed format", () => {
-    expect(m.canvas).toEqual({ width: 32, height: 40 });
+    expect(m.canvas).toEqual({ width: 64, height: 64 });
     expect(m.palette.length).toBeLessThanOrEqual(32);
     expect(m.animations.idle.frames).toBe(2);
     expect(m.animations.celebrate.frames).toBe(4);
@@ -28,6 +28,25 @@ describe("sprite manifest", () => {
       outfit: "outfit-tunic",
       hair: "hair-short",
     });
+  });
+
+  it("carries the authoritative anchors and the grip/hair conventions", () => {
+    expect(m.anchors).toEqual({
+      headTopRow: 4,
+      shoulderRow: 29,
+      leftHand: { x: 23, y: 34 },
+      rightHand: { x: 37, y: 42 },
+      footRow: 58,
+      grip: { x: 17, y: 34 },
+    });
+    const slot = (id: string) => m.slots.find((s) => s.id === id)!;
+    expect(slot("body").mustCover).toContain("leftHand");
+    for (const s of m.slots) {
+      expect(s.mustCover).not.toContain("grip");
+      expect(s.keepClear).not.toContain("grip");
+    }
+    expect(slot("hair").region.y0).toBeLessThanOrEqual(m.anchors.headTopRow - 1);
+    expect(slot("hair").keepClear).not.toContain("headTopRow");
   });
 
   it("registers the cosmetic frame and map-style ids", () => {

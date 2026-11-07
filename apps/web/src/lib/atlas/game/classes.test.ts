@@ -11,6 +11,7 @@ import {
   behaviorOf,
   buildOptions,
   classHistory,
+  classDef,
   currentClass,
   defaultLapsedOffers,
   hasFogBonus,
@@ -18,11 +19,14 @@ import {
   meetsSignalFloor,
   nextGateFor,
   parseOptions,
+  perkMarkNodeIds,
+  perkMarksFor,
   rankPairings,
 } from "./classes";
 import { loadPlayerState } from "./data";
 import { onEventsLogged } from "./hooks";
 import { pendingFor, revealPending } from "./pending";
+import { mapProgressFor } from "../progress";
 import { makeDb, makePlayer, master, open, pass, read, seedWorld } from "./testkit";
 
 const day = (d: number, h = 12) => new Date(2026, 9, d, h, 0, 0);
@@ -243,5 +247,91 @@ describe("offers", () => {
     acceptOffer(db, player.id, offer.id, pick.classId);
     expect(hasFogBonus(db, player.id)).toBe(pick.style === "Scout");
     expect(db.select().from(schema.atlasClassOffers).where(eq(schema.atlasClassOffers.status, "accepted")).all()).toHaveLength(1);
+  });
+});
+
+describe("nudge perks", () => {
+  /** Accept a given class id directly on a fresh offer. */
+  const adopt = (db: DB, playerId: number, classId: string) => {
+    const row = db
+      .insert(schema.atlasClassOffers)
+      .values({
+        playerId,
+        gateLevel: 10,
+        status: "revealed",
+        options: JSON.stringify([
+          { classId, title: classId, affinity: "a", style: "s", blurb: "b", perk: perkOf(classId) },
+        ]),
+      })
+      .returning()
+      .get();
+    expect(acceptOffer(db, playerId, row.id, classId).ok).toBe(true);
+  };
+  const perkOf = (classId: string) => classDef(classId)!.perk;
+
+  const world = () => {
+    const db = makeDb();
+    const w = seedWorld(db, 2, 5);
+    const player = makePlayer(db);
+    return { db, w, player };
+  };
+
+  it("Scholar bookmarks studied nodes whose deep dive is unread", () => {
+    const { db, w, player } = world();
+    const [a, b, c] = w.kids.get(w.branches[0]!)!;
+    read(db, player.id, a!, "onepager");
+    read(db, player.id, b!, "onepager");
+    read(db, player.id, b!, "deepdive");
+    open(db, player.id, c!);
+    adopt(db, player.id, "analytic-scholar");
+    const marks = perkMarksFor(db, player.id, loadPlayerState(db, player.id));
+    expect(marks).toEqual({ perkId: "deepdive_nudge", mark: "bookmark", nodeIds: [a] });
+    expect(mapProgressFor(db, player.id, w.mapId).perkMarks?.nodeIds).toEqual([a]);
+  });
+
+  it("Skeptic reminds on read-but-unverified nodes, and clears on pass", () => {
+    const { db, w, player } = world();
+    const [a, b, c] = w.kids.get(w.branches[0]!)!;
+    read(db, player.id, a!, "eli10");
+    read(db, player.id, b!, "onepager");
+    pass(db, player.id, b!);
+    open(db, player.id, c!);
+    adopt(db, player.id, "analytic-skeptic");
+    const marks = perkMarksFor(db, player.id, loadPlayerState(db, player.id));
+    expect(marks?.mark).toBe("reminder");
+    expect(marks?.nodeIds).toEqual([a]);
+  });
+
+  it("Synthesist bridges unopened nodes sharing a discipline across two touched branches", () => {
+    const { db, w, player } = world();
+    // Tag every child language so the discipline spans both branches.
+    db.update(schema.atlasNodes)
+      .set({ discipline: "language" })
+      .where(isNotNull(schema.atlasNodes.parentId))
+      .run();
+    const [a1, a2] = w.kids.get(w.branches[0]!)!;
+    const [b1] = w.kids.get(w.branches[1]!)!;
+    adopt(db, player.id, "analytic-synthesist");
+    open(db, player.id, a1!);
+    // One touched branch: nothing to bridge yet.
+    expect(perkMarksFor(db, player.id, loadPlayerState(db, player.id))?.nodeIds).toEqual([]);
+    open(db, player.id, b1!);
+    const ids = perkMarksFor(db, player.id, loadPlayerState(db, player.id))!.nodeIds;
+    expect(ids).toContain(a2);
+    expect(ids).not.toContain(a1);
+    expect(ids).not.toContain(b1);
+  });
+
+  it("marks nothing for Scout, no class, or an unknown perk, and never changes levels", () => {
+    const { db, w, player } = world();
+    const [a] = w.kids.get(w.branches[0]!)!;
+    read(db, player.id, a!, "onepager");
+    const before = loadPlayerState(db, player.id).total;
+    expect(perkMarksFor(db, player.id, loadPlayerState(db, player.id))).toBeNull();
+    adopt(db, player.id, "analytic-scout");
+    expect(perkMarksFor(db, player.id, loadPlayerState(db, player.id))).toBeNull();
+    expect(perkMarkNodeIds("nope", loadPlayerState(db, player.id))).toEqual([]);
+    expect(loadPlayerState(db, player.id).total).toBe(before);
+    expect(mapProgressFor(db, player.id, w.mapId).perkMarks).toBeNull();
   });
 });

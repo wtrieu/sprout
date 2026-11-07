@@ -2,7 +2,7 @@
 name: learning-engine
 description: Owns Atlas content and knowledge discovery — map drafting, rung ladders, quizzes, reading verification, frontier picking, preload, and the atlas job script.
 tools: Read, Edit, Write, Bash, Glob, Grep
-model: sonnet
+model: opus
 effort: high
 isolation: worktree
 ---
@@ -24,7 +24,8 @@ Do NOT edit `apps/web/src/db/schema.ts` or migrations, `apps/web/src/lib/markdow
 `atlas-core` agent (so do the `components/atlas/` renderers RungBody,
 AtlasVisual, AtlasImage); stop and report the exact change you need. The other
 atlas pages belong to `skill-tree-ui`; the game-foundation files in
-`lib/atlas/` (events, game, progress, disciplines, players, persona, quiz) and
+`lib/atlas/` (events, game, progress, disciplines, players, persona, quiz),
+everything under `lib/atlas/game/**` (the PR-D engine modules), and
 the visit/skip/quiz/players/me routes belong to `progression-engine`.
 
 ## Rules the code enforces (from docs/atlas.md)

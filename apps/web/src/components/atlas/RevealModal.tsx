@@ -1,9 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { personaLine } from "@/lib/atlas/persona";
 import type { AtlasPersona } from "@/db/schema";
 import { itemLabel, type Pending } from "./loadout";
+
+const REVEAL_CSS = `
+@keyframes rv-backdrop { from { opacity: 0 } to { opacity: 1 } }
+@keyframes rv-card { 0% { opacity: 0; transform: translateY(24px) scale(.92) } 60% { opacity: 1; transform: translateY(-4px) scale(1.02) } 100% { opacity: 1; transform: none } }
+@keyframes rv-chest { 0% { transform: scale(.4) rotate(0); opacity: 0 } 25% { transform: scale(1) rotate(-8deg); opacity: 1 } 40% { transform: rotate(8deg) } 55% { transform: rotate(-6deg) } 70% { transform: rotate(4deg) scale(1.1) } 100% { transform: scale(1.5) rotate(0); opacity: 0 } }
+@keyframes rv-rise { from { opacity: 0; transform: translateY(12px) } to { opacity: 1; transform: none } }
+@keyframes rv-pop { 0% { opacity: 0; transform: translateY(16px) scale(.6) } 70% { opacity: 1; transform: translateY(-3px) scale(1.08) } 100% { opacity: 1; transform: none } }
+@keyframes rv-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0) } 50% { box-shadow: 0 0 28px 4px rgba(245,158,11,.35) } }
+@keyframes rv-fade { from { opacity: 0 } to { opacity: 1 } }
+.rv-backdrop { animation: rv-backdrop .3s ease-out both }
+.rv-card { animation: rv-card .55s cubic-bezier(.2,.8,.3,1) both, rv-glow 1.6s ease-in-out 1.1s 1 }
+.rv-chest { animation: rv-chest 1s ease-in-out both; pointer-events: none }
+.rv-rise { animation: rv-rise .5s ease-out both; animation-delay: var(--rv-d, 0s) }
+.rv-pop { animation: rv-pop .5s cubic-bezier(.2,.8,.3,1) both; animation-delay: var(--rv-d, 0s) }
+@media (prefers-reduced-motion: reduce) {
+  .rv-backdrop, .rv-card, .rv-rise, .rv-pop { animation: rv-fade .3s ease-out both; animation-delay: 0s }
+  .rv-chest { display: none }
+}
+`;
+
+/** Sequenced loot-drop styles; reduced motion collapses everything to a fade. */
+function RevealStyles() {
+  return <style>{REVEAL_CSS}</style>;
+}
 
 /** The queued-loot banner shown on the map screen; opening it reveals. */
 export function ChestBanner({
@@ -78,15 +102,27 @@ export function RevealModal({
       role="dialog"
       aria-modal="true"
       aria-label="Your reveal"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      className="rv-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-amber-500/40 bg-neutral-900 p-6 shadow-xl">
+      <RevealStyles />
+      <div
+        key={at}
+        className="rv-card relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-amber-500/40 bg-neutral-900 p-6 shadow-xl"
+      >
+        {step.kind === "achievement" && (
+          <span aria-hidden className="rv-chest absolute left-1/2 top-10 -ml-8 text-6xl">
+            🎁
+          </span>
+        )}
         {step.kind === "achievement" ? (
           (() => {
             const a = pending.achievements[step.index];
             return (
               <div className="space-y-4">
-                <p className="text-sm italic text-neutral-400">
+                <p
+                  className="rv-rise text-sm italic text-neutral-400"
+                  style={{ "--rv-d": "0.9s" } as CSSProperties}
+                >
                   “
                   {personaLine(
                     persona,
@@ -96,7 +132,7 @@ export function RevealModal({
                   )}
                   ”
                 </p>
-                <div>
+                <div className="rv-rise" style={{ "--rv-d": "1.1s" } as CSSProperties}>
                   {a.hidden && (
                     <span className="mb-1 inline-block rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
                       a hidden one
@@ -111,10 +147,11 @@ export function RevealModal({
                     {a.items.length === 0 && (
                       <li className="text-xs text-neutral-500">Just the glory this time.</li>
                     )}
-                    {a.items.map((it) => (
+                    {a.items.map((it, n) => (
                       <li
                         key={it.id}
-                        className="rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm capitalize text-neutral-200"
+                        style={{ "--rv-d": `${1.4 + n * 0.25}s` } as CSSProperties}
+                        className="rv-pop rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm capitalize text-neutral-200"
                       >
                         {itemLabel(it)}
                       </li>
@@ -153,7 +190,8 @@ export function RevealModal({
                 o ? (
                   <li
                     key={o.classId}
-                    className="rounded-lg border border-neutral-700 bg-neutral-950 p-4"
+                    style={{ "--rv-d": `${0.3 + i * 0.2}s` } as CSSProperties}
+                    className="rv-rise rounded-lg border border-neutral-700 bg-neutral-950 p-4"
                   >
                     <div className="flex flex-wrap items-baseline gap-2">
                       <p className="font-medium text-neutral-100">{o.title}</p>

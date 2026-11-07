@@ -8,7 +8,7 @@ import { personaLine } from "@/lib/atlas/persona";
 import { playerForEmail } from "@/lib/atlas/players";
 import { defaultLapsedOffers } from "@/lib/atlas/game/classes";
 import { mapGamePayload, mapGreetingCounts, mapProgressFor } from "@/lib/atlas/progress";
-import { reapStaleMaps } from "@/lib/atlas/runner";
+import { promoteNextQueuedMap, reapStaleMaps } from "@/lib/atlas/runner";
 import { setSetting } from "@/lib/settings";
 
 export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
@@ -133,5 +133,8 @@ export const DELETE = async (_req: NextRequest, { params }: { params: Promise<{ 
   const map = db.select().from(atlasMaps).where(eq(atlasMaps.id, Number(id))).get();
   if (!map) return NextResponse.json({ error: "not found" }, { status: 404 });
   db.delete(atlasMaps).where(eq(atlasMaps.id, map.id)).run();
+  // Deleting a drafting map whose job died would otherwise leave queued rows
+  // with nothing drafting. No-op when something else is drafting.
+  promoteNextQueuedMap(db);
   return NextResponse.json({ deleted: true });
 };
