@@ -604,9 +604,11 @@ export const ensureRung = async (
   }
 
   const models = atlasModels();
-  // The one-pager is always written on its own model and never judged,
-  // whatever triggered it (preload or the node page).
-  const model = level === "onepager" ? models.onepager : models.writer;
+  // One-pagers and eli10s are bulk-drafted (preload, prefetch) on the fast
+  // models and never judged, whatever triggered them; only the deep dive
+  // gets the writer model and the judge.
+  const model =
+    level === "onepager" ? models.onepager : level === "eli10" ? models.eli10 : models.writer;
   const row = markRungDrafting(db, nodeId, level, model);
   const fail = (message: string): EnsureRungResult => {
     const failed = db

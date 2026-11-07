@@ -113,7 +113,7 @@ export const householdMemory = (
 
 const EPOCH = new Date(0);
 
-const toFrontierNodes = (
+export const toFrontierNodes = (
   nodes: readonly NodeRow[],
   memory: { seen: Set<number>; lastOpened: Map<number, Date> },
 ): FrontierNode[] =>

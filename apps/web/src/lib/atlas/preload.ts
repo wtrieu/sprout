@@ -1,7 +1,11 @@
 /**
- * Preload — every one-pager (with its quiz) drafted as soon as a map exists,
- * so from then on every node opens instantly. Eli10 and deep dive stay on
- * demand.
+ * Preload — every one-pager (with its quiz) and every eli10 drafted as soon as
+ * a map exists, so from then on every node opens instantly at both of its
+ * cheap levels. A shard drafts its one-pagers first (the default rung lands
+ * fastest), then its eli10s (written from the one-pager, on the fast model,
+ * never judged). Running preload again over a map whose rungs are already
+ * ready is the backfill: ensureRung no-ops on ready rows, so only the missing
+ * eli10s get drafted. The deep dive stays on demand.
  *
  * callClaude is spawnSync, so one process is serial; the web process spawns
  * ATLAS_PRELOAD_WORKERS detached shards (runner.spawnPreloadShards) and each
@@ -9,7 +13,7 @@
  * nodes are nodes like any other — they keep their one-pagers.
  *
  * The "map is ready" email is sent exactly once: the shard that finds every
- * node's one-pager ready-or-failed (and nothing still drafting) atomically
+ * node's one-pager and eli10 ready-or-failed (and nothing still drafting) atomically
  * claims `atlas_maps.notified_at` — the UPDATE that returns a row sends, so
  * two shards finishing together cannot send twice.
  */
@@ -78,6 +82,78 @@ export const suggestedStarts = (
   return starts;
 };
 
+/**
+ * If the whole map is done — no live drafting row, every node's one-pager AND
+ * eli10 ready-or-failed (a node whose one-pager failed counts as settled: no
+ * eli10 can be written from it) — atomically claim the notification:
+ * `update atlas_maps set notified_at = now where id = ? and notified_at is
+ * null`. The caller whose UPDATE returns a row sends the email, so any two
+ * runs finishing together cannot send twice.
+ *
+ * Every run that can be the last to finish a rung of the map calls this at
+ * its end: preload shards, the likely-next prefetch, and the single-rung
+ * click job — otherwise a map whose final rung landed outside preload would
+ * never get its email. A stale `drafting` row is a dead run (the reaper's
+ * rule), not work in flight, so it does not hold the email back.
+ */
+export const maybeNotifyMapReady = async (
+  db: DB,
+  mapId: number,
+  deps: { send?: SendEmailFn; log?: (msg: string) => void; now?: Date } = {},
+): Promise<boolean> => {
+  const log = deps.log ?? console.log;
+  const map = db.select().from(atlasMaps).where(eq(atlasMaps.id, mapId)).get();
+  if (!map) return false;
+  const nodes = db
+    .select()
+    .from(atlasNodes)
+    .where(eq(atlasNodes.mapId, mapId))
+    .orderBy(asc(atlasNodes.id))
+    .all();
+  const nodeIds = nodes.map((n) => n.id);
+  const rungRows = nodeIds.length
+    ? db.select().from(atlasRungs).where(inArray(atlasRungs.nodeId, nodeIds)).all()
+    : [];
+  const anyDrafting = rungRows.some(
+    (r) => r.status === "drafting" && !isStale(r.startedAt, RUNG_STALE_MS, deps.now),
+  );
+  const onepagers = new Map(rungRows.filter((r) => r.level === "onepager").map((r) => [r.nodeId, r]));
+  const eli10s = new Map(rungRows.filter((r) => r.level === "eli10").map((r) => [r.nodeId, r]));
+  const settled = (status: string | undefined) => status === "ready" || status === "failed";
+  const complete =
+    nodes.length > 0 &&
+    !anyDrafting &&
+    nodes.every((n) => {
+      const op = onepagers.get(n.id)?.status;
+      if (!settled(op)) return false;
+      return op === "failed" || settled(eli10s.get(n.id)?.status);
+    });
+  if (!complete) return false;
+
+  const claimed = db
+    .update(atlasMaps)
+    .set({ notifiedAt: deps.now ?? new Date() })
+    .where(and(eq(atlasMaps.id, mapId), isNull(atlasMaps.notifiedAt)))
+    .returning({ id: atlasMaps.id })
+    .get();
+  if (!claimed) return false;
+
+  const readyCount = nodes.filter((n) => onepagers.get(n.id)?.status === "ready").length;
+  const email = renderMapReadyEmail({
+    map: { id: map.id, title: map.title, blurb: map.blurb },
+    branchCount: nodes.filter((n) => n.parentId === null).length,
+    nodeCount: nodes.length,
+    readyCount,
+    failedCount: nodes.length - readyCount,
+    starts: suggestedStarts(nodes, (id) => onepagers.get(id)?.hook ?? null),
+    baseUrl: process.env.SPROUT_BASE_URL ?? "http://localhost:3100",
+  });
+  const send = deps.send ?? sendEmail;
+  await send(email);
+  log(`map #${mapId} fully preloaded — notification sent`);
+  return true;
+};
+
 export const preloadMap = async (
   db: DB,
   mapId: number,
@@ -114,6 +190,36 @@ export const preloadMap = async (
       continue;
     }
     const res = await ensureRung(db, node.id, "onepager", {
+      llm: deps.llm,
+      fetchImpl: deps.fetchImpl,
+      log,
+    });
+    if (!res.ok) failed += 1;
+    else if (res.fresh) drafted += 1;
+    else skipped += 1;
+  }
+
+  // Eli10s, after every one-pager of this shard. Same shape as the loop above:
+  // a fresh drafting row is someone else's claim, a ready row is a no-op (the
+  // backfill for maps preloaded before eli10s were drafted at creation). An
+  // eli10 is written from its one-pager, so a node whose one-pager is not
+  // ready here (it just failed, or another run holds the drafting claim) is
+  // skipped rather than letting ensureRung redraft the one-pager out from
+  // under that claim or burn a second attempt on a failure.
+  for (const node of mine) {
+    const onepager = rungFor(db, node.id, "onepager");
+    if (onepager?.status !== "ready") {
+      log(`node #${node.id} "${node.title}": eli10 skipped — one-pager is ${onepager?.status ?? "missing"}`);
+      skipped += 1;
+      continue;
+    }
+    const existing = rungFor(db, node.id, "eli10");
+    if (existing?.status === "drafting" && !isStale(existing.startedAt, RUNG_STALE_MS, deps.now)) {
+      log(`node #${node.id} "${node.title}": eli10 already drafting — skipped`);
+      skipped += 1;
+      continue;
+    }
+    const res = await ensureRung(db, node.id, "eli10", {
       llm: deps.llm,
       fetchImpl: deps.fetchImpl,
       log,
@@ -206,47 +312,12 @@ export const preloadMap = async (
     }
   }
 
-  // This shard is done. If the whole map is done — no rung of the map still
-  // drafting, every node's one-pager ready-or-failed — claim the notification.
-  const nodeIds = nodes.map((n) => n.id);
-  const rungRows = nodeIds.length
-    ? db.select().from(atlasRungs).where(inArray(atlasRungs.nodeId, nodeIds)).all()
-    : [];
-  const anyDrafting = rungRows.some((r) => r.status === "drafting");
-  const onepagers = new Map(rungRows.filter((r) => r.level === "onepager").map((r) => [r.nodeId, r]));
-  const complete =
-    nodes.length > 0 &&
-    !anyDrafting &&
-    nodes.every((n) => {
-      const s = onepagers.get(n.id)?.status;
-      return s === "ready" || s === "failed";
-    });
-
-  let notified = false;
-  if (complete) {
-    const claimed = db
-      .update(atlasMaps)
-      .set({ notifiedAt: deps.now ?? new Date() })
-      .where(and(eq(atlasMaps.id, mapId), isNull(atlasMaps.notifiedAt)))
-      .returning({ id: atlasMaps.id })
-      .get();
-    if (claimed) {
-      const readyCount = nodes.filter((n) => onepagers.get(n.id)?.status === "ready").length;
-      const email = renderMapReadyEmail({
-        map: { id: map.id, title: map.title, blurb: map.blurb },
-        branchCount: nodes.filter((n) => n.parentId === null).length,
-        nodeCount: nodes.length,
-        readyCount,
-        failedCount: nodes.length - readyCount,
-        starts: suggestedStarts(nodes, (id) => onepagers.get(id)?.hook ?? null),
-        baseUrl: process.env.SPROUT_BASE_URL ?? "http://localhost:3100",
-      });
-      const send = deps.send ?? sendEmail;
-      await send(email);
-      notified = true;
-      log(`map #${mapId} fully preloaded — notification sent by shard ${shard}`);
-    }
-  }
+  // This shard is done. If the whole map is done, claim the notification.
+  const notified = await maybeNotifyMapReady(db, mapId, {
+    send: deps.send,
+    log,
+    now: deps.now,
+  });
 
   log(
     `preload shard ${shard}/${shards} done: ${drafted} drafted, ${skipped} skipped, ${failed} failed, ${quizzes} quizzes backfilled, ${visualsBackfilled} visuals backfilled${notified ? ", email sent" : ""}`,

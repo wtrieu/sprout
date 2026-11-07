@@ -123,7 +123,8 @@ batch time.
 | Weekly digest email | Sun 06:30 | `pnpm --filter web run job:digest` |
 | Drain queue only | — | `pnpm --filter web run job:run` |
 | Atlas drafts (map outline, rungs) | on demand, detached from the app | `pnpm --filter web run job:atlas rung --node <id> --level onepager` |
-| Atlas preload (every one-pager + quiz, then one "map is ready" email) | after each map draft, detached | `pnpm --filter web run job:atlas preload --map <id> [--shard <k> --shards <n>]` |
+| Atlas prefetch (on a node visit: eli10 + one-pager of the next 3 unvisited nodes; never deep dives) | after each node visit, detached | `pnpm --filter web run job:atlas prefetch --node <id>` |
+| Atlas preload (every one-pager + quiz + eli10, then one "map is ready" email) | after each map draft, detached | `pnpm --filter web run job:atlas preload --map <id> [--shard <k> --shards <n>]` |
 | Atlas discipline backfill (tag pre-PR-C maps for the game layer) | once per old map, by hand | `pnpm --filter web run job:atlas disciplines --map <id> [--force]` |
 | Atlas engine (nightly achievement pass: base-rule sweep + model grants) | 04:30 daily | `pnpm --filter web run job:atlas engine [--player <id>] [--window-days <n>]` |
 | Atlas weekly frontier note (one unvisited node, one-pager + deep dive pre-drafted, emailed) | Wed 06:30 | `EMAIL_DRY_RUN=true pnpm --filter web run job:atlas note [--force]` |

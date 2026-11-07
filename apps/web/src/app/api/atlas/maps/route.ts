@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { atlasMaps, atlasNodes, atlasRungs } from "@/db/schema";
 import { getPreset, presetKeys } from "@/lib/atlas/presets";
@@ -13,26 +13,39 @@ export const GET = () => {
     .select({ id: atlasNodes.id, mapId: atlasNodes.mapId, visitedAt: atlasNodes.visitedAt })
     .from(atlasNodes)
     .all();
-  const readyOnepagers = new Set(
-    db
-      .select({ nodeId: atlasRungs.nodeId })
-      .from(atlasRungs)
-      .where(and(eq(atlasRungs.level, "onepager"), eq(atlasRungs.status, "ready")))
-      .all()
-      .map((r) => r.nodeId),
-  );
-  const counts = new Map<number, { nodeCount: number; visitedCount: number; onepagerReadyCount: number }>();
+  const statusByNode = (level: "eli10" | "onepager") =>
+    new Map(
+      db
+        .select({ nodeId: atlasRungs.nodeId, status: atlasRungs.status })
+        .from(atlasRungs)
+        .where(eq(atlasRungs.level, level))
+        .all()
+        .map((r) => [r.nodeId, r.status]),
+    );
+  const onepagers = statusByNode("onepager");
+  const eli10s = statusByNode("eli10");
+  const settled = (s: string | undefined) => s === "ready" || s === "failed";
+  const empty = { nodeCount: 0, visitedCount: 0, onepagerReadyCount: 0, eli10ReadyCount: 0, pendingPagesCount: 0 };
+  const counts = new Map<number, typeof empty>();
   for (const n of nodes) {
-    const c = counts.get(n.mapId) ?? { nodeCount: 0, visitedCount: 0, onepagerReadyCount: 0 };
+    const c = counts.get(n.mapId) ?? { ...empty };
     c.nodeCount += 1;
     if (n.visitedAt) c.visitedCount += 1;
-    if (readyOnepagers.has(n.id)) c.onepagerReadyCount += 1;
+    const op = onepagers.get(n.id);
+    const el = eli10s.get(n.id);
+    if (op === "ready") c.onepagerReadyCount += 1;
+    if (el === "ready") c.eli10ReadyCount += 1;
+    // Pending = still to be drafted. A node whose one-pager failed is settled
+    // (no eli10 can be written from it) — the same rule preload's ready email
+    // uses, so the card never says "preparing" after the email has gone out.
+    if (!settled(op)) c.pendingPagesCount += 1;
+    if (op !== "failed" && !settled(el)) c.pendingPagesCount += 1;
     counts.set(n.mapId, c);
   }
   return NextResponse.json({
     maps: maps.map((m) => ({
       ...m,
-      ...(counts.get(m.id) ?? { nodeCount: 0, visitedCount: 0, onepagerReadyCount: 0 }),
+      ...(counts.get(m.id) ?? { ...empty }),
     })),
     presets: presetKeys,
   });

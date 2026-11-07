@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import * as schema from "../../db/schema";
 import type { DB } from "../../db/client";
-import type { AtlasLlm } from "./llm";
+import { atlasModels, type AtlasLlm } from "./llm";
 import { preloadMap, suggestedStarts } from "./preload";
 import type { QuizQuestion } from "./rungs";
 import type { FetchLike } from "./verify";
@@ -87,9 +87,11 @@ const seed = (db: DB) => {
 const nodeTitle = (prompt: string): string =>
   /THIS NODE \([a-z]+\): ([^—]+) —/.exec(prompt)?.[1]?.trim() ?? "?";
 
-type Recorder = { drafts: string[]; quizzes: string[]; visuals: string[] };
+const ELI10 = words(150, "e");
 
-const newRec = (): Recorder => ({ drafts: [], quizzes: [], visuals: [] });
+type Recorder = { drafts: string[]; eli10s: string[]; quizzes: string[]; visuals: string[] };
+
+const newRec = (): Recorder => ({ drafts: [], eli10s: [], quizzes: [], visuals: [] });
 
 /** Routes on prompt content: drafts, quiz backfill, visuals backfill. */
 const fakeLlm =
@@ -106,6 +108,11 @@ const fakeLlm =
       if (opts.failFor && title === opts.failFor) throw new Error(`model fell over on ${title}`);
       rec.drafts.push(title);
       return zschema.parse({ hook: `Hook: ${title}`, body_md: ONEPAGER, readings: [], quiz: QUIZ });
+    }
+    if (prompt.includes("Write the LIKE-I'M-10")) {
+      const title = nodeTitle(prompt);
+      rec.eli10s.push(title);
+      return zschema.parse({ body_md: ELI10 });
     }
     if (prompt.includes("Now write its quiz")) {
       rec.quizzes.push(nodeTitle(prompt));
@@ -133,6 +140,26 @@ const quiet = () => {};
 
 const onepagerRows = (db: DB) =>
   db.select().from(schema.atlasRungs).where(eq(schema.atlasRungs.level, "onepager")).all();
+
+const eli10Rows = (db: DB) =>
+  db.select().from(schema.atlasRungs).where(eq(schema.atlasRungs.level, "eli10")).all();
+
+const readyOnepagers = (db: DB, nodes: Array<{ id: number; title: string }>) => {
+  for (const n of nodes) {
+    db.insert(schema.atlasRungs)
+      .values({
+        nodeId: n.id,
+        level: "onepager",
+        status: "ready",
+        hook: `Hook: ${n.title}`,
+        bodyMd: ONEPAGER,
+        quizJson: JSON.stringify(QUIZ),
+        visualsJson: "[]",
+        readyAt: new Date(),
+      })
+      .run();
+  }
+};
 
 describe("preloadMap", () => {
   it("shards partition the nodes exactly once, and only the finishing shard emails", async () => {
@@ -368,6 +395,112 @@ describe("preloadMap", () => {
     const second = await preloadMap(db, map.id, { llm: fakeLlm(rec2), fetchImpl, send, log: quiet });
     expect(rec2.visuals).toEqual([]);
     expect(second.visuals).toBe(0);
+  });
+
+  it("drafts an eli10 for every node, one-pagers first, on the eli10 model", async () => {
+    // A distinct env override, or the assertion below could not tell the
+    // eli10 model apart from the onepager model (both default to the same).
+    process.env.ATLAS_MODEL_ELI10 = "test-eli10-model";
+    const db = makeDb();
+    const { map, nodes } = seed(db);
+    const order: string[] = [];
+    const models: string[] = [];
+    const inner = fakeLlm(newRec());
+    const { sent, send } = capturingSend();
+    let res;
+    try {
+      res = await preloadMap(db, map.id, {
+        llm: (prompt, zschema, opts) => {
+          const isOnepager = prompt.includes("Write the ONE-PAGER");
+          order.push(isOnepager ? "onepager" : "eli10");
+          if (!isOnepager) models.push(opts.model);
+          return inner(prompt, zschema, opts);
+        },
+        send,
+        log: quiet,
+      });
+    } finally {
+      delete process.env.ATLAS_MODEL_ELI10;
+    }
+    expect(res).toMatchObject({ drafted: 12, failed: 0, notified: true });
+    expect(order).toEqual([...Array(6).fill("onepager"), ...Array(6).fill("eli10")]);
+    expect(new Set(models)).toEqual(new Set(["test-eli10-model"]));
+    const rows = eli10Rows(db);
+    expect(rows.map((r) => r.nodeId).sort()).toEqual(nodes.map((n) => n.id).sort());
+    expect(rows.every((r) => r.status === "ready" && r.judgeVerdict === null)).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].html).toContain("6 of 6 one-pagers ready");
+  });
+
+  it("backfills only the missing eli10s on a map with ready one-pagers, then goes quiet", async () => {
+    const db = makeDb();
+    const { map, nodes } = seed(db);
+    readyOnepagers(db, nodes);
+    const rec = newRec();
+    const { sent, send } = capturingSend();
+    const first = await preloadMap(db, map.id, { llm: fakeLlm(rec), send, log: quiet });
+    expect(rec.drafts).toEqual([]);
+    expect(rec.eli10s.sort()).toEqual(nodes.map((n) => n.title).sort());
+    // 6 ready one-pagers are no-ops (skipped); 6 eli10s drafted.
+    expect(first).toMatchObject({ drafted: 6, skipped: 6, failed: 0, notified: true });
+    expect(sent).toHaveLength(1);
+
+    const rec2 = newRec();
+    const second = await preloadMap(db, map.id, { llm: fakeLlm(rec2), send, log: quiet });
+    expect(rec2.drafts).toEqual([]);
+    expect(rec2.eli10s).toEqual([]);
+    expect(second).toMatchObject({ drafted: 0, skipped: 12, failed: 0, notified: false });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("does not claim the notification while an eli10 is still drafting, claims once both levels are done", async () => {
+    const db = makeDb();
+    const { map, nodes } = seed(db);
+    readyOnepagers(db, nodes);
+    db.insert(schema.atlasRungs)
+      .values({ nodeId: nodes[0].id, level: "eli10", status: "drafting", startedAt: new Date() })
+      .run();
+    const { sent, send } = capturingSend();
+    const held = await preloadMap(db, map.id, { llm: fakeLlm(newRec()), send, log: quiet });
+    expect(held.notified).toBe(false);
+    expect(sent).toHaveLength(0);
+    expect(eli10Rows(db)).toHaveLength(6);
+
+    // The other run finishes: the drafting row flips to ready, the next run claims.
+    db.update(schema.atlasRungs)
+      .set({ status: "ready", bodyMd: ELI10, readyAt: new Date() })
+      .where(eq(schema.atlasRungs.id, eli10Rows(db).find((r) => r.nodeId === nodes[0].id)!.id))
+      .run();
+    const done = await preloadMap(db, map.id, { llm: fakeLlm(newRec()), send, log: quiet });
+    expect(done.notified).toBe(true);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("holds the email until the other shard's eli10s exist", async () => {
+    const db = makeDb();
+    const { map, nodes } = seed(db);
+    readyOnepagers(db, nodes);
+    const { sent, send } = capturingSend();
+    const a = await preloadMap(db, map.id, { shard: 0, shards: 2, llm: fakeLlm(newRec()), send, log: quiet });
+    expect(a.notified).toBe(false);
+    expect(sent).toHaveLength(0);
+    const b = await preloadMap(db, map.id, { shard: 1, shards: 2, llm: fakeLlm(newRec()), send, log: quiet });
+    expect(b.notified).toBe(true);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("writes no eli10 under another run's fresh one-pager claim", async () => {
+    const db = makeDb();
+    const { map, nodes } = seed(db);
+    readyOnepagers(db, nodes.slice(1));
+    db.insert(schema.atlasRungs)
+      .values({ nodeId: nodes[0].id, level: "onepager", status: "drafting", startedAt: new Date() })
+      .run();
+    const rec = newRec();
+    await preloadMap(db, map.id, { llm: fakeLlm(rec), log: quiet });
+    expect(rec.drafts).toEqual([]);
+    expect(rec.eli10s).not.toContain(nodes[0].title);
+    expect(onepagerRows(db).find((r) => r.nodeId === nodes[0].id)?.status).toBe("drafting");
   });
 
   it("suggests the first unvisited child of the first three branches", () => {
