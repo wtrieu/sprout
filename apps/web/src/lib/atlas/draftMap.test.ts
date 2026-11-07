@@ -15,6 +15,7 @@ import {
   buildChildrenPrompt,
   draftMap,
   normalizeMapDraft,
+  runDraftMapJob,
   type BranchChildren,
 } from "./draftMap";
 
@@ -159,5 +160,92 @@ describe("draftMap", () => {
     const row = db.select().from(schema.atlasMaps).where(eq(schema.atlasMaps.id, map.id)).get()!;
     expect(row.status).toBe("failed");
     expect(row.error).toBe("model unavailable");
+  });
+});
+
+describe("runDraftMapJob", () => {
+  const goodLlm: AtlasLlm = (prompt, zschema) => {
+    if (prompt.includes("drafting the outline")) return zschema.parse(outlineOf(8));
+    return zschema.parse({ children: childrenOf(1, 3)[0] });
+  };
+  const badLlm: AtlasLlm = () => {
+    throw new Error("model unavailable");
+  };
+  const setup = () => {
+    const db = makeDb();
+    const running = db
+      .insert(schema.atlasMaps)
+      .values({ title: "Running", status: "drafting" })
+      .returning()
+      .get();
+    const q1 = db
+      .insert(schema.atlasMaps)
+      .values({ title: "First in line", status: "queued", createdAt: new Date(1_000_000) })
+      .returning()
+      .get();
+    const q2 = db
+      .insert(schema.atlasMaps)
+      .values({ title: "Second in line", status: "queued", createdAt: new Date(2_000_000) })
+      .returning()
+      .get();
+    return { db, running, q1, q2 };
+  };
+  const statusOf = (db: DB, id: number) =>
+    db.select().from(schema.atlasMaps).where(eq(schema.atlasMaps.id, id)).get()!.status;
+
+  it("promotes the oldest queued map after a successful draft, after the follow-on work", async () => {
+    const { db, running, q1, q2 } = setup();
+    const order: string[] = [];
+    const spawned: number[] = [];
+    const res = await runDraftMapJob(db, running.id, {
+      llm: goodLlm,
+      log: () => {},
+      onReady: () => void order.push("ready"),
+      spawn: (id) => {
+        order.push("spawn");
+        spawned.push(id);
+      },
+    });
+    expect(res.ok).toBe(true);
+    expect(statusOf(db, running.id)).toBe("ready");
+    expect(statusOf(db, q1.id)).toBe("drafting");
+    expect(statusOf(db, q2.id)).toBe("queued");
+    expect(spawned).toEqual([q1.id]);
+    expect(order).toEqual(["ready", "spawn"]);
+  });
+
+  it("promotes the next queued map when the draft fails, and skips onReady", async () => {
+    const { db, running, q1 } = setup();
+    const spawned: number[] = [];
+    let readyCalled = false;
+    const res = await runDraftMapJob(db, running.id, {
+      llm: badLlm,
+      log: () => {},
+      onReady: () => {
+        readyCalled = true;
+      },
+      spawn: (id) => void spawned.push(id),
+    });
+    expect(res.ok).toBe(false);
+    expect(readyCalled).toBe(false);
+    expect(statusOf(db, running.id)).toBe("failed");
+    expect(statusOf(db, q1.id)).toBe("drafting");
+    expect(spawned).toEqual([q1.id]);
+  });
+
+  it("still promotes when the follow-on work throws", async () => {
+    const { db, running, q1 } = setup();
+    const spawned: number[] = [];
+    await expect(
+      runDraftMapJob(db, running.id, {
+        llm: goodLlm,
+        log: () => {},
+        onReady: () => {
+          throw new Error("spawn failed");
+        },
+        spawn: (id) => void spawned.push(id),
+      }),
+    ).rejects.toThrow("spawn failed");
+    expect(spawned).toEqual([q1.id]);
   });
 });

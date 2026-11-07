@@ -23,6 +23,7 @@ import {
 import { disciplineRules } from "./disciplines";
 import { seededRng } from "./game/loot";
 import { atlasModels, cliLlm, type AtlasLlm } from "./llm";
+import { promoteNextQueuedMap, type MapQueueDeps } from "./runner";
 import { normalizeTitle } from "./verify";
 
 /** Soft cap on nodes per map: trimming stops at the per-branch floor below. */
@@ -295,5 +296,31 @@ export const draftMap = (db: DB, mapId: number, deps: DraftMapDeps = {}): DraftM
       .run();
     log(`map #${mapId} failed: ${message}`);
     return { ok: false, mapId, error: message };
+  }
+};
+
+export type DraftMapJobDeps = DraftMapDeps &
+  MapQueueDeps & {
+    /** Runs only after a successful draft (seed placement, preload shards). */
+    onReady?: (res: Extract<DraftMapResult, { ok: true }>) => void | Promise<void>;
+  };
+
+/**
+ * The whole `draft-map` job: draft, then (on success) the follow-on work, and
+ * in every case — success, failure, or an unexpected throw — promote the
+ * oldest queued map so the queue keeps moving. Used by scripts/atlas.ts, so
+ * API-spawned and hand-run drafts behave the same.
+ */
+export const runDraftMapJob = async (
+  db: DB,
+  mapId: number,
+  deps: DraftMapJobDeps = {},
+): Promise<DraftMapResult> => {
+  try {
+    const res = draftMap(db, mapId, deps);
+    if (res.ok) await deps.onReady?.(res);
+    return res;
+  } finally {
+    promoteNextQueuedMap(db, deps);
   }
 };
