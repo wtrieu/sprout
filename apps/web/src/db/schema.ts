@@ -651,7 +651,9 @@ export const activities = sqliteTable("activities", {
 // are ever shown. Nothing here is child-facing until a bookmark asks for it.
 // ---------------------------------------------------------------------------
 
-export const atlasStatuses = ["drafting", "ready", "failed"] as const;
+// "queued" is used by atlas_maps only: a map created while another is
+// drafting waits its turn (drafts stay sequential). Rungs are never queued.
+export const atlasStatuses = ["queued", "drafting", "ready", "failed"] as const;
 export type AtlasStatus = (typeof atlasStatuses)[number];
 
 export const atlasMaps = sqliteTable("atlas_maps", {

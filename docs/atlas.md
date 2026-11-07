@@ -164,11 +164,24 @@ readings rule for pictures).
 - PR-D (#105, merged 2026-11-01) — the engine: nightly achievement pass,
   class offers, loot, the layered sprite against placeholder parts. The
   engine's first run backfilled rare nodes; launchd runs it daily at 04:30.
+- PR-E (#109, merged 2026-11-06) — eli10 drafted at map creation (with a
+  backfill pass), likely-next prefetch on node visit, and the JSON repair
+  path in `llm.ts` (parse failures now get a deterministic control-char
+  sanitize plus the one model repair instead of failing outright). After
+  deploy + re-preload, both live maps reached 120/120 ready one-pagers and
+  eli10s.
+- PR-F (in review) — game activation: the Scholar / Skeptic / Synthesist
+  perks are wired as derived hint marks in the map payload (`perkMarks`:
+  bookmark / reminder / bridge — read-time, additive, never gating), the
+  skill tree renders them, and the reward reveal modal got its loot-drop
+  sequencing with a reduced-motion fallback. Known gap: level-ups are not
+  in the queued-rewards data, so they have no reveal step yet.
 
 **Order of what's left:** PR2 (built with the spec below, re-based on the
 event log; merged as #106) and PR3 (built with the spec below, re-based on
-the event log; in review) are the last scheduled Atlas PRs. PR-B merged as
-#102 on 2026-10-31.
+the event log; merged as #107) were the last scheduled Atlas PRs — the
+roadmap is complete; open follow-ups live in `docs/atlas-backlog.md`.
+PR-B merged as #102 on 2026-10-31.
 
 Follow-ups from PR-A, not scheduled (fold into whichever PR touches them):
 
@@ -353,8 +366,9 @@ sprite itself is PR-D work, but the spec below lets art start any time.
 
 Workflow for producing and refining the parts:
 
-1. **Fix the spec before any art.** Canvas `32×40` (16×20 is too light for
-   a readable face and hands), one indexed palette of ≤32 colors, one
+1. **Fix the spec before any art.** Canvas `64×64` (updated 2026-11-07 to
+   match the sprites session's approved base; was 32×40 — and 16×20 is too
+   light for a readable face and hands), one indexed palette of ≤32 colors, one
    front-facing anchor pose with the arms slightly off the body so held
    items never overlap the torso. Write down the layer order (aura-back,
    cape, body, outfit, hair, item, aura-front) and the **anchor pixels**
@@ -795,7 +809,8 @@ contact-sheet test.
   Event-writing endpoints still 401 without a character.
 - **Sprite** (skill-tree-ui). `public/sprite/classic/<slot>/
   <id>-<anim>-<frame>.png` + `public/sprite/classic/manifest.json`: canvas
-  32×40, one indexed palette ≤ 32 colors, slots in z order aura-back <
+  64×64 (since 2026-11-07; placeholder anchors provisional until the
+  atlas-sprites base template lands), one indexed palette ≤ 32 colors, slots in z order aura-back <
   cape < body < outfit < hair < item < aura-front, each with its allowed
   region; anchors (head-top row, shoulder row, left/right hand pixel, foot
   row); per part: slot, animations (`idle` 2 frames, `celebrate` 4),

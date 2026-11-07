@@ -2,7 +2,7 @@
 name: atlas-core
 description: Sole owner of the files both Atlas areas touch — DB schema and migrations, the markdown subset and renderer, and the node page. Must never run in parallel with any other writing agent.
 tools: Read, Edit, Write, Bash, Glob, Grep
-model: sonnet
+model: opus
 effort: medium
 isolation: worktree
 ---
