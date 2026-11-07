@@ -4,7 +4,7 @@
  *   pnpm --filter web run sprite:placeholders
  *
  * Writes apps/web/public/sprite/classic/manifest.json and one transparent
- * 32×40 PNG per part/animation/frame at
+ * 64×64 PNG per part/animation/frame at
  * `<slot>/<id>-<anim>-<frame>.png`. Geometric stand-ins only — the real
  * parts come from the separate atlas-sprites repo in the same format, and
  * `sprite/parts.test.ts` validates both mechanically. Run once and commit
@@ -15,8 +15,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PNG } from "pngjs";
 
-const W = 32;
-const H = 40;
+const W = 64;
+const H = 64;
 const OUT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../apps/web/public/sprite/classic",
@@ -79,29 +79,31 @@ const stamp = (c: Canvas, x0: number, y0: number, rows: string[], legend: Record
   });
 };
 
-// Anchors, shared with the manifest below.
+// Anchors, shared with the manifest below. PROVISIONAL: the authoritative
+// anchors come from the atlas-sprites repo's 64×64 base template when real
+// parts land.
 const ANCHORS = {
-  headTopRow: 6,
-  shoulderRow: 18,
-  leftHand: { x: 9, y: 28 },
-  rightHand: { x: 22, y: 28 },
-  footRow: 37,
+  headTopRow: 8,
+  shoulderRow: 30,
+  leftHand: { x: 20, y: 44 },
+  rightHand: { x: 43, y: 44 },
+  footRow: 61,
 };
 
 const SLOTS = [
   // Behind the body, so the hands may be overlapped here: the body draws over.
-  { id: "aura-back", region: [0, 0, 31, 39], keepClear: [], mustCover: [] },
-  { id: "cape", region: [7, 17, 24, 38], keepClear: [], mustCover: [] },
+  { id: "aura-back", region: [0, 0, 63, 63], keepClear: [], mustCover: [] },
+  { id: "cape", region: [14, 28, 49, 61], keepClear: [], mustCover: [] },
   {
     id: "body",
-    region: [6, 5, 25, 39],
+    region: [16, 7, 47, 63],
     keepClear: [],
     mustCover: ["headTopRow", "shoulderRow", "leftHand", "rightHand", "footRow"],
   },
-  { id: "outfit", region: [8, 17, 23, 34], keepClear: ["leftHand", "rightHand"], mustCover: [] },
-  { id: "hair", region: [8, 3, 23, 18], keepClear: ["leftHand", "rightHand"], mustCover: [] },
-  { id: "item", region: [2, 20, 29, 39], keepClear: ["leftHand", "rightHand"], mustCover: [] },
-  { id: "aura-front", region: [0, 0, 31, 39], keepClear: ["leftHand", "rightHand"], mustCover: [] },
+  { id: "outfit", region: [16, 29, 47, 52], keepClear: ["leftHand", "rightHand"], mustCover: [] },
+  { id: "hair", region: [18, 4, 45, 24], keepClear: ["leftHand", "rightHand"], mustCover: [] },
+  { id: "item", region: [4, 40, 59, 63], keepClear: ["leftHand", "rightHand"], mustCover: [] },
+  { id: "aura-front", region: [0, 0, 63, 63], keepClear: ["leftHand", "rightHand"], mustCover: [] },
 ] as const;
 
 type Frames = Canvas[];
@@ -116,123 +118,119 @@ type Part = {
 // ---- body ---------------------------------------------------------------
 const bodyFrame = (mood: "open" | "squint" | "happy" | "happyBlush"): Canvas => {
   const c = blank();
-  // Head: rounded 12×11 box, head-top row 6.
-  rect(c, 11, 6, 20, 6, "outline");
-  rect(c, 11, 16, 20, 16, "outline");
-  for (let y = 7; y <= 15; y += 1) {
-    put(c, 10, y, "outline");
+  // Head: 22×19 box, head-top row 8.
+  rect(c, 22, 8, 41, 8, "outline");
+  rect(c, 22, 26, 41, 26, "outline");
+  for (let y = 9; y <= 25; y += 1) {
     put(c, 21, y, "outline");
-    rect(c, 11, y, 20, y, "skin-base");
-    put(c, 20, y, "skin-shade");
+    put(c, 42, y, "outline");
+    rect(c, 22, y, 41, y, "skin-base");
+    rect(c, 40, y, 41, y, "skin-shade");
   }
-  rect(c, 11, 8, 11, 10, "skin-light");
+  rect(c, 22, 11, 23, 15, "skin-light");
   // Face.
-  const eyes: Record<string, Array<[number, number]>> = {
-    open: [[13, 11], [13, 12], [18, 11], [18, 12]],
-    squint: [[13, 12], [18, 12]],
-    happy: [[12, 11], [13, 11], [18, 11], [19, 11]],
-    happyBlush: [[12, 11], [13, 11], [18, 11], [19, 11]],
+  const eyes: Record<string, Array<[number, number, number, number]>> = {
+    open: [[27, 16, 28, 17], [35, 16, 36, 17]],
+    squint: [[27, 17, 28, 17], [35, 17, 36, 17]],
+    happy: [[25, 16, 27, 16], [36, 16, 38, 16]],
+    happyBlush: [[25, 16, 27, 16], [36, 16, 38, 16]],
   };
-  for (const [x, y] of eyes[mood]) put(c, x, y, "eye");
+  for (const [x0, y0, x1, y1] of eyes[mood]) rect(c, x0, y0, x1, y1, "eye");
   if (mood === "happy" || mood === "happyBlush") {
-    rect(c, 15, 14, 16, 15, "mouth");
+    rect(c, 30, 22, 33, 23, "mouth");
   } else {
-    rect(c, 15, 14, 16, 14, "mouth");
+    rect(c, 30, 22, 33, 22, "mouth");
   }
   if (mood === "happyBlush") {
-    put(c, 12, 13, "blush");
-    put(c, 19, 13, "blush");
+    rect(c, 24, 20, 25, 21, "blush");
+    rect(c, 38, 20, 39, 21, "blush");
   }
-  // Neck, torso (shoulder row 18), arms held slightly off the body.
-  rect(c, 14, 17, 17, 17, "skin-shade");
-  rect(c, 12, 18, 19, 18, "outline");
-  for (let y = 19; y <= 29; y += 1) {
-    put(c, 12, y, "outline");
-    put(c, 19, y, "outline");
-    rect(c, 13, y, 18, y, "skin-base");
-    put(c, 18, y, "skin-shade");
+  // Neck, torso (shoulder row 30), arms held slightly off the body.
+  rect(c, 28, 27, 35, 29, "skin-shade");
+  rect(c, 24, 30, 39, 30, "outline");
+  for (let y = 31; y <= 46; y += 1) {
+    put(c, 24, y, "outline");
+    put(c, 39, y, "outline");
+    rect(c, 25, y, 38, y, "skin-base");
+    rect(c, 37, y, 38, y, "skin-shade");
   }
-  rect(c, 9, 18, 10, 18, "outline");
-  rect(c, 21, 18, 22, 18, "outline");
-  for (let y = 19; y <= 27; y += 1) {
-    put(c, 9, y, "outline");
-    put(c, 10, y, "skin-base");
-    put(c, 21, y, "skin-base");
-    put(c, 22, y, "outline");
+  rect(c, 18, 30, 21, 30, "outline");
+  rect(c, 42, 30, 45, 30, "outline");
+  for (let y = 31; y <= 43; y += 1) {
+    put(c, 18, y, "outline");
+    rect(c, 19, y, 21, y, "skin-base");
+    rect(c, 42, y, 44, y, "skin-base");
+    put(c, 45, y, "outline");
   }
-  rect(c, 9, 28, 10, 28, "skin-base");
-  rect(c, 21, 28, 22, 28, "skin-base");
-  rect(c, 9, 29, 10, 29, "outline");
-  rect(c, 21, 29, 22, 29, "outline");
-  // Legs and boots; foot row 37.
-  for (let y = 30; y <= 35; y += 1) {
-    put(c, 12, y, "outline");
-    rect(c, 13, y, 14, y, "skin-base");
-    put(c, 15, y, "outline");
-    put(c, 16, y, "outline");
-    rect(c, 17, y, 18, y, "skin-base");
-    put(c, 19, y, "outline");
+  rect(c, 19, 44, 21, 45, "skin-base");
+  rect(c, 42, 44, 44, 45, "skin-base");
+  rect(c, 19, 46, 21, 46, "outline");
+  rect(c, 42, 46, 44, 46, "outline");
+  // Legs and boots; foot row 61.
+  for (let y = 47; y <= 58; y += 1) {
+    put(c, 24, y, "outline");
+    rect(c, 25, y, 30, y, "skin-base");
+    put(c, 31, y, "outline");
+    put(c, 32, y, "outline");
+    rect(c, 33, y, 38, y, "skin-base");
+    put(c, 39, y, "outline");
   }
-  rect(c, 11, 36, 15, 37, "boot");
-  rect(c, 16, 36, 20, 37, "boot");
+  rect(c, 22, 59, 31, 61, "boot");
+  rect(c, 32, 59, 41, 61, "boot");
   return c;
 };
 
 // ---- outfit -------------------------------------------------------------
 const tunicFrame = (): Canvas => {
   const c = blank();
-  rect(c, 12, 18, 13, 18, "tunic-base");
-  rect(c, 18, 18, 19, 18, "tunic-base");
-  for (let y = 19; y <= 32; y += 1) {
-    const x0 = y >= 30 ? 11 : 12;
-    const x1 = y >= 30 ? 20 : 19;
-    rect(c, x0, y, x1, y, y >= 30 ? "tunic-shade" : "tunic-base");
-    if (y < 30) {
-      put(c, 13, y, "tunic-light");
-      put(c, 18, y, "tunic-shade");
+  rect(c, 24, 30, 27, 30, "tunic-base");
+  rect(c, 36, 30, 39, 30, "tunic-base");
+  rect(c, 28, 30, 35, 30, "tunic-light"); // neckline trim
+  for (let y = 31; y <= 50; y += 1) {
+    const skirt = y >= 45;
+    rect(c, skirt ? 23 : 24, y, skirt ? 40 : 39, y, skirt ? "tunic-shade" : "tunic-base");
+    if (!skirt) {
+      rect(c, 26, y, 27, y, "tunic-light");
+      rect(c, 37, y, 38, y, "tunic-shade");
     }
   }
-  rect(c, 14, 18, 17, 18, "tunic-shade"); // neckline trim
-  rect(c, 14, 18, 17, 18, "tunic-light");
-  for (let y = 18; y <= 25; y += 1) {
-    rect(c, 9, y, 10, y, "tunic-base");
-    rect(c, 21, y, 22, y, "tunic-base");
-    put(c, 10, y, "tunic-shade");
-    put(c, 21, y, "tunic-shade");
+  for (let y = 30; y <= 39; y += 1) {
+    rect(c, 18, y, 21, y, "tunic-base");
+    rect(c, 42, y, 45, y, "tunic-base");
+    put(c, 18, y, "tunic-shade");
+    put(c, 45, y, "tunic-shade");
   }
-  rect(c, 12, 26, 19, 26, "belt");
-  rect(c, 15, 26, 16, 26, "brass");
+  rect(c, 24, 40, 39, 41, "belt");
+  rect(c, 30, 40, 33, 41, "brass");
   return c;
 };
 
 // ---- hair ---------------------------------------------------------------
 const hairFrame = (laurel: 0 | 1 | null): Canvas => {
   const c = blank();
-  rect(c, 12, 5, 19, 5, "hair-shade");
-  rect(c, 11, 6, 20, 6, "hair-base");
-  for (let y = 7; y <= 8; y += 1) {
-    put(c, 10, y, "hair-shade");
-    rect(c, 11, y, 20, y, "hair-base");
+  rect(c, 24, 7, 39, 7, "hair-shade");
+  rect(c, 22, 8, 41, 8, "hair-base");
+  for (let y = 9; y <= 12; y += 1) {
     put(c, 21, y, "hair-shade");
+    rect(c, 22, y, 41, y, "hair-base");
+    put(c, 42, y, "hair-shade");
   }
-  rect(c, 13, 6, 14, 7, "hair-light");
-  put(c, 10, 9, "hair-shade");
-  put(c, 21, 9, "hair-shade");
-  rect(c, 11, 9, 13, 9, "hair-base");
-  rect(c, 15, 9, 16, 9, "hair-base");
-  rect(c, 18, 9, 20, 9, "hair-base");
-  for (let y = 10; y <= 11; y += 1) {
-    put(c, 10, y, "hair-shade");
+  rect(c, 26, 8, 29, 9, "hair-light");
+  rect(c, 22, 13, 26, 13, "hair-base");
+  rect(c, 30, 13, 33, 13, "hair-base");
+  rect(c, 37, 13, 41, 13, "hair-base");
+  for (let y = 13; y <= 21; y += 1) {
     put(c, 21, y, "hair-shade");
+    put(c, 42, y, "hair-shade");
   }
   if (laurel !== null) {
-    for (let x = 10; x <= 21; x += 1) put(c, x, 7, x % 2 === 0 ? "leaf" : "leaf-shade");
-    put(c, 11, 6, "leaf-light");
-    put(c, 20, 6, "leaf-light");
-    put(c, 9, laurel === 0 ? 8 : 9, "leaf");
-    put(c, 22, laurel === 0 ? 8 : 9, "leaf");
-    put(c, 9, 7, "leaf-light");
-    put(c, 22, 7, "leaf-light");
+    for (let x = 21; x <= 42; x += 1) put(c, x, 10, x % 2 === 0 ? "leaf" : "leaf-shade");
+    put(c, 22, 8, "leaf-light");
+    put(c, 41, 8, "leaf-light");
+    put(c, 20, laurel === 0 ? 12 : 14, "leaf");
+    put(c, 43, laurel === 0 ? 12 : 14, "leaf");
+    put(c, 20, 10, "leaf-light");
+    put(c, 43, 10, "leaf-light");
   }
   return c;
 };
@@ -240,37 +238,37 @@ const hairFrame = (laurel: 0 | 1 | null): Canvas => {
 // ---- cape ---------------------------------------------------------------
 const capeFrame = (sway: 0 | 1): Canvas => {
   const c = blank();
-  for (let y = 18; y <= 36; y += 1) {
-    const x0 = y < 24 ? 9 : 8;
-    const x1 = y < 24 ? 22 : 23;
+  for (let y = 31; y <= 58; y += 1) {
+    const x0 = y < 42 ? 18 : 16;
+    const x1 = y < 42 ? 45 : 47;
     rect(c, x0, y, x1, y, "cape-base");
     put(c, x0, y, "cape-shade");
     put(c, x1, y, "cape-shade");
-    put(c, 12, y, "cape-light");
+    rect(c, 26, y, 27, y, "cape-light");
   }
-  for (let x = 8; x <= 23; x += 1) {
-    if ((x + sway) % 2 === 0) put(c, x, 37, "cape-shade");
-    else put(c, x, 37, "cape-base");
+  for (let x = 16; x <= 47; x += 1) {
+    put(c, x, 59, (x + sway) % 2 === 0 ? "cape-shade" : "cape-base");
   }
-  for (let x = 9; x <= 22; x += 1) if ((x + sway) % 2 === 0) put(c, x, 38, "cape-shade");
+  for (let x = 17; x <= 46; x += 1) if ((x + sway) % 2 === 0) put(c, x, 60, "cape-shade");
   return c;
 };
 
 // ---- lantern ------------------------------------------------------------
 const lanternFrame = (swing: 0 | 1): Canvas => {
   const c = blank();
-  const dx = swing;
-  put(c, 22, 29, "chain");
-  put(c, 22 + dx, 30, "chain");
-  rect(c, 21 + dx, 31, 24 + dx, 31, "brass");
-  for (let y = 32; y <= 35; y += 1) {
-    put(c, 21 + dx, y, "brass-shade");
-    put(c, 24 + dx, y, "brass-shade");
-    rect(c, 22 + dx, y, 23 + dx, y, "glass");
+  const dx = swing * 2;
+  put(c, 43, 47, "chain");
+  put(c, 43, 48, "chain");
+  put(c, 43 + dx, 49, "chain");
+  rect(c, 41 + dx, 50, 46 + dx, 51, "brass");
+  for (let y = 52; y <= 57; y += 1) {
+    put(c, 41 + dx, y, "brass-shade");
+    put(c, 46 + dx, y, "brass-shade");
+    rect(c, 42 + dx, y, 45 + dx, y, "glass");
   }
-  rect(c, 22 + dx, 33, 23 + dx, 34, "flame");
-  put(c, 22 + dx, 33, "glow");
-  rect(c, 21 + dx, 36, 24 + dx, 36, "brass");
+  rect(c, 42 + dx, 53, 45 + dx, 56, "flame");
+  rect(c, 43 + dx, 53, 44 + dx, 54, "glow");
+  rect(c, 41 + dx, 58, 46 + dx, 59, "brass");
   return c;
 };
 
@@ -285,15 +283,15 @@ const auraFrame = (phase: 0 | 1): Canvas => {
     put(c, x, y + 1, tip);
   };
   if (phase === 0) {
-    plus(5, 12, "spark-light", "spark");
-    plus(26, 22, "spark-light", "spark-pink");
-    put(c, 27, 8, "spark");
-    put(c, 4, 30, "spark-pink");
+    plus(10, 24, "spark-light", "spark");
+    plus(53, 38, "spark-light", "spark-pink");
+    put(c, 55, 14, "spark");
+    put(c, 8, 52, "spark-pink");
   } else {
-    plus(26, 22, "spark-light", "spark");
-    plus(5, 12, "spark-light", "spark-pink");
-    put(c, 4, 8, "spark");
-    put(c, 27, 31, "spark-pink");
+    plus(53, 38, "spark-light", "spark");
+    plus(10, 24, "spark-light", "spark-pink");
+    put(c, 8, 14, "spark");
+    put(c, 55, 53, "spark-pink");
   }
   return c;
 };

@@ -102,7 +102,7 @@ describe("compositor", () => {
 
   it("layers by z order: outfit paints over the body", () => {
     const img = composeFrame(m, base, "idle", 0, source);
-    const i = (20 * img.width + 14) * 4; // torso, under the tunic
+    const i = (36 * img.width + 30) * 4; // torso, under the tunic
     expect(hex(img, i / 4)).toBe(m.palette.find((p) => p.name === "tunic-base")?.hex);
   });
 

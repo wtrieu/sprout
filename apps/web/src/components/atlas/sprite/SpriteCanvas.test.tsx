@@ -11,8 +11,8 @@ describe("SpriteCanvas", () => {
     expect(html).toContain('aria-label="Sam&#x27;s character"');
     expect(html).toContain("data-sprite-fallback");
     expect(html).not.toContain("<canvas");
-    expect(html).toContain("width:96px");
-    expect(html).toContain("height:120px");
+    expect(html).toContain("width:192px");
+    expect(html).toContain("height:192px");
   });
 
   it("marks the fallback as missing when art is unavailable", () => {

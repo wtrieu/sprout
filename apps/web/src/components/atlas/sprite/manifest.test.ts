@@ -9,7 +9,7 @@ describe("sprite manifest", () => {
   const m = readManifest();
 
   it("matches the agreed format", () => {
-    expect(m.canvas).toEqual({ width: 32, height: 40 });
+    expect(m.canvas).toEqual({ width: 64, height: 64 });
     expect(m.palette.length).toBeLessThanOrEqual(32);
     expect(m.animations.idle.frames).toBe(2);
     expect(m.animations.celebrate.frames).toBe(4);
