@@ -30,6 +30,25 @@ describe("sprite manifest", () => {
     });
   });
 
+  it("carries the authoritative anchors and the grip/hair conventions", () => {
+    expect(m.anchors).toEqual({
+      headTopRow: 4,
+      shoulderRow: 29,
+      leftHand: { x: 23, y: 34 },
+      rightHand: { x: 37, y: 42 },
+      footRow: 58,
+      grip: { x: 17, y: 34 },
+    });
+    const slot = (id: string) => m.slots.find((s) => s.id === id)!;
+    expect(slot("body").mustCover).toContain("leftHand");
+    for (const s of m.slots) {
+      expect(s.mustCover).not.toContain("grip");
+      expect(s.keepClear).not.toContain("grip");
+    }
+    expect(slot("hair").region.y0).toBeLessThanOrEqual(m.anchors.headTopRow - 1);
+    expect(slot("hair").keepClear).not.toContain("headTopRow");
+  });
+
   it("registers the cosmetic frame and map-style ids", () => {
     expect(m.cosmetics.frames).toEqual(["frame-oak", "frame-brass", "frame-ivy", "frame-stellar"]);
     expect(m.cosmetics.mapStyles).toEqual(["style-parchment", "style-night", "style-botanical"]);

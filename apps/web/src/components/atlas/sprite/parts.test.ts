@@ -100,6 +100,14 @@ describe("compositor", () => {
     expect(Buffer.from(a.data).equals(Buffer.from(c.data))).toBe(false);
   });
 
+  it("leaves the grip bare on the body; the lantern paints it", () => {
+    const { grip } = m.anchors;
+    const body = composeFrame(m, base, "idle", 0, source);
+    expect(opaque(body, grip.x, grip.y)).toBe(false);
+    const held = composeFrame(m, { parts: { ...base.parts, item: "item-lantern" } }, "idle", 0, source);
+    expect(opaque(held, grip.x, grip.y)).toBe(true);
+  });
+
   it("layers by z order: outfit paints over the body", () => {
     const img = composeFrame(m, base, "idle", 0, source);
     const i = (36 * img.width + 30) * 4; // torso, under the tunic

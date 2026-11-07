@@ -79,15 +79,21 @@ const stamp = (c: Canvas, x0: number, y0: number, rows: string[], legend: Record
   });
 };
 
-// Anchors, shared with the manifest below. PROVISIONAL: the authoritative
-// anchors come from the atlas-sprites repo's 64×64 base template when real
-// parts land.
+// Anchors, shared with the manifest below. These are the authoritative
+// values measured from the approved atlas-sprites base_body_v1 (2026-11-07);
+// the canonical copy lives at atlas-sprites/base/anchors_64.json.
+// Pose: 3/4 front view facing viewer-left, left arm forward at waist height.
+// `grip` is where held items align: 6px screen-left of leftHand on the same
+// row. Item layers paint the hand-to-grip extension themselves, so the BARE
+// body does not cover the grip (and nothing is required to keep it clear).
+// Hair may paint one row above headTopRow (its region starts at headTopRow-1).
 const ANCHORS = {
-  headTopRow: 8,
-  shoulderRow: 30,
-  leftHand: { x: 20, y: 44 },
-  rightHand: { x: 43, y: 44 },
-  footRow: 61,
+  headTopRow: 4,
+  shoulderRow: 29,
+  leftHand: { x: 23, y: 34 },
+  rightHand: { x: 37, y: 42 },
+  footRow: 58,
+  grip: { x: 17, y: 34 },
 };
 
 const SLOTS = [
@@ -96,13 +102,13 @@ const SLOTS = [
   { id: "cape", region: [14, 28, 49, 61], keepClear: [], mustCover: [] },
   {
     id: "body",
-    region: [16, 7, 47, 63],
+    region: [16, 4, 47, 63],
     keepClear: [],
     mustCover: ["headTopRow", "shoulderRow", "leftHand", "rightHand", "footRow"],
   },
   { id: "outfit", region: [16, 29, 47, 52], keepClear: ["leftHand", "rightHand"], mustCover: [] },
-  { id: "hair", region: [18, 4, 45, 24], keepClear: ["leftHand", "rightHand"], mustCover: [] },
-  { id: "item", region: [4, 40, 59, 63], keepClear: ["leftHand", "rightHand"], mustCover: [] },
+  { id: "hair", region: [18, 3, 45, 24], keepClear: ["leftHand", "rightHand"], mustCover: [] },
+  { id: "item", region: [4, 30, 59, 63], keepClear: ["leftHand", "rightHand"], mustCover: [] },
   { id: "aura-front", region: [0, 0, 63, 63], keepClear: ["leftHand", "rightHand"], mustCover: [] },
 ] as const;
 
@@ -118,89 +124,88 @@ type Part = {
 // ---- body ---------------------------------------------------------------
 const bodyFrame = (mood: "open" | "squint" | "happy" | "happyBlush"): Canvas => {
   const c = blank();
-  // Head: 22×19 box, head-top row 8.
-  rect(c, 22, 8, 41, 8, "outline");
-  rect(c, 22, 26, 41, 26, "outline");
-  for (let y = 9; y <= 25; y += 1) {
-    put(c, 21, y, "outline");
-    put(c, 42, y, "outline");
-    rect(c, 22, y, 41, y, "skin-base");
-    rect(c, 40, y, 41, y, "skin-shade");
+  // Head: x 22..40, head-top row 4 down to a chin outline on row 22.
+  rect(c, 24, 4, 38, 4, "outline");
+  rect(c, 23, 22, 39, 22, "outline");
+  for (let y = 5; y <= 21; y += 1) {
+    put(c, y < 6 ? 23 : 22, y, "outline");
+    put(c, y < 6 ? 39 : 40, y, "outline");
+    rect(c, y < 6 ? 24 : 23, y, y < 6 ? 38 : 39, y, "skin-base");
+    rect(c, 38, y, 39, y, "skin-shade");
   }
-  rect(c, 22, 11, 23, 15, "skin-light");
+  rect(c, 23, 7, 24, 11, "skin-light");
   // Face.
   const eyes: Record<string, Array<[number, number, number, number]>> = {
-    open: [[27, 16, 28, 17], [35, 16, 36, 17]],
-    squint: [[27, 17, 28, 17], [35, 17, 36, 17]],
-    happy: [[25, 16, 27, 16], [36, 16, 38, 16]],
-    happyBlush: [[25, 16, 27, 16], [36, 16, 38, 16]],
+    open: [[26, 12, 27, 13], [34, 12, 35, 13]],
+    squint: [[26, 13, 27, 13], [34, 13, 35, 13]],
+    happy: [[25, 12, 27, 12], [34, 12, 36, 12]],
+    happyBlush: [[25, 12, 27, 12], [34, 12, 36, 12]],
   };
   for (const [x0, y0, x1, y1] of eyes[mood]) rect(c, x0, y0, x1, y1, "eye");
   if (mood === "happy" || mood === "happyBlush") {
-    rect(c, 30, 22, 33, 23, "mouth");
+    rect(c, 29, 18, 32, 19, "mouth");
   } else {
-    rect(c, 30, 22, 33, 22, "mouth");
+    rect(c, 29, 18, 32, 18, "mouth");
   }
   if (mood === "happyBlush") {
-    rect(c, 24, 20, 25, 21, "blush");
-    rect(c, 38, 20, 39, 21, "blush");
+    rect(c, 24, 15, 25, 16, "blush");
+    rect(c, 37, 15, 38, 16, "blush");
   }
-  // Neck, torso (shoulder row 30), arms held slightly off the body.
-  rect(c, 28, 27, 35, 29, "skin-shade");
-  rect(c, 24, 30, 39, 30, "outline");
-  for (let y = 31; y <= 46; y += 1) {
-    put(c, 24, y, "outline");
-    put(c, 39, y, "outline");
-    rect(c, 25, y, 38, y, "skin-base");
-    rect(c, 37, y, 38, y, "skin-shade");
+  // Neck, then shoulders on row 29.
+  rect(c, 28, 23, 33, 28, "skin-shade");
+  rect(c, 21, 29, 40, 29, "outline");
+  // Torso x 25..36.
+  for (let y = 30; y <= 44; y += 1) {
+    put(c, 25, y, "outline");
+    put(c, 36, y, "outline");
+    rect(c, 26, y, 35, y, "skin-base");
+    rect(c, 34, y, 35, y, "skin-shade");
   }
-  rect(c, 18, 30, 21, 30, "outline");
-  rect(c, 42, 30, 45, 30, "outline");
-  for (let y = 31; y <= 43; y += 1) {
-    put(c, 18, y, "outline");
-    rect(c, 19, y, 21, y, "skin-base");
-    rect(c, 42, y, 44, y, "skin-base");
-    put(c, 45, y, "outline");
+  // Left arm forward at waist height; its hand is (23,34). The grip point
+  // (17,34) is deliberately left unpainted: held items extend to it.
+  for (let y = 30; y <= 35; y += 1) {
+    put(c, 21, y, "outline");
+    rect(c, 22, y, 24, y, "skin-base");
   }
-  rect(c, 19, 44, 21, 45, "skin-base");
-  rect(c, 42, 44, 44, 45, "skin-base");
-  rect(c, 19, 46, 21, 46, "outline");
-  rect(c, 42, 46, 44, 46, "outline");
-  // Legs and boots; foot row 61.
-  for (let y = 47; y <= 58; y += 1) {
-    put(c, 24, y, "outline");
-    rect(c, 25, y, 30, y, "skin-base");
+  rect(c, 21, 36, 24, 36, "outline");
+  // Right arm hangs; its hand is (37,42).
+  for (let y = 30; y <= 43; y += 1) {
+    rect(c, 37, y, 39, y, "skin-base");
+    put(c, 40, y, "outline");
+  }
+  rect(c, 37, 44, 40, 44, "outline");
+  // Legs and boots; foot row 58.
+  for (let y = 45; y <= 55; y += 1) {
+    put(c, 25, y, "outline");
+    rect(c, 26, y, 30, y, "skin-base");
     put(c, 31, y, "outline");
     put(c, 32, y, "outline");
-    rect(c, 33, y, 38, y, "skin-base");
-    put(c, 39, y, "outline");
+    rect(c, 33, y, 35, y, "skin-base");
+    put(c, 36, y, "outline");
   }
-  rect(c, 22, 59, 31, 61, "boot");
-  rect(c, 32, 59, 41, 61, "boot");
+  rect(c, 23, 56, 31, 58, "boot");
+  rect(c, 32, 56, 38, 58, "boot");
   return c;
 };
 
 // ---- outfit -------------------------------------------------------------
 const tunicFrame = (): Canvas => {
   const c = blank();
-  rect(c, 24, 30, 27, 30, "tunic-base");
-  rect(c, 36, 30, 39, 30, "tunic-base");
-  rect(c, 28, 30, 35, 30, "tunic-light"); // neckline trim
-  for (let y = 31; y <= 50; y += 1) {
+  rect(c, 25, 29, 27, 29, "tunic-base");
+  rect(c, 34, 29, 36, 29, "tunic-base");
+  rect(c, 28, 29, 33, 29, "tunic-light"); // neckline trim
+  for (let y = 30; y <= 50; y += 1) {
     const skirt = y >= 45;
-    rect(c, skirt ? 23 : 24, y, skirt ? 40 : 39, y, skirt ? "tunic-shade" : "tunic-base");
+    rect(c, skirt ? 24 : 25, y, skirt ? 37 : 36, y, skirt ? "tunic-shade" : "tunic-base");
     if (!skirt) {
-      rect(c, 26, y, 27, y, "tunic-light");
-      rect(c, 37, y, 38, y, "tunic-shade");
+      rect(c, 27, y, 28, y, "tunic-light");
+      rect(c, 35, y, 36, y, "tunic-shade");
     }
   }
-  for (let y = 30; y <= 39; y += 1) {
-    rect(c, 18, y, 21, y, "tunic-base");
-    rect(c, 42, y, 45, y, "tunic-base");
-    put(c, 18, y, "tunic-shade");
-    put(c, 45, y, "tunic-shade");
-  }
-  rect(c, 24, 40, 39, 41, "belt");
+  // Short sleeves, clear of both hands.
+  for (let y = 30; y <= 32; y += 1) rect(c, 21, y, 24, y, "tunic-base");
+  for (let y = 30; y <= 37; y += 1) rect(c, 37, y, 40, y, "tunic-base");
+  rect(c, 25, 40, 36, 41, "belt");
   rect(c, 30, 40, 33, 41, "brass");
   return c;
 };
@@ -208,29 +213,30 @@ const tunicFrame = (): Canvas => {
 // ---- hair ---------------------------------------------------------------
 const hairFrame = (laurel: 0 | 1 | null): Canvas => {
   const c = blank();
-  rect(c, 24, 7, 39, 7, "hair-shade");
-  rect(c, 22, 8, 41, 8, "hair-base");
-  for (let y = 9; y <= 12; y += 1) {
-    put(c, 21, y, "hair-shade");
-    rect(c, 22, y, 41, y, "hair-base");
-    put(c, 42, y, "hair-shade");
+  // Row 3 sits one above headTopRow (4): hair is allowed to crest the head.
+  rect(c, 26, 3, 36, 3, "hair-shade");
+  rect(c, 24, 4, 38, 4, "hair-base");
+  for (let y = 5; y <= 8; y += 1) {
+    put(c, 22, y, "hair-shade");
+    rect(c, 23, y, 39, y, "hair-base");
+    put(c, 40, y, "hair-shade");
   }
-  rect(c, 26, 8, 29, 9, "hair-light");
-  rect(c, 22, 13, 26, 13, "hair-base");
-  rect(c, 30, 13, 33, 13, "hair-base");
-  rect(c, 37, 13, 41, 13, "hair-base");
-  for (let y = 13; y <= 21; y += 1) {
-    put(c, 21, y, "hair-shade");
-    put(c, 42, y, "hair-shade");
+  rect(c, 27, 4, 30, 5, "hair-light");
+  rect(c, 23, 9, 27, 9, "hair-base");
+  rect(c, 31, 9, 34, 9, "hair-base");
+  rect(c, 37, 9, 39, 9, "hair-base");
+  for (let y = 9; y <= 17; y += 1) {
+    put(c, 22, y, "hair-shade");
+    put(c, 40, y, "hair-shade");
   }
   if (laurel !== null) {
-    for (let x = 21; x <= 42; x += 1) put(c, x, 10, x % 2 === 0 ? "leaf" : "leaf-shade");
-    put(c, 22, 8, "leaf-light");
-    put(c, 41, 8, "leaf-light");
-    put(c, 20, laurel === 0 ? 12 : 14, "leaf");
-    put(c, 43, laurel === 0 ? 12 : 14, "leaf");
-    put(c, 20, 10, "leaf-light");
-    put(c, 43, 10, "leaf-light");
+    for (let x = 22; x <= 40; x += 1) put(c, x, 6, x % 2 === 0 ? "leaf" : "leaf-shade");
+    put(c, 23, 5, "leaf-light");
+    put(c, 39, 5, "leaf-light");
+    put(c, 21, laurel === 0 ? 8 : 10, "leaf");
+    put(c, 41, laurel === 0 ? 8 : 10, "leaf");
+    put(c, 21, 6, "leaf-light");
+    put(c, 41, 6, "leaf-light");
   }
   return c;
 };
@@ -238,37 +244,40 @@ const hairFrame = (laurel: 0 | 1 | null): Canvas => {
 // ---- cape ---------------------------------------------------------------
 const capeFrame = (sway: 0 | 1): Canvas => {
   const c = blank();
-  for (let y = 31; y <= 58; y += 1) {
-    const x0 = y < 42 ? 18 : 16;
-    const x1 = y < 42 ? 45 : 47;
+  for (let y = 30; y <= 55; y += 1) {
+    const x0 = y < 40 ? 20 : 18;
+    const x1 = y < 40 ? 42 : 44;
     rect(c, x0, y, x1, y, "cape-base");
     put(c, x0, y, "cape-shade");
     put(c, x1, y, "cape-shade");
-    rect(c, 26, y, 27, y, "cape-light");
+    rect(c, 27, y, 28, y, "cape-light");
   }
-  for (let x = 16; x <= 47; x += 1) {
-    put(c, x, 59, (x + sway) % 2 === 0 ? "cape-shade" : "cape-base");
+  for (let x = 18; x <= 44; x += 1) {
+    put(c, x, 56, (x + sway) % 2 === 0 ? "cape-shade" : "cape-base");
   }
-  for (let x = 17; x <= 46; x += 1) if ((x + sway) % 2 === 0) put(c, x, 60, "cape-shade");
+  for (let x = 19; x <= 43; x += 1) if ((x + sway) % 2 === 0) put(c, x, 57, "cape-shade");
   return c;
 };
 
 // ---- lantern ------------------------------------------------------------
+// Aligned to the grip point (17,34): the item paints the hand-to-grip
+// extension (x 17..22 on the grip row) and a chain hanging from the grip.
 const lanternFrame = (swing: 0 | 1): Canvas => {
   const c = blank();
   const dx = swing * 2;
-  put(c, 43, 47, "chain");
-  put(c, 43, 48, "chain");
-  put(c, 43 + dx, 49, "chain");
-  rect(c, 41 + dx, 50, 46 + dx, 51, "brass");
-  for (let y = 52; y <= 57; y += 1) {
-    put(c, 41 + dx, y, "brass-shade");
-    put(c, 46 + dx, y, "brass-shade");
-    rect(c, 42 + dx, y, 45 + dx, y, "glass");
+  rect(c, 17, 34, 22, 34, "brass-shade");
+  put(c, 17, 35, "chain");
+  put(c, 17, 36, "chain");
+  put(c, 17 + dx, 37, "chain");
+  rect(c, 15 + dx, 38, 20 + dx, 39, "brass");
+  for (let y = 40; y <= 45; y += 1) {
+    put(c, 15 + dx, y, "brass-shade");
+    put(c, 20 + dx, y, "brass-shade");
+    rect(c, 16 + dx, y, 19 + dx, y, "glass");
   }
-  rect(c, 42 + dx, 53, 45 + dx, 56, "flame");
-  rect(c, 43 + dx, 53, 44 + dx, 54, "glow");
-  rect(c, 41 + dx, 58, 46 + dx, 59, "brass");
+  rect(c, 16 + dx, 41, 19 + dx, 44, "flame");
+  rect(c, 17 + dx, 41, 18 + dx, 42, "glow");
+  rect(c, 15 + dx, 46, 20 + dx, 47, "brass");
   return c;
 };
 
