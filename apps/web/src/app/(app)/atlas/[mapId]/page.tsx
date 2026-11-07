@@ -34,7 +34,7 @@ type MapRow = {
   id: number;
   title: string;
   blurb: string | null;
-  status: "drafting" | "ready" | "failed";
+  status: "drafting" | "queued" | "ready" | "failed";
   error: string | null;
 };
 type Tier = {
@@ -172,6 +172,7 @@ export default function AtlasMapPage() {
 
   const drafting =
     map?.status === "drafting" ||
+    map?.status === "queued" ||
     preparing ||
     nodes.some((n) => Object.values(n.rungs).some((s) => s === "drafting"));
 
@@ -336,6 +337,11 @@ export default function AtlasMapPage() {
         <div className="rounded-xl border border-amber-500/30 bg-neutral-900 p-5 text-sm text-neutral-300">
           Drafting this map — an outline first, then each branch filled in. Usually a few
           minutes. This page refreshes itself.
+        </div>
+      )}
+      {map.status === "queued" && (
+        <div className="rounded-xl border border-amber-500/30 bg-neutral-900 p-5 text-sm text-neutral-300">
+          Queued — drafting starts when the current map finishes. This page refreshes itself.
         </div>
       )}
       {map.status === "failed" && (

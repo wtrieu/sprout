@@ -18,7 +18,7 @@ type MapRow = {
   id: number;
   title: string;
   blurb: string | null;
-  status: "drafting" | "ready" | "failed";
+  status: "drafting" | "queued" | "ready" | "failed";
   error: string | null;
   createdAt: string;
   nodeCount: number;
@@ -85,6 +85,7 @@ export default function AtlasPage() {
   const [brief, setBrief] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [charName, setCharName] = useState("");
   const [persona, setPersona] = useState<Persona | null>(null);
@@ -171,7 +172,7 @@ export default function AtlasPage() {
     load();
   };
 
-  const drafting = maps.some((m) => m.status === "drafting");
+  const drafting = maps.some((m) => m.status === "drafting" || m.status === "queued");
 
   useEffect(() => {
     load();
@@ -182,6 +183,7 @@ export default function AtlasPage() {
   const draft = async (body: { title?: string; brief?: string; preset?: string }) => {
     setBusy(true);
     setError(null);
+    setNotice(null);
     const res = await fetch("/api/atlas/maps", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -193,6 +195,11 @@ export default function AtlasPage() {
       setError(d?.error ?? "Couldn't start the draft.");
       return;
     }
+    setNotice(
+      d?.map?.status === "queued"
+        ? "Queued — it'll start when the current draft finishes."
+        : "Started — your map is being drafted.",
+    );
     setTitle("");
     setBrief("");
     load();
@@ -429,6 +436,11 @@ export default function AtlasPage() {
                 {m.status === "drafting" && (
                   <span className="text-amber-400/80">drafting… (a few minutes)</span>
                 )}
+                {m.status === "queued" && (
+                  <span className="text-amber-400/80">
+                    Queued — drafting starts when the current map finishes
+                  </span>
+                )}
                 {m.status === "failed" && <span className="text-red-400">draft failed</span>}
               </div>
             </div>
@@ -561,15 +573,15 @@ export default function AtlasPage() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
-            disabled={busy || drafting || title.trim().length < 2}
+            disabled={busy || title.trim().length < 2}
             className="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-amber-400 disabled:opacity-50"
           >
-            {drafting ? "A map is drafting…" : "Draft this map"}
+            Draft this map
           </button>
           {!hasPhilosophy && maps.length > 0 && presets.includes("philosophy") && (
             <button
               type="button"
-              disabled={busy || drafting}
+              disabled={busy}
               onClick={() => draft({ preset: "philosophy" })}
               className="rounded-md border border-amber-500/40 px-4 py-2 text-sm text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
             >
@@ -577,6 +589,7 @@ export default function AtlasPage() {
             </button>
           )}
           {error && <p className="text-sm text-red-400">{error}</p>}
+          {notice && !error && <p className="text-sm text-amber-400/90">{notice}</p>}
         </div>
       </form>
     </div>
