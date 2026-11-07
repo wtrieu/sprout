@@ -12,6 +12,7 @@ import {
   type NextGate,
   type Pending,
 } from "@/components/atlas/loadout";
+import { PerkBadge, type PerkMark } from "@/components/atlas/PerkBadge";
 import { ChestBanner, RevealModal } from "@/components/atlas/RevealModal";
 
 type RungStatus = "drafting" | "ready" | "failed" | null;
@@ -50,6 +51,7 @@ type Progress = {
   field: { total: number; max: number; capeEarned: boolean };
   disciplines: Record<string, { xp: number; level: number }>;
   totalLevel: number;
+  perkMarks?: { perkId: string; mark: PerkMark; nodeIds: number[] } | null;
 };
 
 type PlayerInfo = {
@@ -241,6 +243,9 @@ export default function AtlasMapPage() {
   const visited = nodes.filter((n) => n.visitedAt).length;
 
   const tierOf = (id: number): Tier => progress?.tiers[id] ?? NO_TIER;
+  const perkSet = progress?.perkMarks ? new Set(progress.perkMarks.nodeIds) : null;
+  const perkBadge = (id: number) =>
+    perkSet?.has(id) && progress?.perkMarks ? <PerkBadge mark={progress.perkMarks.mark} /> : null;
   const revealed = progress ? new Set(progress.revealed) : null;
   // No character yet → no fog, no stamps: today's shared view.
   const isFogged = (n: NodeRow) => !!revealed && n.parentId !== null && !revealed.has(n.id);
@@ -410,7 +415,14 @@ export default function AtlasMapPage() {
                           )}
                         </div>
                         <div className="mt-2 flex items-center justify-between">
-                          {progress ? <Stamps tier={t} /> : <span />}
+                          {progress ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <Stamps tier={t} />
+                              {perkBadge(n.id)}
+                            </span>
+                          ) : (
+                            <span />
+                          )}
                           {!fog && (
                             <span className="text-[10px] uppercase tracking-wide text-neutral-700">
                               {n.parentId === null ? "branch" : n.kind}
@@ -457,6 +469,7 @@ export default function AtlasMapPage() {
                         </span>
                       )}
                       {progress && <Stamps tier={tierOf(b.id)} />}
+                      {perkBadge(b.id)}
                       {b.skipped && (
                         <span className="rounded-full bg-neutral-800 px-2 py-0.5 text-xs text-neutral-400">
                           skipped
@@ -503,6 +516,7 @@ export default function AtlasMapPage() {
                                 </span>
                               )}
                               {progress && !fog && <Stamps tier={tierOf(c.id)} />}
+                              {perkBadge(c.id)}
                               {draftingNote(c) && (
                                 <span className="text-xs text-neutral-500">{draftingNote(c)}</span>
                               )}
