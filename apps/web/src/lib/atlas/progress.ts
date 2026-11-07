@@ -24,7 +24,8 @@ import {
   type NodeTier,
 } from "./game";
 import { isItemRevealed } from "./game/achievements";
-import { classHistory, currentClass, hasFogBonus, nextGateFor } from "./game/classes";
+import { classHistory, currentClass, hasFogBonus, nextGateFor, perkMarksFor, type PerkMarks } from "./game/classes";
+import { loadPlayerState } from "./game/data";
 import { parseLoadout, type Loadout } from "./game/loadout";
 import { pendingFor, type Pending } from "./game/pending";
 import { listPlayers, type PlayerRow } from "./players";
@@ -49,6 +50,8 @@ export type MapProgress = {
   field: FieldLevel;
   disciplines: DisciplineLevels;
   totalLevel: number;
+  /** Scholar/Skeptic/Synthesist perk hints for this map's nodes; null for other classes. */
+  perkMarks: PerkMarks | null;
 };
 
 /** Everything the map page needs about one player on one map. */
@@ -72,7 +75,16 @@ export const mapProgressFor = (db: DB, playerId: number, mapId: number): MapProg
     field: fieldLevel(branches),
     disciplines,
     totalLevel: totalLevel(disciplines),
+    perkMarks: mapPerkMarks(db, playerId, mapId),
   };
+};
+
+const mapPerkMarks = (db: DB, playerId: number, mapId: number): PerkMarks | null => {
+  const state = loadPlayerState(db, playerId);
+  const marks = perkMarksFor(db, playerId, state);
+  if (!marks) return null;
+  const onMap = new Set(state.nodes.filter((n) => n.mapId === mapId).map((n) => n.id));
+  return { ...marks, nodeIds: marks.nodeIds.filter((id) => onMap.has(id)) };
 };
 
 export type NodeProgress = { tier: NodeTier; quiz: QuizState };
