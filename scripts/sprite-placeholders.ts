@@ -85,7 +85,9 @@ const stamp = (c: Canvas, x0: number, y0: number, rows: string[], legend: Record
 // Pose: 3/4 front view facing viewer-left, left arm forward at waist height.
 // `grip` is where held items align: 6px screen-left of leftHand on the same
 // row. Item layers paint the hand-to-grip extension themselves, so the BARE
-// body does not cover the grip (and nothing is required to keep it clear).
+// body does not cover the grip: it MUST leave that pixel transparent. This is
+// enforced for every style/frame in parts.test.ts, not via the manifest
+// (`grip` is in `anchors` only, never in a slot's keepClear/mustCover).
 // Hair may paint one row above headTopRow (its region starts at headTopRow-1).
 const ANCHORS = {
   headTopRow: 4,

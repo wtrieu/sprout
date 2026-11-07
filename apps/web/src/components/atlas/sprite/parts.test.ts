@@ -4,7 +4,7 @@ import path from "node:path";
 import { PNG } from "pngjs";
 import { describe, expect, it } from "vitest";
 import { composeFrame, resolveFrame, type Rgba, type Selection } from "./compose";
-import { SPRITE_DIR, fsSource, partFile, readManifest, readPng } from "./fsParts";
+import { SPRITE_ROOT, fsSource, listStyles, partFile, readManifest, readPng } from "./fsParts";
 import type { AnimName, SpriteManifest } from "./manifest";
 
 const m = readManifest();
@@ -20,17 +20,33 @@ const anchorCells = (name: keyof Anchors, a: Anchors, w: number): Array<[number,
   return [[v.x, v.y]];
 };
 
-describe("committed sprite parts (mechanical validation)", () => {
-  const palette = new Set(m.palette.map((p) => p.hex.toLowerCase()));
+// Contract enforced for EVERY style directory under public/sprite, so a new
+// style is validated the day it lands:
+//  - size = the style's canvas; opaque pixels are full alpha and in its palette
+//  - pixels stay inside the slot region
+//  - mustCover is enforced on frame 0 of each animation only (the anchor pose;
+//    later frames may deviate, e.g. a 1px head bob)
+//  - keepClear is enforced on every frame
+//  - the bare body never covers `anchors.grip` on any frame (grip is not in
+//    any slot's keepClear/mustCover by convention; it is checked directly here)
+//  - hair region starts at most one row above headTopRow
+describe.each(listStyles())("committed sprite parts: %s style (mechanical validation)", (style) => {
+  const sm = readManifest(style);
+  const palette = new Set(sm.palette.map((p) => p.hex.toLowerCase()));
 
-  for (const part of m.parts) {
-    const slot = m.slots.find((s) => s.id === part.slot)!;
+  it("hair region starts no more than one row above headTopRow", () => {
+    const hair = sm.slots.find((s) => s.id === "hair");
+    if (hair) expect(hair.region.y0).toBeGreaterThanOrEqual(sm.anchors.headTopRow - 1);
+  });
+
+  for (const part of sm.parts) {
+    const slot = sm.slots.find((s) => s.id === part.slot)!;
     for (const anim of part.animations) {
-      for (let f = 0; f < m.animations[anim].frames; f += 1) {
+      for (let f = 0; f < sm.animations[anim].frames; f += 1) {
         it(`${part.id} ${anim}-${f}`, () => {
-          const img = readPng(partFile(m.style, part, anim, f));
-          expect(img.width).toBe(m.canvas.width);
-          expect(img.height).toBe(m.canvas.height);
+          const img = readPng(partFile(sm.style, part, anim, f));
+          expect(img.width).toBe(sm.canvas.width);
+          expect(img.height).toBe(sm.canvas.height);
           let painted = 0;
           for (let i = 0; i < img.width * img.height; i += 1) {
             const a = img.data[i * 4 + 3];
@@ -48,14 +64,19 @@ describe("committed sprite parts (mechanical validation)", () => {
           }
           expect(painted).toBeGreaterThan(0);
           for (const name of slot.keepClear) {
-            for (const [x, y] of anchorCells(name, m.anchors, img.width)) {
+            for (const [x, y] of anchorCells(name, sm.anchors, img.width)) {
               expect(opaque(img, x, y), `${name} (${x},${y}) must stay clear`).toBe(false);
             }
           }
+          if (slot.id === "body") {
+            const { grip } = sm.anchors;
+            expect(opaque(img, grip.x, grip.y), `grip (${grip.x},${grip.y}) must stay clear on the body`).toBe(false);
+          }
+          if (f !== 0) return; // mustCover applies to the anchor pose only
           for (const name of slot.mustCover) {
-            const cells = anchorCells(name, m.anchors, img.width);
+            const cells = anchorCells(name, sm.anchors, img.width);
             const ok =
-              typeof m.anchors[name] === "number"
+              typeof sm.anchors[name] === "number"
                 ? cells.some(([x, y]) => opaque(img, x, y))
                 : cells.every(([x, y]) => opaque(img, x, y));
             expect(ok, `${name} must be covered`).toBe(true);
@@ -67,17 +88,18 @@ describe("committed sprite parts (mechanical validation)", () => {
 
   it("has no stray PNGs and no missing frames", () => {
     const expected = new Set<string>();
-    for (const p of m.parts) {
+    for (const p of sm.parts) {
       for (const anim of p.animations) {
-        for (let f = 0; f < m.animations[anim].frames; f += 1) {
+        for (let f = 0; f < sm.animations[anim].frames; f += 1) {
           expected.add(`${p.slot}/${p.id}-${anim}-${f}.png`);
         }
       }
     }
     const found = new Set<string>();
-    for (const dir of readdirSync(SPRITE_DIR, { withFileTypes: true })) {
+    const root = path.join(SPRITE_ROOT, style);
+    for (const dir of readdirSync(root, { withFileTypes: true })) {
       if (!dir.isDirectory()) continue;
-      for (const f of readdirSync(path.join(SPRITE_DIR, dir.name))) found.add(`${dir.name}/${f}`);
+      for (const f of readdirSync(path.join(root, dir.name))) found.add(`${dir.name}/${f}`);
     }
     expect([...found].sort()).toEqual([...expected].sort());
   });
