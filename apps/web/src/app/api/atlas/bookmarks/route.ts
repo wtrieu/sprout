@@ -8,10 +8,13 @@ import { logEvent } from "@/lib/atlas/events";
 import { onEventsLogged } from "@/lib/atlas/game/hooks";
 import { listBookmarkViews } from "@/lib/atlas/kid";
 import { playerForEmail } from "@/lib/atlas/players";
-import { spawnAtlasJob } from "@/lib/atlas/runner";
+import { reapStaleKids, spawnAtlasJob } from "@/lib/atlas/runner";
 
 /** Newest first; `?nodeId=N` narrows to one node's bookmark. */
 export const GET = (req: NextRequest) => {
+  // The read both kid-version pollers use, so a draft that died silently
+  // turns `failed` here (like reapStaleRungs on the node GET).
+  reapStaleKids(db);
   const raw = req.nextUrl.searchParams.get("nodeId");
   const nodeId = raw === null ? undefined : Number(raw);
   if (nodeId !== undefined && !Number.isInteger(nodeId)) {
@@ -73,6 +76,8 @@ export const POST = async (req: NextRequest) => {
         childId: child.id,
         note: body.data.note || null,
         targetAgeYears: body.data.targetAgeYears ?? null,
+        // Lands `drafting` (the column default); the stamp is the reaper's clock.
+        kidStartedAt: new Date(),
       })
       .returning()
       .get();

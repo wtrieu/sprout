@@ -7,7 +7,7 @@
  *
  * Runs on the headless `claude -p` path with the writer model, never qwen3.
  */
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import type { DB } from "../../db/client";
 import { atlasBookmarks, atlasMaps, atlasNodes, children } from "../../db/schema";
@@ -16,6 +16,7 @@ import { ageBand } from "../skills/storyText";
 import { NONFICTION_FLOOR } from "../stories/lanes";
 import { atlasModels, cliLlm, type AtlasLlm } from "./llm";
 import { rungFor, wordCount } from "./rungs";
+import { KID_STALE_MS, spawnAtlasJob } from "./runner";
 import { stripVisualMarkers } from "./visuals";
 
 export type BookmarkRow = typeof atlasBookmarks.$inferSelect;
@@ -141,8 +142,10 @@ export const generateKidVersion = async (
     );
   }
 
+  // The route already claimed the row (claimKidDraft); this re-stamps the
+  // reaper's clock at the moment the model work actually starts.
   db.update(atlasBookmarks)
-    .set({ kidStatus: "drafting", kidError: null })
+    .set({ kidStatus: "drafting", kidError: null, kidStartedAt: now })
     .where(eq(atlasBookmarks.id, bookmarkId))
     .run();
 
@@ -183,6 +186,61 @@ export const generateKidVersion = async (
   } catch (err) {
     return fail(db, bookmarkId, err instanceof Error ? err.message : String(err), log);
   }
+};
+
+// --- the drafting claim (regenerate) ------------------------------------------------
+
+/**
+ * Atomically flip a bookmark's kid version to `drafting` — ONE conditional
+ * `UPDATE … WHERE … RETURNING`, the same claim shape as
+ * runner.promoteNextQueuedMap. It succeeds only if the row is not already
+ * drafting, or is drafting but stale (a run that died; null stamp counts as
+ * stale, like runner.isStale). SQLite serialises writers, so of two
+ * concurrent regenerations exactly one gets the row back; the other gets
+ * null and must not spawn.
+ */
+export const claimKidDraft = (db: DB, bookmarkId: number, now = new Date()): BookmarkRow | null =>
+  db
+    .update(atlasBookmarks)
+    .set({ kidStatus: "drafting", kidError: null, kidStartedAt: now })
+    .where(
+      and(
+        eq(atlasBookmarks.id, bookmarkId),
+        or(
+          ne(atlasBookmarks.kidStatus, "drafting"),
+          isNull(atlasBookmarks.kidStartedAt),
+          lt(atlasBookmarks.kidStartedAt, new Date(now.getTime() - KID_STALE_MS)),
+        ),
+      ),
+    )
+    .returning()
+    .get() ?? null;
+
+export type RegenerateKidResult =
+  | { status: "started"; bookmark: BookmarkRow }
+  | { status: "busy"; bookmark: BookmarkRow }
+  | { status: "not-found" };
+
+const spawnKidJob = (bookmarkId: number): void =>
+  spawnAtlasJob(["kid", "--bookmark", String(bookmarkId)]);
+
+/**
+ * "Try again" on a kid version: claim the row, and spawn the detached job
+ * only if this call won the claim. A second press while a fresh draft is in
+ * flight is `busy` (the route answers 409) and spawns nothing.
+ */
+export const regenerateKid = (
+  db: DB,
+  bookmarkId: number,
+  deps: { spawn?: (bookmarkId: number) => void; now?: Date } = {},
+): RegenerateKidResult => {
+  const claimed = claimKidDraft(db, bookmarkId, deps.now);
+  if (claimed) {
+    (deps.spawn ?? spawnKidJob)(bookmarkId);
+    return { status: "started", bookmark: claimed };
+  }
+  const row = db.select().from(atlasBookmarks).where(eq(atlasBookmarks.id, bookmarkId)).get();
+  return row ? { status: "busy", bookmark: row } : { status: "not-found" };
 };
 
 /**

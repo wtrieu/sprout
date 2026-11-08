@@ -11,6 +11,7 @@ import { getSetting, setSetting } from "../settings";
 import { logEvent } from "./events";
 import {
   activeMapId,
+  claimFrontierWeek,
   currentPick,
   pickOpened,
   pickView,
@@ -423,6 +424,68 @@ describe("runWeeklyFrontier", () => {
     expect(db.select().from(schema.atlasFrontierPicks).all()).toHaveLength(0);
   });
 
+  it("two runs racing on one week: exactly one picks and emails, the other is already-delivered", async () => {
+    const db = makeDb();
+    seed(db);
+    const { sent, send } = capturingSend();
+    const { calls, llm } = fakeLlm();
+    const results = await Promise.all([run(db, { send, llm }), run(db, { send, llm })]);
+    expect(results.map((r) => r.status).sort()).toEqual(["already-delivered", "delivered"]);
+    expect(sent).toHaveLength(1);
+    // The loser never drafted: one one-pager, one deep dive, one judge.
+    expect(calls).toEqual(["onepager draft", "deepdive draft", "deepdive judge"]);
+    const picks = db.select().from(schema.atlasFrontierPicks).all();
+    expect(picks).toHaveLength(1);
+    expect(picks[0].attempt).toBe(0);
+  });
+
+  it("claims the week before drafting, so the row exists while the rungs are written", async () => {
+    const db = makeDb();
+    const { a } = seed(db);
+    const base = fakeLlm().llm;
+    const duringDraft: Array<{ nodeId: number; attempt: number | null } | null> = [];
+    const llm: AtlasLlm = (prompt, zschema, opts) => {
+      const p = currentPick(db, "2026-11-02");
+      duringDraft.push(p && { nodeId: p.nodeId, attempt: p.attempt });
+      return base(prompt, zschema, opts);
+    };
+    expect((await run(db, { llm })).status).toBe("delivered");
+    expect(duringDraft[0]).toEqual({ nodeId: a.id, attempt: 0 });
+  });
+
+  it("--force numbers the week's attempts 0, 1, 2… and a normal run after a forced one is a no-op", async () => {
+    const db = makeDb();
+    seed(db);
+    const { sent, send } = capturingSend();
+    // A forced run on an empty week takes attempt 0 — the slot a normal run would claim.
+    for (let i = 0; i < 3; i++) expect((await run(db, { send, force: true })).status).toBe("delivered");
+    const attempts = db
+      .select()
+      .from(schema.atlasFrontierPicks)
+      .all()
+      .map((p) => p.attempt);
+    expect(attempts).toEqual([0, 1, 2]);
+    expect((await run(db, { send })).status).toBe("already-delivered");
+    expect(sent).toHaveLength(3);
+  });
+
+  it("a failed forced re-run withdraws only its own claim; the earlier pick stays current", async () => {
+    const db = makeDb();
+    seed(db);
+    const first = await run(db);
+    expect(first.status).toBe("delivered");
+    const llm: AtlasLlm = () => {
+      throw new Error("model fell over");
+    };
+    expect((await run(db, { llm, force: true })).status).toBe("failed");
+    const picks = db.select().from(schema.atlasFrontierPicks).all();
+    expect(picks).toHaveLength(1);
+    expect(currentPick(db, "2026-11-02")!.id).toBe(first.status === "delivered" && first.pick.id);
+    // The withdrawn attempt number is free again.
+    expect((await run(db, { force: true })).status).toBe("delivered");
+    expect(db.select().from(schema.atlasFrontierPicks).all().map((p) => p.attempt)).toEqual([0, 1]);
+  });
+
   it("still sends the note, minus Go deeper, when only the deep dive fails", async () => {
     const db = makeDb();
     seed(db);
@@ -436,6 +499,34 @@ describe("runWeeklyFrontier", () => {
     expect(res.status).toBe("delivered");
     expect(sent[0].html).not.toContain("Go deeper");
     expect(pickView(db, currentPick(db, "2026-11-02")!)!.ready).toEqual({ onepager: true, deepdive: false });
+  });
+});
+
+describe("claimFrontierWeek", () => {
+  const values = (db: DB, weekStart = "2026-11-02") => {
+    const { map, a } = seed(db);
+    return { mapId: map.id, nodeId: a.id, weekStart, reason: "fallback" as const, deliveredVia: "email" as const };
+  };
+
+  it("a normal claim takes attempt 0 once; a second normal claim on the week gets null", () => {
+    const db = makeDb();
+    const v = values(db);
+    expect(claimFrontierWeek(db, v)).toMatchObject({ attempt: 0, weekStart: "2026-11-02" });
+    expect(claimFrontierWeek(db, v)).toBeNull();
+    expect(db.select().from(schema.atlasFrontierPicks).all()).toHaveLength(1);
+    // Another week is its own claim.
+    expect(claimFrontierWeek(db, { ...v, weekStart: "2026-11-09" })).toMatchObject({ attempt: 0 });
+  });
+
+  it("a forced claim takes max(attempt)+1 for its week only", () => {
+    const db = makeDb();
+    const v = values(db);
+    claimFrontierWeek(db, { ...v, weekStart: "2026-10-26" }, true);
+    claimFrontierWeek(db, { ...v, weekStart: "2026-10-26" }, true);
+    expect(claimFrontierWeek(db, v, true)).toMatchObject({ attempt: 0 });
+    expect(claimFrontierWeek(db, v)).toBeNull();
+    expect(claimFrontierWeek(db, v, true)).toMatchObject({ attempt: 1 });
+    expect(claimFrontierWeek(db, v, true)).toMatchObject({ attempt: 2 });
   });
 });
 

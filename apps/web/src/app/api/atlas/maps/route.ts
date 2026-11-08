@@ -4,10 +4,11 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { atlasMaps, atlasNodes, atlasRungs } from "@/db/schema";
 import { getPreset, presetKeys } from "@/lib/atlas/presets";
-import { enqueueMapDraft, reapStaleMaps } from "@/lib/atlas/runner";
+import { enqueueMapDraft, reapStaleKids, reapStaleMaps } from "@/lib/atlas/runner";
 
 export const GET = () => {
   reapStaleMaps(db);
+  reapStaleKids(db);
   const maps = db.select().from(atlasMaps).orderBy(desc(atlasMaps.id)).all();
   const nodes = db
     .select({ id: atlasNodes.id, mapId: atlasNodes.mapId, visitedAt: atlasNodes.visitedAt })

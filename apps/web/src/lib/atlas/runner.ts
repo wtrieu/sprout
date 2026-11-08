@@ -9,14 +9,16 @@
  * from client components.
  */
 import { spawn } from "node:child_process";
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
-import { atlasMaps, atlasRungs } from "../../db/schema";
+import { atlasBookmarks, atlasMaps, atlasRungs } from "../../db/schema";
 
 /** A map draft is ~10–15 sequential model calls. */
 export const MAP_STALE_MS = 20 * 60 * 1000;
 /** A rung is write + judge + link verification. */
 export const RUNG_STALE_MS = 10 * 60 * 1000;
+/** A kid version is one writer call plus at most one repair pass. */
+export const KID_STALE_MS = 10 * 60 * 1000;
 
 export const isStale = (since: Date | null | undefined, ms: number, now = new Date()): boolean =>
   !since || now.getTime() - since.getTime() > ms;
@@ -158,6 +160,27 @@ export const reapStaleMaps = (db: DB, now = new Date(), deps: MapQueueDeps = {})
   promoteNextQueuedMap(db, { ...deps, now });
   return reaped;
 };
+
+/**
+ * Flip kid versions (atlas_bookmarks.kid_status) that have been `drafting`
+ * past the deadline to `failed`. Keyed on kidStartedAt; a null stamp counts
+ * as stale, matching isStale — every writer of `drafting` stamps it.
+ */
+export const reapStaleKids = (db: DB, now = new Date()): number =>
+  db
+    .update(atlasBookmarks)
+    .set({ kidStatus: "failed", kidError: STALE_MESSAGE })
+    .where(
+      and(
+        eq(atlasBookmarks.kidStatus, "drafting"),
+        or(
+          isNull(atlasBookmarks.kidStartedAt),
+          lt(atlasBookmarks.kidStartedAt, new Date(now.getTime() - KID_STALE_MS)),
+        ),
+      ),
+    )
+    .returning({ id: atlasBookmarks.id })
+    .all().length;
 
 /** Flip rungs that have been `drafting` past the deadline to `failed`. */
 export const reapStaleRungs = (db: DB, now = new Date()): number =>

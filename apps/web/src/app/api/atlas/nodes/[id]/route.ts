@@ -8,7 +8,7 @@ import { playerForEmail } from "@/lib/atlas/players";
 import { nodeProgressFor } from "@/lib/atlas/progress";
 import { parseQuizJson, publicQuiz } from "@/lib/atlas/quiz";
 import { rungsFor, verifiedImagesFor, verifiedReadingsFor } from "@/lib/atlas/rungs";
-import { reapStaleRungs } from "@/lib/atlas/runner";
+import { reapStaleKids, reapStaleRungs } from "@/lib/atlas/runner";
 
 const byPosition = <T extends { position: number; id: number }>(a: T, b: T) =>
   a.position - b.position || a.id - b.id;
@@ -19,6 +19,7 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
   const node = db.select().from(atlasNodes).where(eq(atlasNodes.id, Number(id))).get();
   if (!node) return NextResponse.json({ error: "not found" }, { status: 404 });
   reapStaleRungs(db);
+  reapStaleKids(db);
 
   const map = db.select().from(atlasMaps).where(eq(atlasMaps.id, node.mapId)).get() ?? null;
   const mapNodes = db.select().from(atlasNodes).where(eq(atlasNodes.mapId, node.mapId)).all();
