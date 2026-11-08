@@ -851,9 +851,12 @@ export const atlasImages = sqliteTable(
 export const atlasFrontierReasons = ["child", "sibling", "next-branch", "fallback", "seed"] as const;
 export type AtlasFrontierReason = (typeof atlasFrontierReasons)[number];
 
-// The weekly frontier note's log: one node per week, never repeated.
-// Idempotency per week is enforced in code (a plain index, not unique) so a
-// forced re-run can add a second row; the latest row for a week is current.
+// The weekly frontier note's log: one node per week (household-wide, across
+// all maps), never repeated. Idempotency per week is enforced by the unique
+// (week_start, attempt) index: a normal run inserts attempt 0, so a second
+// concurrent run hits the constraint instead of picking and emailing again;
+// a forced re-run inserts max(attempt)+1 for the week. The latest row for a
+// week is current.
 export const atlasFrontierPicks = sqliteTable(
   "atlas_frontier_picks",
   {
@@ -865,6 +868,10 @@ export const atlasFrontierPicks = sqliteTable(
       .notNull()
       .references(() => atlasNodes.id, { onDelete: "cascade" }),
     weekStart: text("week_start").notNull(), // ISO date of the Monday
+    // 0 for the week's normal pick; each --force re-run takes the next number.
+    // Nullable on purpose: SQLite unique indexes treat NULLs as distinct, so a
+    // writer that leaves it null is not guarded (pre-claim rows, legacy code).
+    attempt: integer("attempt"),
     reason: text("reason", { enum: atlasFrontierReasons }).notNull(),
     deliveredVia: text("delivered_via", { enum: ["email", "digest", "app"] }),
     emailSentAt: integer("email_sent_at", { mode: "timestamp" }),
@@ -876,7 +883,7 @@ export const atlasFrontierPicks = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (t) => [
-    index("atlas_frontier_picks_week_idx").on(t.weekStart),
+    uniqueIndex("atlas_frontier_picks_week_attempt_idx").on(t.weekStart, t.attempt),
     index("atlas_frontier_picks_node_idx").on(t.nodeId),
   ],
 );
@@ -901,6 +908,9 @@ export const atlasBookmarks = sqliteTable(
     kidToday: text("kid_today"),
     kidAgeMonths: integer("kid_age_months"),
     kidError: text("kid_error"),
+    // Stamped when a kid draft claims the row (kidStatus -> drafting); the
+    // reaper fails drafts older than the deadline, like atlas_rungs.started_at.
+    kidStartedAt: integer("kid_started_at", { mode: "timestamp" }),
     // HOOK(atlas-story): set when a later "Make it a story" button commissions
     // a nonfiction book from this bookmark. Unused until then.
     storyId: integer("story_id").references(() => stories.id),

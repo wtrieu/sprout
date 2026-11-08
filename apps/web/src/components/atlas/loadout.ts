@@ -70,7 +70,51 @@ export type PendingOffer = {
   deadline: string | null;
   status: string;
 };
-export type Pending = { achievements: PendingAchievement[]; offer: PendingOffer | null };
+export type LevelChange = { from: number; to: number };
+/** Levels earned since the last acknowledged level-up; levels never drop. */
+export type PendingLevelUp = {
+  kind: "level_up";
+  throughEventId: number;
+  total: LevelChange;
+  disciplines: Array<{ discipline: string } & LevelChange>;
+  branches: Array<{ nodeId: number; mapId: number; title: string } & LevelChange>;
+};
+export type Pending = {
+  achievements: PendingAchievement[];
+  offer: PendingOffer | null;
+  /** Optional: absent from payloads that predate level-up reveals. */
+  levelUp?: PendingLevelUp | null;
+};
+
+export type RevealStep =
+  | { kind: "level_up" }
+  | { kind: "achievement"; index: number }
+  | { kind: "offer" };
+
+/**
+ * The reveal sequence: the level-up first (levels frame the rest), then one
+ * step per achievement, then the class offer last (it can end the flow).
+ */
+export const revealSteps = (p: Pending): RevealStep[] => [
+  ...(p.levelUp ? [{ kind: "level_up" as const }] : []),
+  ...p.achievements.map((_, index) => ({ kind: "achievement" as const, index })),
+  ...(p.offer ? [{ kind: "offer" as const }] : []),
+];
+
+/** Anything queued lights the chest, a level-up alone included. */
+export const hasPendingReveal = (p: Pending | null | undefined): boolean =>
+  !!p && revealSteps(p).length > 0;
+
+/** "a level-up, 2 chests and a title offer" — the banner's waiting list. */
+export const chestBannerList = (p: Pending): string => {
+  const boxes = p.achievements.length;
+  const parts = [
+    p.levelUp ? "a level-up" : null,
+    boxes > 0 ? `${boxes} chest${boxes === 1 ? "" : "s"}` : null,
+    p.offer ? "a title offer" : null,
+  ].filter((s): s is string => !!s);
+  return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : (parts[0] ?? "");
+};
 export type NextGate = { level: number; at: number } | null;
 export type PlayerClass = { classId?: string; title?: string } | null;
 

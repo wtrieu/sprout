@@ -16,7 +16,7 @@ and `docs/local-llm-orchestration.md` for the orchestration rules.
 
 - `apps/web/src/lib/atlas/` — `rungs.ts`, `draftMap.ts`, `preload.ts`, `verify.ts`, `verifyImages.ts`, `visuals.ts` (visual-block drafting + `segmentBody`), `worldOutline.ts` (generated data), `picker.ts`, `llm.ts`, `presets.ts`, `runner.ts`, `email.ts`, and all their `.test.ts` files; future `frontier.ts`, `kid.ts`, `seeds.ts` (PR2/PR3). Quiz *drafting/validation* in rungs is yours; quiz *grading* (`quiz.ts`) belongs to `progression-engine`.
 - `scripts/atlas.ts`
-- `apps/web/src/app/api/atlas/maps/**` and `apps/web/src/app/api/atlas/nodes/[id]/rungs/**` routes, and `api/atlas/nodes/[id]/route.ts`
+- `apps/web/src/app/api/atlas/maps/**`, `apps/web/src/app/api/atlas/nodes/[id]/rungs/**`, `api/atlas/nodes/[id]/route.ts`, and the `api/atlas/bookmarks/**` routes (the kid-version job surface)
 
 Do NOT edit `apps/web/src/db/schema.ts` or migrations, `apps/web/src/lib/markdown.ts`,
 `apps/web/src/components/Markdown.tsx`, or the node page
@@ -33,7 +33,7 @@ the visit/skip/quiz/players/me routes belong to `progression-engine`.
 - **Decompose; select, don't generate; assemble in code.** Small calls per branch; the deep dive's Further reading is assembled from verified rows, never written by the model.
 - **Links are never written in prose.** Every reading is machine-verified (`verify.ts`: Wikipedia REST summary, Open Library search, GET + title check) before display; rejects are stored with a reason, never shown.
 - **Body markdown is the `lib/markdown.ts` subset** (`###`, `**bold**`, `- bullets`), no links; `validateRungBody` lints it, one repair pass, then fail loudly.
-- **The row is the job status.** Rows are inserted `drafting` before the detached run and flipped to `ready`/`failed`; the UI only polls rows; stale runs are reaped (20 min maps / 10 min rungs).
+- **The row is the job status.** Rows are inserted `drafting` before the detached run and flipped to `ready`/`failed`; the UI only polls rows; stale runs are reaped (maps, rungs, and kid drafts — see the constants in `runner.ts`; any kid staleness window must stay ≥ 2× `CLAUDE_TIMEOUT_MS`).
 - **Model path:** headless `claude -p` via `lib/stories/claudeCli.ts` — never qwen3/Ollama for Atlas prose. Models from `atlasModels()`: one-pagers on `ATLAS_MODEL_ONEPAGER` (Sonnet, never judged); deep dives writer + judge; eli10 writer, no judge.
 - Quizzes: 3 questions, 4 distinct choices, `why` ≤ 240 chars; validated by `validateQuiz`, same repair-pass path as the body.
 - **The child's name is never hardcoded**; read `children.name` / `dob`.

@@ -85,13 +85,16 @@ Rules the code enforces:
   (zod) that code renders to SVG; model-emitted SVG/HTML would go through
   `dangerouslySetInnerHTML` and is an XSS hole. Visuals never fail a rung:
   still broken after the repair pass they are dropped, unlike the quiz.
-- **The row is the job status.** Maps and rungs are inserted as `drafting`
-  before the detached run starts and flipped to `ready`/`failed` when it
-  lands; the UI only polls those rows. A run that dies silently is reaped as
-  `failed` after 20 min (maps) / 10 min (rungs).
+- **The row is the job status.** Maps, rungs and kid versions are inserted/
+  flipped to `drafting` before the detached run starts and flipped to
+  `ready`/`failed` when it lands; the UI only polls those rows. A run that
+  dies silently is reaped as `failed` after a staleness window (maps, rungs,
+  and kid drafts via `kid_started_at` + `reapStaleKids` — see the constants
+  in `runner.ts`; the kid window must stay ≥ 2× `CLAUDE_TIMEOUT_MS` or a
+  live job can be reaped and clobber its successor).
 - **The child's name is never hardcoded.** Read `children.name` / `dob`.
 
-## Data model (migrations 0013–0016)
+## Data model (migrations 0013–0018)
 
 `atlas_maps`, `atlas_nodes` (self-referencing `parent_id`, two levels),
 `atlas_rungs` (unique per node+level), `atlas_readings` (verified + rejected),
@@ -174,8 +177,11 @@ readings rule for pictures).
   perks are wired as derived hint marks in the map payload (`perkMarks`:
   bookmark / reminder / bridge — read-time, additive, never gating), the
   skill tree renders them, and the reward reveal modal got its loot-drop
-  sequencing with a reduced-motion fallback. Known gap: level-ups are not
-  in the queued-rewards data, so they have no reveal step yet. Also in
+  sequencing with a reduced-motion fallback. (The hardening PR closed the
+  old gap here: level-ups now queue in `lib/atlas/game/pending.ts` via a
+  `reveal_level` event watermark and get the first step in the reveal
+  modal, acknowledged by POST `/api/atlas/reveals/level-up` only once the
+  step has actually been shown.) Also in
   PR-F: map drafting queues — `POST /api/atlas/maps` inserts `queued`
   (202, never 409) while another map drafts; promotion to drafting is an
   atomic claim in `runner.ts` (`promoteNextQueuedMap`), fired when a draft
@@ -194,16 +200,14 @@ the event log; merged as #107) were the last scheduled Atlas PRs — the
 roadmap is complete; open follow-ups live in `docs/atlas-backlog.md`.
 PR-B merged as #102 on 2026-10-31.
 
-Follow-ups from PR-A, not scheduled (fold into whichever PR touches them):
+Follow-ups from PR-A — both closed:
 
-- A dry run consumes the notification claim: `preloadMap` sets
-  `notified_at` before `sendEmail`, and `sendEmail` returns `sent: false`
-  without a Resend key, so a map preloaded under a plist missing the key
-  never gets its email. Fix: release the claim (set `notified_at` back to
-  null) when `send` returns `sent: false` or throws, plus a test.
-- "Prepare the rest" only appears while a one-pager is missing or failed; a
-  map whose one-pagers are all ready but quiz-less has no button (run
-  `preload` by hand).
+- The dry-run `notified_at` leak is fixed (hardening PR): the claim is
+  still taken before the send, but a thrown or `sent: false` send releases
+  it (only if it still holds this run's stamp), so the next completed pass
+  retries the email.
+- "Prepare the rest" covers quiz-less maps since PR-E ("Prepare quizzes
+  (N missing)"); the predicate lives tested in `components/atlas/preload.ts`.
 
 To pick this up in a fresh session, paste this prompt:
 
@@ -918,13 +922,24 @@ the two agree and the backfill skips those maps).
   `currentPick(db, weekStart)` (latest row for the week),
   `runWeeklyFrontier(db, { llm, fetchImpl, send, now, force, log })`:
   1. no ready map → log, exit 0;
-  2. a pick exists for this week and not `force` → "already delivered";
+  2. a pick exists for this week and not `force` → "already delivered"
+     (a stale claim — undelivered, one-pager not ready, past the staleness
+     window — is withdrawn and reclaimed instead of blocking the week);
   3. `pickFrontierNode(nodes, { pickedIds: all prior pick nodeIds })`
      (`picker.ts` already orders child → sibling → next-branch → fallback);
      null → "map complete";
-  4. `ensureRung(onepager)` then `ensureRung(deepdive)` so "Go deeper"
+  4. claim the week: insert the pick row with `attempt: 0`
+     (`ON CONFLICT DO NOTHING` against the unique `(week_start, attempt)`
+     index — losing the race means another run has the week; `--force`
+     claims `max(attempt)+1` atomically, so forced re-sends are numbered).
+     Claiming before drafting keeps the race window to a few statements —
+     the losing run never drafts. The claim is withdrawn (row deleted) if
+     the one-pager fails, drafting throws, or the send throws; a dry-run
+     send keeps it. UI surfaces gate on the pick's ready flags while the
+     rungs draft;
+  5. `ensureRung(onepager)` then `ensureRung(deepdive)` so "Go deeper"
      lands on a ready page (never auto-generate from a GET);
-  5. insert the pick row; deliver per `atlasDelivery`.
+  6. deliver per `atlasDelivery`.
 - **`lib/atlas/email.ts`** — `renderFrontierEmail({ childName, map, branch,
   node, rung, readings, links, progress })` → `{ subject: "Atlas · <node>",
   html }`. Eyebrow "This week in Atlas · <map> › <branch>", h1, bold hook,

@@ -15,7 +15,7 @@
  * (`frontier_note`) are written per household player without calling the
  * game engine's onEventsLogged.
  */
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import {
   atlasFrontierPicks,
@@ -71,6 +71,84 @@ export const currentPick = (db: DB, weekStart: string): PickRow | null =>
     .where(eq(atlasFrontierPicks.weekStart, weekStart))
     .orderBy(desc(atlasFrontierPicks.id))
     .get() ?? null;
+
+const CLAIM_TRIES = 5;
+
+/**
+ * Claim the week by inserting its pick row — the row IS the claim. The
+ * unique (week_start, attempt) index does the arbitration, so two `note` runs
+ * racing on the same week cannot both pick and both email:
+ *
+ * - a normal run inserts attempt 0; if the week already has an attempt 0 the
+ *   insert is a no-op (ON CONFLICT DO NOTHING) and this returns null — another
+ *   run got there first;
+ * - a forced run inserts max(attempt)+1 for the week, computed inside the
+ *   same INSERT so SQLite's single writer makes it atomic; a collision (only
+ *   possible if a writer slipped in anyway) just retries with the next number.
+ *
+ * Callers withdraw the claim (delete the row) if the note then cannot be
+ * delivered, so a retry can claim the week again.
+ */
+export const claimFrontierWeek = (
+  db: DB,
+  values: Omit<typeof atlasFrontierPicks.$inferInsert, "id" | "attempt">,
+  force = false,
+): PickRow | null => {
+  for (let i = 0; i < (force ? CLAIM_TRIES : 1); i++) {
+    const attempt = force
+      ? sql<number>`(SELECT COALESCE(MAX(attempt), -1) + 1 FROM atlas_frontier_picks WHERE week_start = ${values.weekStart})`
+      : 0;
+    const row = db
+      .insert(atlasFrontierPicks)
+      .values({ ...values, attempt })
+      .onConflictDoNothing()
+      .returning()
+      .get();
+    if (row) return row;
+  }
+  return null;
+};
+
+/**
+ * How long a week's claim may sit with its one-pager not ready before it is
+ * treated as a dead run (SIGKILL, reboot, Ctrl-C on a hand-run `note`). The
+ * one-pager is the first thing a claiming run drafts: at most two `claude -p`
+ * spawns (write + one repair) of up to 10 min each, plus reading/image
+ * verification — so a live run has it ready well inside 45 min.
+ */
+export const FRONTIER_CLAIM_STALE_MS = 45 * 60 * 1000;
+
+/**
+ * A claim left by a run that died before its note could go out: older than
+ * FRONTIER_CLAIM_STALE_MS and its node's one-pager still not ready. A pick
+ * whose one-pager IS ready is never dead by this rule, even if unemailed: a
+ * failed send already withdraws its own claim, and a dry-run keeps it on purpose.
+ */
+export const isDeadClaim = (db: DB, pick: PickRow, now = new Date()): boolean =>
+  now.getTime() - pick.createdAt.getTime() > FRONTIER_CLAIM_STALE_MS &&
+  rungFor(db, pick.nodeId, "onepager")?.status !== "ready";
+
+/**
+ * The week's current pick after withdrawing dead claims (newest first, so a
+ * dead forced attempt falls back to the delivered pick before it). Deleting
+ * the dead row frees its attempt slot and un-excludes its node, so the next
+ * claim can take both again; two runs reclaiming at once both delete the
+ * same row (one is a no-op) and the unique index picks a single new winner.
+ */
+export const reclaimDeadClaims = (
+  db: DB,
+  weekStart: string,
+  now = new Date(),
+  log: (msg: string) => void = () => {},
+): PickRow | null => {
+  let pick = currentPick(db, weekStart);
+  for (let i = 0; pick && i < 10 && isDeadClaim(db, pick, now); i++) {
+    db.delete(atlasFrontierPicks).where(eq(atlasFrontierPicks.id, pick.id)).run();
+    log(`week ${weekStart}: pick #${pick.id} (node #${pick.nodeId}) was claimed ${pick.createdAt.toISOString()} and never drafted — dead run, reclaimed`);
+    pick = currentPick(db, weekStart);
+  }
+  return pick;
+};
 
 // --- shared atlas memory, from the event log ---------------------------------------
 
@@ -183,6 +261,17 @@ export const pickView = (db: DB, pick: PickRow): PickView | null => {
   };
 };
 
+/**
+ * The week's pick as something to announce (the digest), or null. The week
+ * is claimed before its rungs are drafted, so a pick can exist while its
+ * one-pager is still being written; it is not news until that page is ready.
+ */
+export const deliverablePickView = (db: DB, weekStart: string): PickView | null => {
+  const pick = currentPick(db, weekStart);
+  const view = pick ? pickView(db, pick) : null;
+  return view?.ready.onepager ? view : null;
+};
+
 // --- the weekly run ---------------------------------------------------------------
 
 export type FrontierDeps = {
@@ -218,8 +307,9 @@ export const runWeeklyFrontier = async (
     return { status: "no-map" };
   }
 
-  // 2. one note per week unless forced
-  const existing = currentPick(db, weekStart);
+  // 2. one note per week unless forced — but a claim left by a run that died
+  // mid-draft must not hold the week (or its node) forever
+  const existing = deps.force ? currentPick(db, weekStart) : reclaimDeadClaims(db, weekStart, now, log);
   if (existing && !deps.force) {
     log(`already delivered: week ${weekStart} has pick #${existing.id} (node #${existing.nodeId})`);
     return { status: "already-delivered", pick: existing };
@@ -249,29 +339,57 @@ export const runWeeklyFrontier = async (
   const parent = node.parentId === null ? null : (nodes.find((n) => n.id === node.parentId) ?? null);
   log(`pick: "${node.title}" (node #${node.id}) — reason ${choice.reason}, map "${map.title}"`);
 
-  // 4. both rungs ready before anyone is told about it (never generated from a GET)
+  // 4. claim the week BEFORE the slow drafting, so the race window between
+  // two runs is the few synchronous statements above, not minutes of model
+  // calls. The row is the claim; it is withdrawn again if the note cannot go
+  // out. A run hard-killed mid-draft leaves its claim behind; the next normal
+  // run reclaims it once it is FRONTIER_CLAIM_STALE_MS old with no ready
+  // one-pager (reclaimDeadClaims, step 2).
+  const via = getSetting(db, "atlasDelivery");
+  const pick = claimFrontierWeek(
+    db,
+    { mapId, nodeId: node.id, weekStart, reason: choice.reason, deliveredVia: via, createdAt: now },
+    deps.force,
+  );
+  if (!pick) {
+    const winner = currentPick(db, weekStart);
+    if (winner) {
+      log(`already delivered: another run claimed week ${weekStart} (pick #${winner.id}, node #${winner.nodeId})`);
+      return { status: "already-delivered", pick: winner };
+    }
+    // The winner withdrew between our insert and this read (its note failed).
+    return { status: "failed", error: `could not claim week ${weekStart} — another run held it; try again` };
+  }
+  const withdraw = (why: string) => {
+    db.delete(atlasFrontierPicks).where(eq(atlasFrontierPicks.id, pick.id)).run();
+    log(`${why} — pick #${pick.id} withdrawn`);
+  };
+
+  // 5. both rungs ready before anyone is told about it (never generated from a GET)
   const rungDeps = { llm: deps.llm, fetchImpl: deps.fetchImpl, log };
-  const onepager = await ensureRung(db, node.id, "onepager", rungDeps);
-  if (!onepager.ok) return { status: "failed", error: `one-pager: ${onepager.error}` };
-  const deepdive = await ensureRung(db, node.id, "deepdive", rungDeps);
+  let onepager: Awaited<ReturnType<typeof ensureRung>>;
+  let deepdive: Awaited<ReturnType<typeof ensureRung>>;
+  try {
+    onepager = await ensureRung(db, node.id, "onepager", rungDeps);
+    if (!onepager.ok) {
+      withdraw(`one-pager failed (${onepager.error})`);
+      return { status: "failed", error: `one-pager: ${onepager.error}` };
+    }
+    deepdive = await ensureRung(db, node.id, "deepdive", rungDeps);
+  } catch (err) {
+    withdraw(`drafting threw (${err instanceof Error ? err.message : String(err)})`);
+    throw err;
+  }
   // A deep dive that will not write must not sink the note: the email drops
   // its "Go deeper" button and the node page can still draft it on demand.
   if (!deepdive.ok) log(`deep dive failed (${deepdive.error}) — sending without "Go deeper"`);
 
-  // 5. record the pick, then deliver
-  const via = getSetting(db, "atlasDelivery");
-  const pick = db
-    .insert(atlasFrontierPicks)
-    .values({
-      mapId,
-      nodeId: node.id,
-      weekStart,
-      reason: choice.reason,
-      deliveredVia: via,
-      createdAt: now,
-    })
-    .returning()
-    .get();
+  // 6. deliver — only while we still hold the claim. A run so slow that its
+  // claim was reclaimed as dead (step 2 of a later run) must not send too.
+  if (!db.select({ id: atlasFrontierPicks.id }).from(atlasFrontierPicks).where(eq(atlasFrontierPicks.id, pick.id)).get()) {
+    log(`pick #${pick.id} was reclaimed by a later run while drafting — not delivering`);
+    return { status: "failed", error: `claim on week ${weekStart} was reclaimed as stale; nothing sent` };
+  }
 
   let delivered = pick;
   let emailed = false;
@@ -298,11 +416,11 @@ export const runWeeklyFrontier = async (
     try {
       sent = await (deps.send ?? sendEmail)(email);
     } catch (err) {
-      // Undeliverable means unpicked: drop the row so a retry can choose
-      // (and mail) this node again; the rungs are already drafted.
-      db.delete(atlasFrontierPicks).where(eq(atlasFrontierPicks.id, pick.id)).run();
+      // Undeliverable means unpicked: drop the row (releasing the week's
+      // claim) so a retry can choose (and mail) this node again; the rungs
+      // are already drafted.
       const message = err instanceof Error ? err.message : String(err);
-      log(`email failed (${message}) — pick #${pick.id} withdrawn`);
+      withdraw(`email failed (${message})`);
       return { status: "failed", error: `email: ${message}` };
     }
     emailed = sent.sent;

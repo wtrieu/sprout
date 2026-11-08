@@ -3,8 +3,7 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { atlasBookmarks } from "@/db/schema";
-import { listBookmarkViews } from "@/lib/atlas/kid";
-import { spawnAtlasJob } from "@/lib/atlas/runner";
+import { listBookmarkViews, regenerateKid } from "@/lib/atlas/kid";
 
 const PatchSchema = z.object({
   // "" (or null) clears the note.
@@ -29,20 +28,24 @@ export const PATCH = async (req: NextRequest, { params }: { params: Promise<{ id
   const bookmark = find(id);
   if (!bookmark) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const { note, targetAgeYears, regenerateKid } = body.data;
+  const { note, targetAgeYears } = body.data;
   const set: Partial<typeof atlasBookmarks.$inferInsert> = {};
   if (note !== undefined) set.note = note || null;
   if (targetAgeYears !== undefined) set.targetAgeYears = targetAgeYears;
-  if (regenerateKid) {
-    set.kidStatus = "drafting";
-    set.kidError = null;
-  }
   if (Object.keys(set).length > 0) {
     db.update(atlasBookmarks).set(set).where(eq(atlasBookmarks.id, bookmark.id)).run();
   }
-  if (regenerateKid) spawnAtlasJob(["kid", "--bookmark", String(bookmark.id)]);
+  // An atomic drafting claim: only the call that flips the row spawns the
+  // job, so a double press cannot start two kid drafts (last writer wins).
+  const regen = body.data.regenerateKid ? regenerateKid(db, bookmark.id) : null;
 
   const [view] = listBookmarkViews(db, { id: bookmark.id });
+  if (regen?.status === "busy") {
+    return NextResponse.json(
+      { error: "Already drafting — usually about a minute.", bookmark: view },
+      { status: 409 },
+    );
+  }
   return NextResponse.json({ bookmark: view });
 };
 

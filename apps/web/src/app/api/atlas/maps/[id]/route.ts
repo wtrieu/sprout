@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { asc, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { atlasBookmarks, atlasMaps, atlasNodes, atlasRungLevels, atlasRungs } from "@/db/schema";
 import { getAuthenticatedEmail } from "@/lib/auth";
@@ -8,12 +8,13 @@ import { personaLine } from "@/lib/atlas/persona";
 import { playerForEmail } from "@/lib/atlas/players";
 import { defaultLapsedOffers } from "@/lib/atlas/game/classes";
 import { mapGamePayload, mapGreetingCounts, mapProgressFor } from "@/lib/atlas/progress";
-import { promoteNextQueuedMap, reapStaleMaps } from "@/lib/atlas/runner";
+import { promoteNextQueuedMap, reapStaleKids, reapStaleMaps } from "@/lib/atlas/runner";
 import { setSetting } from "@/lib/settings";
 
 export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   reapStaleMaps(db);
+  reapStaleKids(db);
   const map = db.select().from(atlasMaps).where(eq(atlasMaps.id, Number(id))).get();
   if (!map) return NextResponse.json({ error: "not found" }, { status: 404 });
 
@@ -30,6 +31,7 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
           level: atlasRungs.level,
           status: atlasRungs.status,
           quizJson: atlasRungs.quizJson,
+          hasBody: sql<number>`${atlasRungs.bodyMd} IS NOT NULL AND ${atlasRungs.bodyMd} != ''`,
         })
         .from(atlasRungs)
         .where(
@@ -47,8 +49,10 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
     entry[r.level] = r.status;
     byNode.set(r.nodeId, entry);
     // Pre-PR-A one-pagers were written without a quiz; the preload backfills
-    // them, and the page needs to know there is something to prepare.
-    if (r.level === "onepager" && r.status === "ready" && !r.quizJson) quizlessCount += 1;
+    // them, and the page needs to know there is something to prepare. Same
+    // filter as the backfill (preload.ts): a body-less one-pager has nothing
+    // to quiz on, so counting it would show a button that can never clear.
+    if (r.level === "onepager" && r.status === "ready" && !r.quizJson && r.hasBody) quizlessCount += 1;
   }
 
   const bookmarkedNodeIds = nodes.length

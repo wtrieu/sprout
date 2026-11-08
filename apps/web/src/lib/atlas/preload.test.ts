@@ -223,6 +223,66 @@ describe("preloadMap", () => {
     expect(sent).toHaveLength(1);
   });
 
+  it("releases the email claim when the send throws or is a dry-run, so a later run still sends once", async () => {
+    const db = makeDb();
+    const { map } = seed(db);
+    const notifiedAt = () =>
+      db.select().from(schema.atlasMaps).where(eq(schema.atlasMaps.id, map.id)).get()!.notifiedAt;
+    const logs: string[] = [];
+    const log = (m: string) => void logs.push(m);
+
+    // The finishing run's send throws: the preload itself still succeeds.
+    let attempts = 0;
+    const throwing = async () => {
+      attempts += 1;
+      throw new Error("Resend responded 500");
+    };
+    const first = await preloadMap(db, map.id, { llm: fakeLlm(newRec()), send: throwing, log });
+    expect(attempts).toBe(1);
+    expect(first).toMatchObject({ failed: 0, notified: false });
+    expect(notifiedAt()).toBeNull();
+    expect(logs.some((m) => m.includes("Resend responded 500") && m.includes("claim released"))).toBe(true);
+
+    // A dry-run send (EMAIL_DRY_RUN / no key) reports not sent: also released.
+    const dry = await preloadMap(db, map.id, {
+      llm: fakeLlm(newRec()),
+      send: async () => ({ sent: false, id: null }),
+      log: quiet,
+    });
+    expect(dry.notified).toBe(false);
+    expect(notifiedAt()).toBeNull();
+
+    // The next run with a working sender delivers it, exactly once.
+    const { sent, send } = capturingSend();
+    const ok = await preloadMap(db, map.id, { llm: fakeLlm(newRec()), send, log: quiet });
+    expect(ok.notified).toBe(true);
+    expect(notifiedAt()).not.toBeNull();
+    const again = await preloadMap(db, map.id, { llm: fakeLlm(newRec()), send, log: quiet });
+    expect(again.notified).toBe(false);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("holds the claim while a send is in flight: a concurrent finisher cannot send twice", async () => {
+    const db = makeDb();
+    const { map } = seed(db);
+    await preloadMap(db, map.id, { llm: fakeLlm(newRec()), send: async () => ({ sent: false, id: null }), log: quiet });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let sends = 0;
+    const slow = async () => {
+      sends += 1;
+      await gate;
+      return { sent: true, id: "slow" };
+    };
+    const a = preloadMap(db, map.id, { llm: fakeLlm(newRec()), send: slow, log: quiet });
+    const b = preloadMap(db, map.id, { llm: fakeLlm(newRec()), send: slow, log: quiet });
+    await new Promise((r) => setTimeout(r, 0));
+    release();
+    const results = await Promise.all([a, b]);
+    expect(sends).toBe(1);
+    expect(results.map((r) => r.notified).sort()).toEqual([false, true]);
+  });
+
   it("skips a one-pager that is drafting and not stale, and holds the email", async () => {
     const db = makeDb();
     const { map, nodes } = seed(db);

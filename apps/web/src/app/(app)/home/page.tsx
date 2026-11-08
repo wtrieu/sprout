@@ -2,7 +2,8 @@ import Link from "next/link";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { children, atlasNodes } from "@/db/schema";
-import { currentPick, weekStartOf } from "@/lib/atlas/frontier";
+import { currentPick, pickView, weekStartOf } from "@/lib/atlas/frontier";
+import { PICK_PREPARING_COPY, pickReadable } from "@/components/atlas/frontierPick";
 import { ageInMonths, formatAge } from "@/lib/age";
 
 export const dynamic = "force-dynamic";
@@ -46,11 +47,14 @@ export default function Home() {
     sql`SELECT COUNT(*) as n FROM source_suggestions WHERE status = 'pending'`,
   );
 
-  // This week's Atlas frontier note, if the weekly job has picked one.
+  // This week's Atlas frontier note, if the weekly job has picked one. The
+  // pick is claimed before it drafts, so it only links once its one-pager is
+  // ready; until then the card is a quiet, unlinked "preparing" slot.
   const pick = currentPick(db, weekStartOf(new Date()));
   const pickNode = pick
     ? db.select().from(atlasNodes).where(eq(atlasNodes.id, pick.nodeId)).get()
     : undefined;
+  const pickReady = pick ? pickReadable(pickView(db, pick)) : false;
 
   return (
     <div className="space-y-6">
@@ -73,7 +77,14 @@ export default function Home() {
         </p>
       </section>
 
-      {pick && pickNode && (
+      {pick && pickNode && !pickReady && (
+        <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-5">
+          <div className="text-xs uppercase tracking-wide text-amber-400/80">This week in Atlas</div>
+          <div className="mt-1 font-medium text-neutral-400">{pickNode.title}</div>
+          <div className="mt-0.5 text-sm italic text-neutral-500">{PICK_PREPARING_COPY}</div>
+        </div>
+      )}
+      {pick && pickNode && pickReady && (
         <Link
           href={`/atlas/${pick.mapId}/${pickNode.id}?from=note`}
           className="block rounded-xl border border-amber-500/30 bg-neutral-900 p-5 transition hover:border-amber-500/60"

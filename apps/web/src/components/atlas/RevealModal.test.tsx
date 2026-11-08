@@ -3,7 +3,14 @@ import { describe, expect, it } from "vitest";
 import { ChestBanner, RevealModal } from "./RevealModal";
 import { AchievementGallery, Inventory } from "./Collection";
 import { levelLine } from "./CharacterCard";
-import { loadoutPatch, type Pending } from "./loadout";
+import {
+  chestBannerList,
+  hasPendingReveal,
+  loadoutPatch,
+  revealSteps,
+  type Pending,
+  type PendingLevelUp,
+} from "./loadout";
 
 const OPTION = (n: number) => ({
   classId: `class-${n}`,
@@ -72,6 +79,68 @@ describe("RevealModal", () => {
 
   it("renders nothing when there is nothing to reveal", () => {
     expect(modal({ achievements: [], offer: null })).toBe("");
+  });
+});
+
+const LEVEL_UP: PendingLevelUp = {
+  kind: "level_up",
+  throughEventId: 42,
+  total: { from: 12, to: 14 },
+  disciplines: [
+    { discipline: "reasoning", from: 3, to: 4 },
+    { discipline: "evidence", from: 2, to: 3 },
+  ],
+  branches: [{ nodeId: 7, mapId: 1, title: "Logic", from: 5, to: 6 }],
+};
+
+describe("level-up reveal", () => {
+  it("sequences the level-up first, then achievements, then the offer", () => {
+    expect(revealSteps({ ...PENDING, levelUp: LEVEL_UP })).toEqual([
+      { kind: "level_up" },
+      { kind: "achievement", index: 0 },
+      { kind: "offer" },
+    ]);
+    // Payloads without the field keep today's sequence.
+    expect(revealSteps(PENDING)).toEqual([{ kind: "achievement", index: 0 }, { kind: "offer" }]);
+  });
+
+  it("lights the chest for a level-up alone, and not for nothing", () => {
+    expect(hasPendingReveal({ achievements: [], offer: null, levelUp: LEVEL_UP })).toBe(true);
+    expect(hasPendingReveal({ achievements: [], offer: null, levelUp: null })).toBe(false);
+    expect(hasPendingReveal(null)).toBe(false);
+  });
+
+  it("names everything waiting in the banner", () => {
+    expect(chestBannerList({ achievements: [], offer: null, levelUp: LEVEL_UP })).toBe("a level-up");
+    expect(chestBannerList({ ...PENDING, levelUp: LEVEL_UP })).toBe(
+      "a level-up, 1 chest and a title offer",
+    );
+    const html = renderToStaticMarkup(
+      <ChestBanner pending={{ achievements: [], offer: null, levelUp: LEVEL_UP }} onOpen={() => {}} />,
+    );
+    expect(html).toContain("You have a level-up waiting");
+  });
+
+  it("opens on the level-up card: total and every rise", () => {
+    const html = modal({ ...PENDING, levelUp: LEVEL_UP });
+    expect(html).toContain("Total level 12 → 14");
+    expect(html).toContain("reasoning");
+    expect(html).toContain("3 → 4");
+    expect(html).toContain("Logic");
+    expect(html).toContain("5 → 6");
+    expect(html).toContain("1 / 3");
+    expect(html).not.toContain("First Stamp");
+  });
+
+  it("shows a total that held still without an arrow (only a branch rose)", () => {
+    const html = modal({
+      achievements: [],
+      offer: null,
+      levelUp: { ...LEVEL_UP, total: { from: 14, to: 14 }, disciplines: [] },
+    });
+    expect(html).toContain("Total level 14");
+    expect(html).not.toContain("14 → 14");
+    expect(html).toContain("Done");
   });
 });
 

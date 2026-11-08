@@ -15,7 +15,8 @@
  * The "map is ready" email is sent exactly once: the shard that finds every
  * node's one-pager and eli10 ready-or-failed (and nothing still drafting) atomically
  * claims `atlas_maps.notified_at` — the UPDATE that returns a row sends, so
- * two shards finishing together cannot send twice.
+ * two shards finishing together cannot send twice. A send that throws or
+ * does not go out (dry-run, no key) releases the claim again.
  */
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import type { DB } from "../../db/client";
@@ -88,7 +89,10 @@ export const suggestedStarts = (
  * eli10 can be written from it) — atomically claim the notification:
  * `update atlas_maps set notified_at = now where id = ? and notified_at is
  * null`. The caller whose UPDATE returns a row sends the email, so any two
- * runs finishing together cannot send twice.
+ * runs finishing together cannot send twice. If that send throws or reports
+ * `sent: false`, the claim is rolled back (notified_at = null, only if it is
+ * still our stamp) so the next finishing run can deliver it; the result is
+ * true only when an email actually went out.
  *
  * Every run that can be the last to finish a rung of the map calls this at
  * its end: preload shards, the likely-next prefetch, and the single-rung
@@ -130,26 +134,46 @@ export const maybeNotifyMapReady = async (
     });
   if (!complete) return false;
 
+  // Claim before sending: the claim is what stops two finishing runs from
+  // both mailing. The stamp is also our token for releasing it below.
+  const stamp = deps.now ?? new Date();
   const claimed = db
     .update(atlasMaps)
-    .set({ notifiedAt: deps.now ?? new Date() })
+    .set({ notifiedAt: stamp })
     .where(and(eq(atlasMaps.id, mapId), isNull(atlasMaps.notifiedAt)))
-    .returning({ id: atlasMaps.id })
+    .returning({ notifiedAt: atlasMaps.notifiedAt })
     .get();
   if (!claimed) return false;
+  // Give the claim back when nothing went out (a thrown send, or a dry-run /
+  // no-key `sent: false`), so a later run can still deliver the email.
+  // Conditional on our own stamp: a release never clears someone else's claim.
+  const release = (why: string): false => {
+    db.update(atlasMaps)
+      .set({ notifiedAt: null })
+      .where(and(eq(atlasMaps.id, mapId), eq(atlasMaps.notifiedAt, claimed.notifiedAt!)))
+      .run();
+    log(`map #${mapId} fully preloaded — email not sent (${why}); notification claim released`);
+    return false;
+  };
 
-  const readyCount = nodes.filter((n) => onepagers.get(n.id)?.status === "ready").length;
-  const email = renderMapReadyEmail({
-    map: { id: map.id, title: map.title, blurb: map.blurb },
-    branchCount: nodes.filter((n) => n.parentId === null).length,
-    nodeCount: nodes.length,
-    readyCount,
-    failedCount: nodes.length - readyCount,
-    starts: suggestedStarts(nodes, (id) => onepagers.get(id)?.hook ?? null),
-    baseUrl: process.env.SPROUT_BASE_URL ?? "http://localhost:3100",
-  });
-  const send = deps.send ?? sendEmail;
-  await send(email);
+  let sent: Awaited<ReturnType<SendEmailFn>>;
+  try {
+    const readyCount = nodes.filter((n) => onepagers.get(n.id)?.status === "ready").length;
+    const email = renderMapReadyEmail({
+      map: { id: map.id, title: map.title, blurb: map.blurb },
+      branchCount: nodes.filter((n) => n.parentId === null).length,
+      nodeCount: nodes.length,
+      readyCount,
+      failedCount: nodes.length - readyCount,
+      starts: suggestedStarts(nodes, (id) => onepagers.get(id)?.hook ?? null),
+      baseUrl: process.env.SPROUT_BASE_URL ?? "http://localhost:3100",
+    });
+    sent = await (deps.send ?? sendEmail)(email);
+  } catch (err) {
+    // A failed email is a log line, never a failed preload or rung job.
+    return release(err instanceof Error ? err.message : String(err));
+  }
+  if (!sent.sent) return release("dry-run or no key");
   log(`map #${mapId} fully preloaded — notification sent`);
   return true;
 };

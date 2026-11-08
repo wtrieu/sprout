@@ -3,7 +3,7 @@ import type { DB } from "../db/client";
 import { children, digests } from "../db/schema";
 import { ageInMonths, formatAge } from "./age";
 import { callClaudeText } from "./claude";
-import { currentPick, pickView, weekStartOf as atlasWeekStart } from "./atlas/frontier";
+import { deliverablePickView, weekStartOf as atlasWeekStart } from "./atlas/frontier";
 import { sendEmail, mdToHtml } from "./email";
 import { getSetting } from "./settings";
 
@@ -140,10 +140,10 @@ THE LIBRARY THIS MONTH (story mix by genre lane, then recurring topics):
 ${monthLanes.length ? monthLanes.map((l) => `- ${l.lane}: ${l.n} book(s)`).join("\n") : "(no lane data yet)"}
 ${topTags.length ? `Topics: ${topTags.join(", ")}` : ""}`;
 
-  // atlasDelivery=digest: the week's Atlas note rides at the top of the digest.
-  const atlasPick =
-    getSetting(db, "atlasDelivery") === "digest" ? currentPick(db, atlasWeekStart(new Date())) : null;
-  const atlasCard = atlasPick ? pickView(db, atlasPick) : null;
+  // atlasDelivery=digest: the week's Atlas note rides at the top of the
+  // digest — once its one-pager is ready (the week is claimed before drafting).
+  const atlasCard =
+    getSetting(db, "atlasDelivery") === "digest" ? deliverablePickView(db, atlasWeekStart(new Date())) : null;
   // Model-written text goes through mdToHtml, which neither escapes HTML nor
   // knows the "links never written in prose" rule — flatten both here.
   const mdSafe = (s: string) =>

@@ -22,8 +22,8 @@ vi.mock("node:child_process", () => ({ spawn: vi.fn(() => ({ unref: () => {} }))
 
 import { spawn } from "node:child_process";
 import { db } from "@/db/client";
-import { atlasMaps } from "@/db/schema";
-import { DELETE } from "./route";
+import { atlasMaps, atlasNodes, atlasRungs } from "@/db/schema";
+import { DELETE, GET } from "./route";
 
 const del = (id: number) =>
   DELETE(new NextRequest(`http://localhost/api/atlas/maps/${id}`, { method: "DELETE" }), {
@@ -63,5 +63,34 @@ describe("DELETE /api/atlas/maps/[id]", () => {
     expect(statusOf(busy.id)).toBe("drafting");
     expect(statusOf(q.id)).toBe("queued");
     expect(spawnedArgs()).toEqual([]);
+  });
+});
+
+describe("GET /api/atlas/maps/[id] quizlessCount", () => {
+  beforeEach(() => {
+    db.delete(atlasMaps).run();
+  });
+
+  it("counts only ready one-pagers with a body and no quiz — the rows the preload backfill can fix", async () => {
+    const map = add("Philosophy", "ready");
+    const rung = (bodyMd: string | null, quizJson: string | null, status: "ready" | "failed" = "ready") => {
+      const node = db
+        .insert(atlasNodes)
+        .values({ mapId: map.id, parentId: null, position: 0, title: "N", blurb: "b", kind: "branch" })
+        .returning()
+        .get();
+      db.insert(atlasRungs).values({ nodeId: node.id, level: "onepager", status, bodyMd, quizJson }).run();
+    };
+    rung("### The question\nBody.", null); // counted: backfillable
+    rung("### The question\nBody.", "[]"); // has a quiz
+    rung(null, null); // body-less: the backfill skips it, so must the count
+    rung("", null); // empty body: same
+    rung("### The question\nBody.", null, "failed"); // not ready
+
+    const res = await GET(new NextRequest(`http://localhost/api/atlas/maps/${map.id}`), {
+      params: Promise.resolve({ id: String(map.id) }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).quizlessCount).toBe(1);
   });
 });

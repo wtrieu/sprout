@@ -9,13 +9,16 @@ import * as schema from "../../db/schema";
 import type { DB } from "../../db/client";
 import { NONFICTION_FLOOR } from "../stories/lanes";
 import {
+  claimKidDraft,
   generateKidVersion,
   hasNonLatinLetters,
   kidWordBudget,
   listBookmarkViews,
+  regenerateKid,
   storyTopicForBookmark,
 } from "./kid";
 import { atlasModels, makeCliLlm, type AtlasLlm } from "./llm";
+import { KID_STALE_MS, reapStaleKids } from "./runner";
 
 const migrationsFolder = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -309,6 +312,182 @@ describe("generateKidVersion", () => {
       log: () => {},
     });
     expect(row(db, bookmark.id)).toMatchObject({ kidStatus: "ready", kidError: null });
+  });
+
+  it("stamps kidStartedAt when the model work starts (the reaper's clock)", async () => {
+    const db = makeDb();
+    const { bookmark } = seed(db);
+    const stamps: Array<Date | null> = [];
+    const llm: AtlasLlm = (_prompt, zschema) => {
+      stamps.push(row(db, bookmark.id).kidStartedAt);
+      return zschema.parse({ kid_md: "Cables hold it.", today: "Hang a sock." });
+    };
+    await generateKidVersion(db, bookmark.id, { llm, now: NOW, log: () => {} });
+    expect(stamps).toEqual([NOW]);
+  });
+});
+
+describe("generateKidVersion under a claim stamp (superseded jobs)", () => {
+  const LATER = new Date(NOW.getTime() + KID_STALE_MS + 60_000);
+  const DRAFT = { kid_md: "Cables hold it.", today: "Hang a sock." };
+  /** Claim as the route does; returns the stamp it would pass to the job. */
+  const claimA = (db: DB, id: number) => claimKidDraft(db, id, NOW)!.kidStartedAt!;
+  /** Mid-job: job A is reaped as stale and "Try again" claims the row for job B. */
+  const supersede = (db: DB, id: number) => {
+    expect(reapStaleKids(db, LATER)).toBe(1);
+    return claimKidDraft(db, id, LATER)!.kidStartedAt!;
+  };
+
+  it("writes ready when it still owns the claim", async () => {
+    const db = makeDb();
+    const { bookmark } = seed(db);
+    const stamp = claimA(db, bookmark.id);
+    const res = await generateKidVersion(db, bookmark.id, { llm: parsing(DRAFT), now: NOW, stamp, log: () => {} });
+    expect(res.ok).toBe(true);
+    expect(row(db, bookmark.id)).toMatchObject({ kidStatus: "ready", kidStartedAt: stamp });
+  });
+
+  it("a superseded job's ready write is a no-op: the newer draft is untouched", async () => {
+    const db = makeDb();
+    const { bookmark } = seed(db);
+    const stampA = claimA(db, bookmark.id);
+    let stampB: Date | null = null;
+    const llm: AtlasLlm = (prompt, zschema, opts) => {
+      stampB = supersede(db, bookmark.id);
+      return parsing(DRAFT)(prompt, zschema, opts);
+    };
+    const res = await generateKidVersion(db, bookmark.id, { llm, now: NOW, stamp: stampA, log: () => {} });
+    expect(res.ok).toBe(false);
+    expect(row(db, bookmark.id)).toMatchObject({ kidStatus: "drafting", kidStartedAt: stampB, kidMd: null, kidError: null });
+  });
+
+  it("a superseded job's failure write is a no-op too", async () => {
+    const db = makeDb();
+    const { bookmark } = seed(db);
+    const stampA = claimA(db, bookmark.id);
+    let stampB: Date | null = null;
+    const llm: AtlasLlm = () => {
+      stampB = supersede(db, bookmark.id);
+      throw new Error("claude -p timed out");
+    };
+    const res = await generateKidVersion(db, bookmark.id, { llm, now: NOW, stamp: stampA, log: () => {} });
+    expect(res.ok).toBe(false);
+    expect(row(db, bookmark.id)).toMatchObject({ kidStatus: "drafting", kidStartedAt: stampB, kidError: null });
+  });
+
+  it("a job whose claim was already superseded before it started does nothing", async () => {
+    const db = makeDb();
+    const { bookmark } = seed(db);
+    const stampA = claimA(db, bookmark.id);
+    const stampB = supersede(db, bookmark.id);
+    const seen: string[] = [];
+    const res = await generateKidVersion(db, bookmark.id, {
+      llm: parsing(DRAFT, seen),
+      now: LATER,
+      stamp: stampA,
+      log: () => {},
+    });
+    expect(res.ok).toBe(false);
+    expect(seen).toEqual([]);
+    expect(row(db, bookmark.id)).toMatchObject({ kidStatus: "drafting", kidStartedAt: stampB });
+  });
+});
+
+describe("regenerateKid (the drafting claim)", () => {
+  const recorder = () => {
+    const spawned: number[] = [];
+    const stamps: Date[] = [];
+    return {
+      spawned,
+      stamps,
+      spawn: (id: number, stamp: Date) => {
+        spawned.push(id);
+        stamps.push(stamp);
+      },
+    };
+  };
+  const setKid = (db: DB, id: number, set: Partial<typeof schema.atlasBookmarks.$inferInsert>) =>
+    db.update(schema.atlasBookmarks).set(set).where(eq(schema.atlasBookmarks.id, id)).run();
+
+  it("claims a failed bookmark: flips to drafting, clears the error, stamps, spawns once", () => {
+    const db = makeDb();
+    const { bookmark } = seed(db);
+    setKid(db, bookmark.id, { kidStatus: "failed", kidError: "old" });
+    const { spawned, stamps, spawn } = recorder();
+    const res = regenerateKid(db, bookmark.id, { spawn, now: NOW });
+    expect(res.status).toBe("started");
+    expect(row(db, bookmark.id)).toMatchObject({ kidStatus: "drafting", kidError: null, kidStartedAt: NOW });
+    expect(spawned).toEqual([bookmark.id]);
+    // The job gets the claim's stored stamp, so it can check it still owns the row.
+    expect(stamps).toEqual([NOW]);
+  });
+
+  it("two regenerations racing for one bookmark spawn exactly one job; the second is busy", () => {
+    const db = makeDb();
+    const { bookmark } = seed(db);
+    setKid(db, bookmark.id, { kidStatus: "ready", kidMd: "Cables hold it." });
+    const { spawned, spawn } = recorder();
+    const first = regenerateKid(db, bookmark.id, { spawn, now: NOW });
+    const second = regenerateKid(db, bookmark.id, { spawn, now: NOW });
+    expect(first.status).toBe("started");
+    expect(second).toMatchObject({ status: "busy", bookmark: { id: bookmark.id, kidStatus: "drafting" } });
+    expect(spawned).toEqual([bookmark.id]);
+  });
+
+  it("is busy while a fresh draft is in flight, but reclaims a stale or unstamped one", () => {
+    const db = makeDb();
+    const { bookmark } = seed(db);
+    const { spawned, spawn } = recorder();
+    const fresh = new Date(NOW.getTime() - KID_STALE_MS + 60_000);
+    setKid(db, bookmark.id, { kidStatus: "drafting", kidStartedAt: fresh });
+    expect(regenerateKid(db, bookmark.id, { spawn, now: NOW }).status).toBe("busy");
+    expect(row(db, bookmark.id).kidStartedAt).toEqual(fresh);
+
+    setKid(db, bookmark.id, { kidStartedAt: new Date(NOW.getTime() - KID_STALE_MS - 60_000) });
+    expect(regenerateKid(db, bookmark.id, { spawn, now: NOW }).status).toBe("started");
+    expect(row(db, bookmark.id).kidStartedAt).toEqual(NOW);
+
+    setKid(db, bookmark.id, { kidStartedAt: null });
+    expect(regenerateKid(db, bookmark.id, { spawn, now: NOW }).status).toBe("started");
+    expect(spawned).toEqual([bookmark.id, bookmark.id]);
+  });
+
+  it("reports a missing bookmark without spawning", () => {
+    const db = makeDb();
+    const { spawned, spawn } = recorder();
+    expect(regenerateKid(db, 99, { spawn, now: NOW })).toEqual({ status: "not-found" });
+    expect(claimKidDraft(db, 99, NOW)).toBeNull();
+    expect(spawned).toEqual([]);
+  });
+});
+
+describe("reapStaleKids", () => {
+  it("fails drafting kid versions past the deadline or never stamped, and nothing else", () => {
+    const db = makeDb();
+    const mk = (status: "drafting" | "ready" | "failed", kidStartedAt: Date | null) => {
+      const { bookmark } = seed(db);
+      db.update(schema.atlasBookmarks)
+        .set({ kidStatus: status, kidStartedAt })
+        .where(eq(schema.atlasBookmarks.id, bookmark.id))
+        .run();
+      return bookmark.id;
+    };
+    const old = new Date(NOW.getTime() - KID_STALE_MS - 60_000);
+    const fresh = new Date(NOW.getTime() - 60_000);
+    const stale = mk("drafting", old);
+    const unstamped = mk("drafting", null);
+    const live = mk("drafting", fresh);
+    const readyOld = mk("ready", old);
+
+    expect(reapStaleKids(db, NOW)).toBe(2);
+    expect(row(db, stale)).toMatchObject({ kidStatus: "failed" });
+    expect(row(db, stale).kidError).toContain("Try again");
+    expect(row(db, unstamped).kidStatus).toBe("failed");
+    expect(row(db, live).kidStatus).toBe("drafting");
+    expect(row(db, readyOld).kidStatus).toBe("ready");
+    // A reaped row is claimable again by "Try again".
+    expect(claimKidDraft(db, stale, NOW)).toMatchObject({ kidStatus: "drafting", kidError: null });
+    expect(reapStaleKids(db, NOW)).toBe(0);
   });
 });
 
