@@ -13,6 +13,7 @@ import {
   type Pending,
 } from "@/components/atlas/loadout";
 import { PerkBadge, type PerkMark } from "@/components/atlas/PerkBadge";
+import { pageState, preloadButtonLabel } from "@/components/atlas/preload";
 import { ChestBanner, RevealModal } from "@/components/atlas/RevealModal";
 
 type RungStatus = "drafting" | "ready" | "failed" | null;
@@ -161,13 +162,8 @@ export default function AtlasMapPage() {
   // on-demand). A node whose one-pager failed is settled — no eli10 can be
   // written from it — so a failed rung shows the button, not "Preparing"
   // (and not the fast poll) forever.
-  const levels = nodes.flatMap((n) => [n.rungs.eli10, n.rungs.onepager]);
-  const pagesReady = levels.filter((s) => s === "ready").length;
-  const pagesDrafting = levels.some((s) => s === "drafting");
-  const pagesMissing = nodes.some(
-    (n) => n.rungs.onepager === null || (n.rungs.eli10 === null && n.rungs.onepager !== "failed"),
-  );
-  const pagesFailed = levels.some((s) => s === "failed");
+  const pages = pageState(nodes);
+  const { pagesReady, pagesDrafting, pagesMissing } = pages;
   const preparing = map?.status === "ready" && (pagesMissing || pagesDrafting);
 
   const drafting =
@@ -258,11 +254,7 @@ export default function AtlasMapPage() {
     ? Object.values(progress.tiers).filter((t) => t.mastered).length
     : 0;
 
-  const showPreloadButton =
-    map.status === "ready" &&
-    nodes.length > 0 &&
-    !pagesDrafting &&
-    (pagesFailed || pagesMissing || quizlessCount > 0);
+  const preloadLabel = preloadButtonLabel(map.status, nodes.length, pages, quizlessCount);
 
   return (
     <div className="space-y-8">
@@ -320,15 +312,13 @@ export default function AtlasMapPage() {
             Preparing · {pagesReady} / {nodes.length * 2} pages
           </p>
         )}
-        {showPreloadButton && (
+        {preloadLabel && (
           <button
             disabled={busy}
             onClick={preloadRest}
             className="mt-2 rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-amber-500/50 disabled:opacity-50"
           >
-            {pagesFailed || pagesMissing
-              ? "Prepare the rest"
-              : `Prepare quizzes (${quizlessCount} missing)`}
+            {preloadLabel}
           </button>
         )}
       </div>
