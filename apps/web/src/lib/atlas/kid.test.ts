@@ -327,10 +327,84 @@ describe("generateKidVersion", () => {
   });
 });
 
+describe("generateKidVersion under a claim stamp (superseded jobs)", () => {
+  const LATER = new Date(NOW.getTime() + KID_STALE_MS + 60_000);
+  const DRAFT = { kid_md: "Cables hold it.", today: "Hang a sock." };
+  /** Claim as the route does; returns the stamp it would pass to the job. */
+  const claimA = (db: DB, id: number) => claimKidDraft(db, id, NOW)!.kidStartedAt!;
+  /** Mid-job: job A is reaped as stale and "Try again" claims the row for job B. */
+  const supersede = (db: DB, id: number) => {
+    expect(reapStaleKids(db, LATER)).toBe(1);
+    return claimKidDraft(db, id, LATER)!.kidStartedAt!;
+  };
+
+  it("writes ready when it still owns the claim", async () => {
+    const db = makeDb();
+    const { bookmark } = seed(db);
+    const stamp = claimA(db, bookmark.id);
+    const res = await generateKidVersion(db, bookmark.id, { llm: parsing(DRAFT), now: NOW, stamp, log: () => {} });
+    expect(res.ok).toBe(true);
+    expect(row(db, bookmark.id)).toMatchObject({ kidStatus: "ready", kidStartedAt: stamp });
+  });
+
+  it("a superseded job's ready write is a no-op: the newer draft is untouched", async () => {
+    const db = makeDb();
+    const { bookmark } = seed(db);
+    const stampA = claimA(db, bookmark.id);
+    let stampB: Date | null = null;
+    const llm: AtlasLlm = (prompt, zschema, opts) => {
+      stampB = supersede(db, bookmark.id);
+      return parsing(DRAFT)(prompt, zschema, opts);
+    };
+    const res = await generateKidVersion(db, bookmark.id, { llm, now: NOW, stamp: stampA, log: () => {} });
+    expect(res.ok).toBe(false);
+    expect(row(db, bookmark.id)).toMatchObject({ kidStatus: "drafting", kidStartedAt: stampB, kidMd: null, kidError: null });
+  });
+
+  it("a superseded job's failure write is a no-op too", async () => {
+    const db = makeDb();
+    const { bookmark } = seed(db);
+    const stampA = claimA(db, bookmark.id);
+    let stampB: Date | null = null;
+    const llm: AtlasLlm = () => {
+      stampB = supersede(db, bookmark.id);
+      throw new Error("claude -p timed out");
+    };
+    const res = await generateKidVersion(db, bookmark.id, { llm, now: NOW, stamp: stampA, log: () => {} });
+    expect(res.ok).toBe(false);
+    expect(row(db, bookmark.id)).toMatchObject({ kidStatus: "drafting", kidStartedAt: stampB, kidError: null });
+  });
+
+  it("a job whose claim was already superseded before it started does nothing", async () => {
+    const db = makeDb();
+    const { bookmark } = seed(db);
+    const stampA = claimA(db, bookmark.id);
+    const stampB = supersede(db, bookmark.id);
+    const seen: string[] = [];
+    const res = await generateKidVersion(db, bookmark.id, {
+      llm: parsing(DRAFT, seen),
+      now: LATER,
+      stamp: stampA,
+      log: () => {},
+    });
+    expect(res.ok).toBe(false);
+    expect(seen).toEqual([]);
+    expect(row(db, bookmark.id)).toMatchObject({ kidStatus: "drafting", kidStartedAt: stampB });
+  });
+});
+
 describe("regenerateKid (the drafting claim)", () => {
   const recorder = () => {
     const spawned: number[] = [];
-    return { spawned, spawn: (id: number) => void spawned.push(id) };
+    const stamps: Date[] = [];
+    return {
+      spawned,
+      stamps,
+      spawn: (id: number, stamp: Date) => {
+        spawned.push(id);
+        stamps.push(stamp);
+      },
+    };
   };
   const setKid = (db: DB, id: number, set: Partial<typeof schema.atlasBookmarks.$inferInsert>) =>
     db.update(schema.atlasBookmarks).set(set).where(eq(schema.atlasBookmarks.id, id)).run();
@@ -339,11 +413,13 @@ describe("regenerateKid (the drafting claim)", () => {
     const db = makeDb();
     const { bookmark } = seed(db);
     setKid(db, bookmark.id, { kidStatus: "failed", kidError: "old" });
-    const { spawned, spawn } = recorder();
+    const { spawned, stamps, spawn } = recorder();
     const res = regenerateKid(db, bookmark.id, { spawn, now: NOW });
     expect(res.status).toBe("started");
     expect(row(db, bookmark.id)).toMatchObject({ kidStatus: "drafting", kidError: null, kidStartedAt: NOW });
     expect(spawned).toEqual([bookmark.id]);
+    // The job gets the claim's stored stamp, so it can check it still owns the row.
+    expect(stamps).toEqual([NOW]);
   });
 
   it("two regenerations racing for one bookmark spawn exactly one job; the second is busy", () => {

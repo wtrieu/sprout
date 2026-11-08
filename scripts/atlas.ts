@@ -10,7 +10,7 @@
  *   pnpm --filter web run job:atlas prefetch --node <id>
  *   pnpm --filter web run job:atlas engine [--player <id>] [--window-days <n>]
  *   pnpm --filter web run job:atlas note [--force]
- *   pnpm --filter web run job:atlas kid --bookmark <id>
+ *   pnpm --filter web run job:atlas kid --bookmark <id> [--stamp <ms>]
  *
  * Exit codes: 0 done · 1 usage or unexpected error · 2 the work itself failed
  * (the map/rung row carries the reason for the UI).
@@ -59,7 +59,7 @@ const usage = (): never => {
       "  job:atlas disciplines --map <id> [--force]",
       "  job:atlas engine [--player <id>] [--window-days <n>]",
       "  job:atlas note [--force]",
-      "  job:atlas kid --bookmark <id>",
+      "  job:atlas kid --bookmark <id> [--stamp <ms>]",
     ].join("\n"),
   );
   process.exit(1);
@@ -150,10 +150,19 @@ const main = async (): Promise<number> => {
     case "kid": {
       // The kid version of a bookmark (PR3); the bookmark row is the status
       // the UI polls. Spawned by POST /api/atlas/bookmarks and the PATCH regenerate.
+      // --stamp <ms> is the claim's kidStartedAt (kid.spawnKidJob): the job
+      // writes only while the row still carries it. Omitted by hand: the job
+      // claims the row itself.
       const bookmarkId = Number(flag("bookmark"));
+      const rawStamp = flag("stamp");
+      const stampMs = rawStamp === undefined ? undefined : Number(rawStamp);
       if (!Number.isInteger(bookmarkId)) usage();
+      if (stampMs !== undefined && !Number.isInteger(stampMs)) usage();
       console.log(`atlas kid for bookmark #${bookmarkId} starting ${startedAt}`);
-      const res = await generateKidVersion(db, bookmarkId, { log: (msg) => console.log(msg) });
+      const res = await generateKidVersion(db, bookmarkId, {
+        log: (msg) => console.log(msg),
+        stamp: stampMs === undefined ? undefined : new Date(stampMs),
+      });
       return res.ok ? 0 : 2;
     }
     case "rung": {

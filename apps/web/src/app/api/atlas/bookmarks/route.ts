@@ -6,9 +6,9 @@ import { atlasBookmarks, atlasNodes, children } from "@/db/schema";
 import { getAuthenticatedEmail } from "@/lib/auth";
 import { logEvent } from "@/lib/atlas/events";
 import { onEventsLogged } from "@/lib/atlas/game/hooks";
-import { listBookmarkViews } from "@/lib/atlas/kid";
+import { listBookmarkViews, spawnKidJob } from "@/lib/atlas/kid";
 import { playerForEmail } from "@/lib/atlas/players";
-import { reapStaleKids, spawnAtlasJob } from "@/lib/atlas/runner";
+import { reapStaleKids } from "@/lib/atlas/runner";
 
 /** Newest first; `?nodeId=N` narrows to one node's bookmark. */
 export const GET = (req: NextRequest) => {
@@ -98,7 +98,8 @@ export const POST = async (req: NextRequest) => {
     onEventsLogged(db, player.id);
   }
 
-  spawnAtlasJob(["kid", "--bookmark", String(bookmark.id)]);
+  // The stamp as stored (RETURNING), so the job can check it still owns the row.
+  spawnKidJob(bookmark.id, bookmark.kidStartedAt!);
   const [view] = listBookmarkViews(db, { id: bookmark.id });
   return NextResponse.json({ bookmark: view }, { status: 201 });
 };

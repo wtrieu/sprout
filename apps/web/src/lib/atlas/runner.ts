@@ -17,8 +17,15 @@ import { atlasBookmarks, atlasMaps, atlasRungs } from "../../db/schema";
 export const MAP_STALE_MS = 20 * 60 * 1000;
 /** A rung is write + judge + link verification. */
 export const RUNG_STALE_MS = 10 * 60 * 1000;
-/** A kid version is one writer call plus at most one repair pass. */
-export const KID_STALE_MS = 10 * 60 * 1000;
+/**
+ * A kid version is one writer call plus at most one repair pass
+ * (atlas/llm.ts makeCliLlm), and each `claude -p` spawn may run up to
+ * CLAUDE_TIMEOUT_MS = 10 min (stories/claudeCli.ts). So a slow but live job
+ * can take ~20 min; the deadline is 2 × that timeout + 5 min slack, or the
+ * reaper would fail live jobs. (A job that is reaped anyway cannot clobber a
+ * newer draft: kid.ts guards its writes on its own kidStartedAt stamp.)
+ */
+export const KID_STALE_MS = 25 * 60 * 1000;
 
 export const isStale = (since: Date | null | undefined, ms: number, now = new Date()): boolean =>
   !since || now.getTime() - since.getTime() > ms;

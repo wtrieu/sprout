@@ -103,17 +103,21 @@ Write in English, Latin letters only. Return JSON only, no prose: { "kid_md": ".
 
 export type KidResult = { ok: true; bookmark: BookmarkRow } | { ok: false; error: string };
 
-export type KidDeps = { llm?: AtlasLlm; now?: Date; log?: (msg: string) => void };
-
-const fail = (db: DB, bookmarkId: number, message: string, log: (m: string) => void): KidResult => {
-  const error = message.slice(0, 2000);
-  db.update(atlasBookmarks)
-    .set({ kidStatus: "failed", kidError: error })
-    .where(eq(atlasBookmarks.id, bookmarkId))
-    .run();
-  log(`bookmark #${bookmarkId} kid version failed: ${error}`);
-  return { ok: false, error };
+export type KidDeps = {
+  llm?: AtlasLlm;
+  now?: Date;
+  log?: (msg: string) => void;
+  /**
+   * The claim this job runs under: the kidStartedAt its spawner wrote
+   * (`job:atlas kid --stamp <ms>`). The job only writes while the row is
+   * still `drafting` with exactly this stamp, so a job that was reaped and
+   * superseded by a newer "Try again" cannot clobber the newer draft. Without
+   * it (a hand-run job) the job claims the row itself, unconditionally.
+   */
+  stamp?: Date;
 };
+
+const SUPERSEDED = "superseded by a newer kid draft — nothing written";
 
 export const generateKidVersion = async (
   db: DB,
@@ -127,27 +131,53 @@ export const generateKidVersion = async (
   const bookmark = db.select().from(atlasBookmarks).where(eq(atlasBookmarks.id, bookmarkId)).get();
   if (!bookmark) return { ok: false, error: `bookmark #${bookmarkId} not found` };
 
+  // Whose draft is this? With a spawner's stamp, the row must still carry it;
+  // by hand, stamp the row now (the reaper's clock) and own that.
+  let stamp: Date;
+  if (deps.stamp) {
+    if (bookmark.kidStatus !== "drafting" || bookmark.kidStartedAt?.getTime() !== deps.stamp.getTime()) {
+      log(`bookmark #${bookmarkId}: ${SUPERSEDED}`);
+      return { ok: false, error: SUPERSEDED };
+    }
+    stamp = deps.stamp;
+  } else {
+    const claimed = db
+      .update(atlasBookmarks)
+      .set({ kidStatus: "drafting", kidError: null, kidStartedAt: now })
+      .where(eq(atlasBookmarks.id, bookmarkId))
+      .returning({ kidStartedAt: atlasBookmarks.kidStartedAt })
+      .get();
+    stamp = claimed!.kidStartedAt!;
+  }
+  // Every terminal write is conditional on still owning the claim.
+  const mine = and(
+    eq(atlasBookmarks.id, bookmarkId),
+    eq(atlasBookmarks.kidStatus, "drafting"),
+    eq(atlasBookmarks.kidStartedAt, stamp),
+  );
+  const fail = (message: string): KidResult => {
+    const error = message.slice(0, 2000);
+    const hit = db
+      .update(atlasBookmarks)
+      .set({ kidStatus: "failed", kidError: error })
+      .where(mine)
+      .returning({ id: atlasBookmarks.id })
+      .get();
+    log(`bookmark #${bookmarkId} kid version failed: ${error}${hit ? "" : ` (${SUPERSEDED})`}`);
+    return { ok: false, error };
+  };
+
   const node = db.select().from(atlasNodes).where(eq(atlasNodes.id, bookmark.nodeId)).get();
-  if (!node) return fail(db, bookmarkId, `node #${bookmark.nodeId} not found`, log);
+  if (!node) return fail(`node #${bookmark.nodeId} not found`);
   const child = db.select().from(children).where(eq(children.id, bookmark.childId)).get();
-  if (!child) return fail(db, bookmarkId, `child #${bookmark.childId} not found`, log);
+  if (!child) return fail(`child #${bookmark.childId} not found`);
 
   const onepager = rungFor(db, node.id, "onepager");
   if (!onepager || onepager.status !== "ready" || !onepager.bodyMd) {
     return fail(
-      db,
-      bookmarkId,
       `The one-pager for "${node.title}" is not ready yet — open the node to draft it, then regenerate.`,
-      log,
     );
   }
-
-  // The route already claimed the row (claimKidDraft); this re-stamps the
-  // reaper's clock at the moment the model work actually starts.
-  db.update(atlasBookmarks)
-    .set({ kidStatus: "drafting", kidError: null, kidStartedAt: now })
-    .where(eq(atlasBookmarks.id, bookmarkId))
-    .run();
 
   const months = ageInMonths(child.dob, now);
   const model = atlasModels().writer;
@@ -167,7 +197,7 @@ export const generateKidVersion = async (
     // The schema already carries these checks; an injected llm that skips
     // validation must not be able to store an over-budget or non-Latin draft.
     const problems = kidProblems(draft, months);
-    if (problems.length > 0) return fail(db, bookmarkId, problems.join("; "), log);
+    if (problems.length > 0) return fail(problems.join("; "));
 
     const stored = db
       .update(atlasBookmarks)
@@ -178,13 +208,17 @@ export const generateKidVersion = async (
         kidStatus: "ready",
         kidError: null,
       })
-      .where(eq(atlasBookmarks.id, bookmarkId))
+      .where(mine)
       .returning()
       .get();
+    if (!stored) {
+      log(`bookmark #${bookmarkId}: draft finished but ${SUPERSEDED}`);
+      return { ok: false, error: SUPERSEDED };
+    }
     log(`bookmark #${bookmarkId} kid version ready (${wordCount(draft.kid_md)} words)`);
     return { ok: true, bookmark: stored };
   } catch (err) {
-    return fail(db, bookmarkId, err instanceof Error ? err.message : String(err), log);
+    return fail(err instanceof Error ? err.message : String(err));
   }
 };
 
@@ -221,8 +255,13 @@ export type RegenerateKidResult =
   | { status: "busy"; bookmark: BookmarkRow }
   | { status: "not-found" };
 
-const spawnKidJob = (bookmarkId: number): void =>
-  spawnAtlasJob(["kid", "--bookmark", String(bookmarkId)]);
+/**
+ * Spawn the detached kid job under a claim: `stamp` is the row's kidStartedAt
+ * as stored (read it back from the claiming write), so the job can tell
+ * whether it still owns the row when it finishes.
+ */
+export const spawnKidJob = (bookmarkId: number, stamp: Date): void =>
+  spawnAtlasJob(["kid", "--bookmark", String(bookmarkId), "--stamp", String(stamp.getTime())]);
 
 /**
  * "Try again" on a kid version: claim the row, and spawn the detached job
@@ -232,11 +271,11 @@ const spawnKidJob = (bookmarkId: number): void =>
 export const regenerateKid = (
   db: DB,
   bookmarkId: number,
-  deps: { spawn?: (bookmarkId: number) => void; now?: Date } = {},
+  deps: { spawn?: (bookmarkId: number, stamp: Date) => void; now?: Date } = {},
 ): RegenerateKidResult => {
   const claimed = claimKidDraft(db, bookmarkId, deps.now);
   if (claimed) {
-    (deps.spawn ?? spawnKidJob)(bookmarkId);
+    (deps.spawn ?? spawnKidJob)(bookmarkId, claimed.kidStartedAt!);
     return { status: "started", bookmark: claimed };
   }
   const row = db.select().from(atlasBookmarks).where(eq(atlasBookmarks.id, bookmarkId)).get();
