@@ -1,9 +1,16 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { personaLine } from "@/lib/atlas/persona";
 import type { AtlasPersona } from "@/db/schema";
-import { itemLabel, type Pending } from "./loadout";
+import {
+  chestBannerList,
+  itemLabel,
+  revealSteps,
+  type LevelChange,
+  type Pending,
+  type PendingLevelUp,
+} from "./loadout";
 
 const REVEAL_CSS = `
 @keyframes rv-backdrop { from { opacity: 0 } to { opacity: 1 } }
@@ -37,11 +44,6 @@ export function ChestBanner({
   pending: Pending;
   onOpen: () => void;
 }) {
-  const boxes = pending.achievements.length;
-  const parts = [
-    boxes > 0 ? `${boxes} chest${boxes === 1 ? "" : "s"}` : null,
-    pending.offer ? "a title offer" : null,
-  ].filter(Boolean);
   return (
     <button
       type="button"
@@ -53,7 +55,7 @@ export function ChestBanner({
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium text-amber-300">
-          You have {parts.join(" and ")} waiting
+          You have {chestBannerList(pending)} waiting
         </span>
         <span className="block text-xs text-neutral-400">Open it to see what you found.</span>
       </span>
@@ -62,10 +64,48 @@ export function ChestBanner({
   );
 }
 
+const rise = (c: LevelChange) => (c.to > c.from ? `${c.from} → ${c.to}` : `${c.to}`);
+
+/** The level-up card: the total, then each discipline and branch that rose. */
+function LevelUpCard({ levelUp }: { levelUp: PendingLevelUp }) {
+  const rows = [
+    ...levelUp.disciplines.map((d) => ({ key: `d:${d.discipline}`, label: d.discipline, change: d })),
+    ...levelUp.branches.map((b) => ({ key: `b:${b.nodeId}`, label: b.title, change: b })),
+  ];
+  return (
+    <div className="space-y-4">
+      <div className="rv-rise">
+        <span className="mb-1 inline-block rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
+          level up
+        </span>
+        <h2 className="text-xl font-semibold text-neutral-100">
+          Total level {rise(levelUp.total)}
+        </h2>
+        <p className="mt-1 text-sm text-neutral-300">Here&apos;s what grew since last time.</p>
+      </div>
+      {rows.length > 0 && (
+        <ul className="space-y-1.5">
+          {rows.map((r, n) => (
+            <li
+              key={r.key}
+              style={{ "--rv-d": `${0.4 + n * 0.15}s` } as CSSProperties}
+              className="rv-pop flex items-baseline justify-between gap-3 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm"
+            >
+              <span className="capitalize text-neutral-200">{r.label}</span>
+              <span className="text-amber-400/90">{rise(r.change)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /**
- * Reveal flow: one step per achievement (title, flavor, its loot), then the
- * class offer card. Nothing here ever appears mid-lesson — the map page is the
- * only mount point.
+ * Reveal flow (see `revealSteps`): the level-up, one step per achievement
+ * (title, flavor, its loot), then the class offer card. Nothing here ever
+ * appears mid-lesson — the map page is the only mount point. Showing the
+ * level-up step calls `onLevelUpSeen` once, which acknowledges it.
  */
 export function RevealModal({
   pending,
@@ -74,6 +114,7 @@ export function RevealModal({
   seed,
   onClose,
   onChoose,
+  onLevelUpSeen,
   busy = false,
   error = null,
 }: {
@@ -83,18 +124,22 @@ export function RevealModal({
   seed: string;
   onClose: () => void;
   onChoose: (offerId: number, classId: string) => void;
+  onLevelUpSeen?: (throughEventId: number) => void;
   busy?: boolean;
   error?: string | null;
 }) {
-  const steps: Array<
-    { kind: "achievement"; index: number } | { kind: "offer" }
-  > = [
-    ...pending.achievements.map((_, index) => ({ kind: "achievement" as const, index })),
-    ...(pending.offer ? [{ kind: "offer" as const }] : []),
-  ];
+  const steps = revealSteps(pending);
   const [at, setAt] = useState(0);
   const step = steps[Math.min(at, steps.length - 1)];
   const last = at >= steps.length - 1;
+  const levelUpShown = step?.kind === "level_up";
+  const throughEventId = pending.levelUp?.throughEventId;
+  const acked = useRef<number | null>(null);
+  useEffect(() => {
+    if (!levelUpShown || throughEventId === undefined || acked.current === throughEventId) return;
+    acked.current = throughEventId;
+    onLevelUpSeen?.(throughEventId);
+  }, [levelUpShown, throughEventId, onLevelUpSeen]);
   if (!step) return null;
 
   return (
@@ -114,7 +159,9 @@ export function RevealModal({
             🎁
           </span>
         )}
-        {step.kind === "achievement" ? (
+        {step.kind === "level_up" && pending.levelUp ? (
+          <LevelUpCard levelUp={pending.levelUp} />
+        ) : step.kind === "achievement" ? (
           (() => {
             const a = pending.achievements[step.index];
             return (

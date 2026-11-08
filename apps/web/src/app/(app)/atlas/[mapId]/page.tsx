@@ -8,6 +8,7 @@ import { CharacterCard, classTitleOf } from "@/components/atlas/CharacterCard";
 import {
   MAP_STYLE_ACCENTS,
   accentFor,
+  hasPendingReveal,
   parseLoadout,
   type NextGate,
   type Pending,
@@ -204,6 +205,16 @@ export default function AtlasMapPage() {
     await fetch("/api/atlas/reveals", { method: "POST" }).catch(() => null);
   };
 
+  // Level-ups are acknowledged only once their step is on screen, so opening
+  // the chest never consumes one unseen. Idempotent server-side.
+  const ackLevelUp = useCallback((throughEventId: number) => {
+    void fetch("/api/atlas/reveals/level-up", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ throughEventId }),
+    }).catch(() => null);
+  }, []);
+
   const chooseClass = async (offerId: number, classId: string) => {
     setBusy(true);
     setOfferError(null);
@@ -249,7 +260,7 @@ export default function AtlasMapPage() {
   const branchLevel = (id: number) => progress?.branches.find((b) => b.nodeId === id) ?? null;
   const loadout = parseLoadout(player?.loadout);
   const mapAccent = accentFor(MAP_STYLE_ACCENTS, loadout.mapStyle);
-  const hasPending = !!pending && (pending.achievements.length > 0 || !!pending.offer);
+  const hasPending = hasPendingReveal(pending);
   const masteredCount = progress
     ? Object.values(progress.tiers).filter((t) => t.mastered).length
     : 0;
@@ -267,6 +278,7 @@ export default function AtlasMapPage() {
           seed={`${map.id}`}
           onClose={closeReveal}
           onChoose={chooseClass}
+          onLevelUpSeen={ackLevelUp}
           busy={busy}
           error={offerError}
         />
