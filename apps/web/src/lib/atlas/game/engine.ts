@@ -39,6 +39,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const BOOKKEEPING = new Set([
   "grant_achievement",
   "reveal_loot",
+  "reveal_level",
   "offer_class",
   "accept_class",
   "use_item",
