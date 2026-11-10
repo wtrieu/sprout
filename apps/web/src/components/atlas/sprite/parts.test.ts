@@ -21,14 +21,25 @@ const anchorCells = (name: keyof Anchors, a: Anchors, w: number): Array<[number,
 };
 
 // Contract enforced for EVERY style directory under public/sprite, so a new
-// style is validated the day it lands:
-//  - size = the style's canvas; opaque pixels are full alpha and in its palette
+// style is validated the day it lands.
+//
+// The frame-0 rule: anchors and slot regions describe the frame-0 pose of each
+// animation. Moving frames may travel past those fixed coordinates (a head
+// bob, hair reaching row 1 at the celebrate peak while the hair region's y0
+// stays clamped at headTopRow-1), so EVERY geometry check runs on frame 0 of
+// each animation only. Non-geometry checks run on every frame.
+//
+// Every frame:
+//  - size = the style's canvas
+//  - opaque pixels are full alpha and in the style's palette
+//  - the frame paints something
+// Frame 0 of each animation only (geometry):
 //  - pixels stay inside the slot region
-//  - mustCover is enforced on frame 0 of each animation only (the anchor pose;
-//    later frames may deviate, e.g. a 1px head bob)
-//  - keepClear is enforced on every frame
-//  - the bare body never covers `anchors.grip` on any frame (grip is not in
-//    any slot's keepClear/mustCover by convention; it is checked directly here)
+//  - keepClear anchors stay unpainted
+//  - mustCover anchors are painted
+//  - the bare body leaves `anchors.grip` unpainted (grip is not in any
+//    slot's keepClear/mustCover by convention; it is checked directly here)
+// Manifest level:
 //  - hair region starts at most one row above headTopRow
 describe.each(listStyles())("committed sprite parts: %s style (mechanical validation)", (style) => {
   const sm = readManifest(style);
@@ -43,7 +54,8 @@ describe.each(listStyles())("committed sprite parts: %s style (mechanical valida
     const slot = sm.slots.find((s) => s.id === part.slot)!;
     for (const anim of part.animations) {
       for (let f = 0; f < sm.animations[anim].frames; f += 1) {
-        it(`${part.id} ${anim}-${f}`, () => {
+        const geometry = f === 0;
+        it(`${part.id} ${anim}-${f}${geometry ? " (pixels + geometry)" : " (pixels)"}`, () => {
           const img = readPng(partFile(sm.style, part, anim, f));
           expect(img.width).toBe(sm.canvas.width);
           expect(img.height).toBe(sm.canvas.height);
@@ -56,6 +68,7 @@ describe.each(listStyles())("committed sprite parts: %s style (mechanical valida
             const y = Math.floor(i / img.width);
             expect(a, `alpha at ${x},${y}`).toBe(255);
             expect(palette.has(hex(img, i)), `${hex(img, i)} at ${x},${y} not in palette`).toBe(true);
+            if (!geometry) continue;
             const r = slot.region;
             expect(
               x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1,
@@ -63,6 +76,7 @@ describe.each(listStyles())("committed sprite parts: %s style (mechanical valida
             ).toBe(true);
           }
           expect(painted).toBeGreaterThan(0);
+          if (!geometry) return;
           for (const name of slot.keepClear) {
             for (const [x, y] of anchorCells(name, sm.anchors, img.width)) {
               expect(opaque(img, x, y), `${name} (${x},${y}) must stay clear`).toBe(false);
@@ -72,7 +86,6 @@ describe.each(listStyles())("committed sprite parts: %s style (mechanical valida
             const { grip } = sm.anchors;
             expect(opaque(img, grip.x, grip.y), `grip (${grip.x},${grip.y}) must stay clear on the body`).toBe(false);
           }
-          if (f !== 0) return; // mustCover applies to the anchor pose only
           for (const name of slot.mustCover) {
             const cells = anchorCells(name, sm.anchors, img.width);
             const ok =

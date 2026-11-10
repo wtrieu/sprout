@@ -192,7 +192,24 @@ readings rule for pictures).
   canvas with authoritative anchors from atlas-sprites `base_body_v1.png`
   (headTopRow 4, shoulderRow 29, leftHand 23,34, grip 17,34,
   rightHand 37,42, footRow 58), a separate held-item grip anchor, and
-  hair allowed one row above the head.
+  hair allowed one row above the head. Anchors and slot regions describe
+  the frame-0 pose of each animation: **all geometry checks — mustCover,
+  keepClear, slot-region bounds and the bare-body grip pixel — run on
+  frame 0 of each animation only**, since moving frames travel past fixed
+  coordinates (e.g. atlas-style hair reaches row 1 at the celebrate peak
+  while the hair region's y0 stays clamped at headTopRow−1 = 3).
+  Non-geometry checks (64×64 canvas, full alpha, palette membership,
+  valid swap groups) still run on every frame. The atlas style v2 port
+  (2026-11-09: body-girl, four new hair styles, celebrate frames for every
+  part) lands as data only; the rendered style stays `classic` until a
+  mapped migration of part ids (the two sets share almost no ids and atlas
+  has no cape/aura art).
+  **Pending owner calls from the art side** (atlas style):
+  (a) the `skin` swap ramp also tints the baked-in underclothes on both
+  bodies — needs either region-scoped swaps or a reserved underclothes
+  ramp; (b) eye colors are positional pixel swaps (pupils share the
+  outline color) and freckles are a bake-on patch — neither is expressible
+  as a swapGroup, so they need contract support or baked part variants.
 
 **Order of what's left:** PR2 (built with the spec below, re-based on the
 event log; merged as #106) and PR3 (built with the spec below, re-based on
@@ -419,7 +436,9 @@ Workflow for producing and refining the parts:
    indexed colors.
 5. **Validate every part mechanically.** A script checks size, that every
    color is in the palette, that the anchor pixels are untouched, and
-   that no part paints outside its slot's allowed region. This is what
+   that no part paints outside its slot's allowed region. Size and palette
+   hold on every frame; the geometry checks (anchors, regions, grip) hold
+   on frame 0 of each animation, the anchor pose. This is what
    lets a Midjourney-derived part and a hand-drawn part coexist.
 6. **Refine on contact sheets.** Render 50 random combinations plus a
    fixed "golden" set, check for clipping between layers, color clashes
