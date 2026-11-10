@@ -161,14 +161,14 @@ describe("loot", () => {
   it("uses exactly the agreed cosmetic ids", () => {
     expect(LOOT.cosmetics.map((c) => c.ref).sort()).toEqual(
       [
-        "aura-spark",
-        "cape-scholar",
+        "outfit-vest-epic",
+        "hair-hood",
         "frame-brass",
         "frame-ivy",
         "frame-oak",
         "frame-stellar",
-        "hair-laurel",
-        "item-lantern",
+        "outfit-vest-rare",
+        "item-staff",
         "style-botanical",
         "style-night",
         "style-parchment",

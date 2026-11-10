@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import { atlasPlayers, type AtlasPersona } from "../../db/schema";
 import { importLegacyProgress, logEvent } from "./events";
+import type { Loadout } from "./game/loadout";
 
 export type PlayerRow = typeof atlasPlayers.$inferSelect;
 
@@ -34,7 +35,7 @@ export type CreatePlayerResult =
  */
 export const createPlayer = (
   db: DB,
-  input: { email: string; name: string; persona: AtlasPersona },
+  input: { email: string; name: string; persona: AtlasPersona; loadout?: Loadout | null },
 ): CreatePlayerResult => {
   if (NOT_A_PERSON.has(input.email)) return { ok: false, error: "not-a-person" };
   if (playerForEmail(db, input.email)) return { ok: false, error: "exists" };
@@ -42,7 +43,13 @@ export const createPlayer = (
   return db.transaction((tx) => {
     const player = tx
       .insert(atlasPlayers)
-      .values({ email: input.email, name: input.name.trim(), persona: input.persona })
+      .values({
+        email: input.email,
+        name: input.name.trim(),
+        persona: input.persona,
+        // The look picked at creation (already validated by lookToLoadout).
+        loadout: input.loadout ? JSON.stringify(input.loadout) : null,
+      })
       .returning()
       .get();
     const importedEvents = first ? importLegacyProgress(tx as unknown as DB, player.id) : 0;

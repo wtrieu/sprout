@@ -181,25 +181,26 @@ describe("cosmetics and loadout", () => {
     seedWorld(db);
     const player = makePlayer(db);
     give(db, player.id, "frame", "frame-oak");
-    give(db, player.id, "sprite_part", "cape-scholar");
+    give(db, player.id, "sprite_part", "item-staff");
 
     expect(equipLoadout(db, player.id, { frame: "frame-brass" })).toMatchObject({ ok: false });
-    expect(equipLoadout(db, player.id, { sprite: { cape: "hair-laurel" } })).toMatchObject({ ok: false });
+    // Right slot, but an unowned loot part.
+    expect(equipLoadout(db, player.id, { sprite: { outfit: "outfit-vest-rare" } })).toMatchObject({ ok: false });
     // A frame ref does not satisfy a map-style slot.
     expect(equipLoadout(db, player.id, { mapStyle: "frame-oak" })).toMatchObject({ ok: false });
 
     const one = equipLoadout(db, player.id, {
       frame: "frame-oak",
-      sprite: { cape: "cape-scholar", hair: "hair-short" },
+      sprite: { item: "item-staff", hair: "hair-bob" },
     });
     expect(one).toEqual({
       ok: true,
-      loadout: { frame: "frame-oak", sprite: { cape: "cape-scholar", hair: "hair-short" } },
+      loadout: { frame: "frame-oak", sprite: { item: "item-staff", hair: "hair-bob" } },
     });
-    const two = equipLoadout(db, player.id, { sprite: { cape: null } });
-    expect(two).toEqual({ ok: true, loadout: { frame: "frame-oak", sprite: { hair: "hair-short" } } });
+    const two = equipLoadout(db, player.id, { sprite: { item: null } });
+    expect(two).toEqual({ ok: true, loadout: { frame: "frame-oak", sprite: { hair: "hair-bob" } } });
     const stored = db.select().from(schema.atlasPlayers).get()!;
-    expect(parseLoadout(stored.loadout)).toEqual({ frame: "frame-oak", sprite: { hair: "hair-short" } });
+    expect(parseLoadout(stored.loadout)).toEqual({ frame: "frame-oak", sprite: { hair: "hair-bob" } });
     expect(verbs(db, player.id, "equip")).toHaveLength(2);
   });
 });
