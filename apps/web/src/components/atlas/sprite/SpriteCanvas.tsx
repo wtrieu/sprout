@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { RENDERED_SPRITE_STYLE } from "@/lib/atlas/spriteStyle";
 import { selectionFromLoadout, type Loadout } from "../loadout";
 import { composeFrame, resolveFrame, type Rgba } from "./compose";
 import { loadManifest, partImagePath, type AnimName, type SpriteManifest } from "./manifest";
+
+/** What SpriteCanvas and useSpriteManifest render when no style is passed. */
+export const DEFAULT_SPRITE_STYLE: string = RENDERED_SPRITE_STYLE;
 
 const manifests = new Map<string, Promise<SpriteManifest | null>>();
 const images = new Map<string, Promise<Rgba | null>>();
@@ -41,7 +45,9 @@ const imageFor = (url: string): Promise<Rgba | null> => {
 };
 
 /** The cached manifest: undefined while loading, null when missing. */
-export const useSpriteManifest = (style = "classic"): SpriteManifest | null | undefined => {
+export const useSpriteManifest = (
+  style: string = DEFAULT_SPRITE_STYLE,
+): SpriteManifest | null | undefined => {
   const [manifest, setManifest] = useState<SpriteManifest | null | undefined>(undefined);
   useEffect(() => {
     let live = true;
@@ -82,18 +88,21 @@ export function SpriteFallback({
 /**
  * The character: loadout parts composed (pure compositor) from the manifest,
  * painted on a canvas and looped. Idle is two frames; pass `anim="celebrate"`
- * for the four-frame cheer. Falls back to a plain placeholder when the
- * manifest or its art is missing, so the page never breaks on art.
+ * for the four-frame cheer. Palette tones come from `tones`, else the
+ * loadout's own. Renders RENDERED_SPRITE_STYLE unless told otherwise.
+ * Falls back to a plain placeholder when the manifest or its art is
+ * missing, so the page never breaks on art.
  */
 export function SpriteCanvas({
   loadout,
   tones,
   anim = "idle",
   scale = 3,
-  style = "classic",
+  style = DEFAULT_SPRITE_STYLE,
   label = "Your character",
 }: {
   loadout?: Loadout | null;
+  /** Overrides the loadout's own tones (e.g. a creator preview). */
   tones?: Record<string, string>;
   anim?: AnimName;
   scale?: number;
@@ -104,7 +113,7 @@ export function SpriteCanvas({
   const [frames, setFrames] = useState<ImageData[] | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const loadoutKey = JSON.stringify([loadout?.sprite ?? {}, tones ?? {}]);
+  const loadoutKey = JSON.stringify([loadout?.sprite ?? {}, tones ?? loadout?.tones ?? {}]);
   useEffect(() => {
     if (!manifest) return;
     let live = true;
