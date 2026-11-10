@@ -201,9 +201,16 @@ readings rule for pictures).
   Non-geometry checks (64×64 canvas, full alpha, palette membership,
   valid swap groups) still run on every frame. The atlas style v2 port
   (2026-11-09: body-girl, four new hair styles, celebrate frames for every
-  part) lands as data only; the rendered style stays `classic` until a
-  mapped migration of part ids (the two sets share almost no ids and atlas
-  has no cape/aura art).
+  part) landed as data, and the creator PR then flipped the rendered style
+  to `atlas` (`RENDERED_SPRITE_STYLE` in `lib/atlas/spriteStyle.ts` — the
+  one constant both server and client import). The flip needed no player
+  migration (prod had no players); the loot table's four sprite parts were
+  remapped in place to the atlas loot parts (hood, staff, two vests), and
+  classic ids in an old loadout degrade silently via `selectionFromLoadout`.
+  Cape and aura slots stay empty until atlas art exists for them. Character
+  creation now takes a `look` (body, hair, skin tone, hair color — all
+  manifest-driven; swap `tones` live in the loadout JSON and are applied at
+  compose time).
   **Pending owner calls from the art side** (atlas style):
   (a) the `skin` swap ramp also tints the baked-in underclothes on both
   bodies — needs either region-scoped swaps or a reserved underclothes
@@ -651,8 +658,11 @@ a persona chosen at character creation speaks in hand-written lines.
   `getAuthenticatedEmail` (`lib/auth.ts`) — Access already names the person,
   so there is no login UI and no switcher; `service-token` / null get a
   read-only view (no events, no progress). `/atlas` without a character
-  shows creation (name + the two personas as cards); `POST
-  /api/atlas/players`. The **first** character created inherits pre-player
+  shows the creator (name, the two personas as cards, and a look: body,
+  hair, skin tone, hair color from the rendered manifest's base parts and
+  swapGroups, with a live preview); `POST /api/atlas/players` takes the
+  optional `look {sprite, tones}` — base parts only, validated before the
+  insert. The **first** character created inherits pre-player
   progress as events in the same transaction (`visitedAt` → `open_node`,
   `readAt` → `read_rung`, backdated, `data: {imported: true}`); the second
   starts fresh. Import runs only when the table was empty — idempotent.
@@ -769,7 +779,8 @@ contact-sheet test.
   `atlas_engine_runs` (the row is the job status): `kind` (`nightly`),
   `status` drafting/ready/failed, `error`, `windowStart`, `windowEnd`,
   `grantsCount`, `createdAt`. `atlas_players.loadout` (nullable JSON text:
-  `{frame?, mapStyle?, sprite: {slot → partId}}`). `atlas_nodes.rare`
+  `{frame?, mapStyle?, sprite: {slot → partId}, tones?: {swapGroup →
+  toneId}}` — tones since the creator PR; applied at compose time). `atlas_nodes.rare`
   (0/1 default 0; drafted maps mark rares later — a learning-engine
   follow-up — so the engine's first run backfills one seeded child per
   branch on maps that have none).
@@ -850,11 +861,15 @@ contact-sheet test.
   `reveal_loot` / `offer_class`). `POST /api/atlas/offers/[id]` `{choice}`
   accepts (logs `accept_class`; title history is permanent via events).
   `POST /api/atlas/items/[id]/use`. `PATCH /api/atlas/players/me` gains
-  `loadout`, validated against the manifest and owned items. `GET
-  /api/atlas/me` adds achievements, items, class and class history.
-  Event-writing endpoints still 401 without a character.
-- **Sprite** (skill-tree-ui). `public/sprite/classic/<slot>/
-  <id>-<anim>-<frame>.png` + `public/sprite/classic/manifest.json`: canvas
+  `loadout` (sprite parts and `tones`), validated against the RENDERED
+  style's manifest (`spriteRules` in `lib/atlas/game/loadout.ts` — fs read
+  of the manifest, cached per style) and owned items; per-group tone nulls
+  clear. `GET /api/atlas/me` adds achievements, items, class and class
+  history. Event-writing endpoints still 401 without a character.
+- **Sprite** (skill-tree-ui). `public/sprite/<style>/<slot>/
+  <id>-<anim>-<frame>.png` + `public/sprite/<style>/manifest.json`
+  (styles today: `classic` placeholders, `atlas` real art — the rendered
+  one is `RENDERED_SPRITE_STYLE`): canvas
   64×64 (since 2026-11-07; anchors are authoritative, measured from the
   atlas-sprites approved base `base_body_v1.png` — canonical copy at
   atlas-sprites/base/anchors_64.json), one indexed palette ≤ 32 colors, slots in z order aura-back <

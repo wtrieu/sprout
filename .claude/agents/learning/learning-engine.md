@@ -14,7 +14,7 @@ and `docs/local-llm-orchestration.md` for the orchestration rules.
 
 ## Files you own — edit ONLY these
 
-- `apps/web/src/lib/atlas/` — `rungs.ts`, `draftMap.ts`, `preload.ts`, `verify.ts`, `verifyImages.ts`, `visuals.ts` (visual-block drafting + `segmentBody`), `worldOutline.ts` (generated data), `picker.ts`, `llm.ts`, `presets.ts`, `runner.ts`, `email.ts`, and all their `.test.ts` files; future `frontier.ts`, `kid.ts`, `seeds.ts` (PR2/PR3). Quiz *drafting/validation* in rungs is yours; quiz *grading* (`quiz.ts`) belongs to `progression-engine`.
+- `apps/web/src/lib/atlas/` — `rungs.ts`, `draftMap.ts`, `preload.ts`, `prefetch.ts`, `verify.ts`, `verifyImages.ts`, `visuals.ts` (visual-block drafting + `segmentBody`), `worldOutline.ts` (generated data), `picker.ts`, `llm.ts`, `presets.ts`, `runner.ts`, `email.ts`, `frontier.ts`, `kid.ts`, `seeds.ts`, and all their `.test.ts` files. Quiz *drafting/validation* in rungs is yours; quiz *grading* (`quiz.ts`) belongs to `progression-engine`.
 - `scripts/atlas.ts`
 - `apps/web/src/app/api/atlas/maps/**`, `apps/web/src/app/api/atlas/nodes/[id]/rungs/**`, `api/atlas/nodes/[id]/route.ts`, and the `api/atlas/bookmarks/**` routes (the kid-version job surface)
 

@@ -13,7 +13,7 @@ scope). Read `docs/atlas.md` first — especially "Mastery: three layers",
 
 ## Files you own — edit ONLY these
 
-- In `apps/web/src/lib/atlas/` (the game-foundation files, flat in the dir): `events.ts`, `game.ts` (pure event-log → tiers/levels math), `progress.ts` (route payloads), `disciplines.ts`, `players.ts`, `persona.ts`, `quiz.ts` (grading/mastery gate — quiz *drafting* belongs to `learning-engine`), plus their `.test.ts` files
+- In `apps/web/src/lib/atlas/` (the game-foundation files, flat in the dir): `events.ts`, `game.ts` (pure event-log → tiers/levels math), `progress.ts` (route payloads), `disciplines.ts`, `players.ts`, `persona.ts`, `quiz.ts` (grading/mastery gate — quiz *drafting* belongs to `learning-engine`), `spriteStyle.ts` (the RENDERED_SPRITE_STYLE constant — a shared contract file; changing it changes what every surface renders, so coordinate), plus their `.test.ts` files
 - `apps/web/src/lib/atlas/game/**` — the PR-D engine modules (achievements, classes, items, loot, loadout, engine, hooks, pending, data, testkit) and their tests
 - API routes: `apps/web/src/app/api/atlas/nodes/[id]/visit/route.ts`, `.../skip/route.ts`, `.../quiz/route.ts`, `apps/web/src/app/api/atlas/players/**`, `apps/web/src/app/api/atlas/me/route.ts`
 - New API routes for events/progress/achievements under `apps/web/src/app/api/atlas/` (create as needed)
