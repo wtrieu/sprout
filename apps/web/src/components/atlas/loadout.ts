@@ -160,6 +160,11 @@ export const COSMETIC_LABELS: Record<string, string> = {
   "style-parchment": "Parchment map",
   "style-night": "Night map",
   "style-botanical": "Botanical map",
+  // Loot sprite parts: treasure names, never the ids' tier words.
+  "hair-hood": "Wanderer's hood",
+  "item-staff": "Wayfinder's staff",
+  "outfit-vest-rare": "Starlit vest",
+  "outfit-vest-epic": "Ember-stitch vest",
 };
 
 /** Friendly names for loot kinds the inventory and reveal show. */

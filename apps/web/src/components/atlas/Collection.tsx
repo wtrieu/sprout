@@ -92,7 +92,7 @@ export function Inventory({
   );
 }
 
-const PICK_SLOTS = ["outfit", "hair", "cape", "item", "aura-front"] as const;
+const PICK_SLOTS = ["body", "outfit", "hair", "cape", "item", "aura-front"] as const;
 
 /**
  * Loadout picker over what the player owns: base parts are always on offer,
@@ -166,7 +166,7 @@ export function LoadoutPicker({
                 {hasBase && <option value="">Default</option>}
                 {options.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.id.replace(/-/g, " ")}
+                    {itemLabel({ kind: "sprite_part", ref: p.id })}
                   </option>
                 ))}
               </select>

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { CharacterCreator } from "./CharacterCreator";
 import { LoadoutPicker } from "./Collection";
 import { creatorSlots, defaultLook, lookBody, partLabel, toneGroups } from "./creator";
-import { loadoutPatch, parseLoadout } from "./loadout";
+import { itemLabel, loadoutPatch, parseLoadout } from "./loadout";
 import { readManifest } from "./sprite/fsParts";
 import type { SpriteManifest } from "./sprite/manifest";
 import { RENDERED_SPRITE_STYLE } from "@/lib/atlas/spriteStyle";
@@ -129,5 +129,38 @@ describe("tones in the loadout", () => {
     expect(html).toMatch(/aria-pressed="true" aria-label="Skin tone: Tan"/);
     expect(html).toMatch(/aria-pressed="true" aria-label="Hair color: Black"/);
     expect(html).toMatch(/aria-pressed="false" aria-label="Skin tone: Default"/);
+  });
+
+  it("the Look picker offers body (base parts) and names owned loot warmly", () => {
+    const html = renderToStaticMarkup(
+      <LoadoutPicker
+        manifest={m}
+        items={[{ id: 1, kind: "sprite_part", ref: "outfit-vest-epic", status: "owned" }]}
+        loadout={parseLoadout({ sprite: { body: "body-girl" } })}
+        onSave={() => {}}
+      />,
+    );
+    expect(html).toMatch(/>body<select/);
+    expect(html).toContain('<option value="body-girl" selected="">');
+    expect(html).toContain('value="body-default"');
+    expect(html).toContain("Ember-stitch vest");
+    expect(html).not.toMatch(/rare|epic</i);
+  });
+});
+
+describe("loot names", () => {
+  it("gives the atlas loot parts friendly names, no tier words", () => {
+    const names = {
+      "hair-hood": "Wanderer's hood",
+      "item-staff": "Wayfinder's staff",
+      "outfit-vest-rare": "Starlit vest",
+      "outfit-vest-epic": "Ember-stitch vest",
+    };
+    for (const [ref, name] of Object.entries(names)) {
+      expect(itemLabel({ kind: "sprite_part", ref })).toBe(name);
+      expect(name).not.toMatch(/rare|epic/i);
+    }
+    // Every loot part in the rendered manifest has a hand-written name.
+    for (const id of loot) expect(itemLabel({ kind: "sprite_part", ref: id })).not.toBe(id.replace(/-/g, " "));
   });
 });
