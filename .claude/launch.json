@@ -6,7 +6,11 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "web", "exec", "next", "dev", "--turbopack"],
       "port": 3100,
-      "autoPort": true
+      "autoPort": true,
+      "env": {
+        "DEV_BYPASS_AUTH": "true",
+        "ALLOWED_EMAIL": "dev@example.test"
+      }
     }
   ]
 }
