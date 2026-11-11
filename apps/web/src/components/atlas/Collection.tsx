@@ -8,6 +8,9 @@ import {
   type Loadout,
   type LoadoutPatch,
 } from "./loadout";
+import { toneGroups } from "./creator";
+import { ToneRow } from "./LookPickers";
+import { SpriteCanvas } from "./sprite/SpriteCanvas";
 import type { SpriteManifest } from "./sprite/manifest";
 
 export type MeAchievement = {
@@ -89,11 +92,12 @@ export function Inventory({
   );
 }
 
-const PICK_SLOTS = ["outfit", "hair", "cape", "item", "aura-front"] as const;
+const PICK_SLOTS = ["body", "outfit", "hair", "cape", "item", "aura-front"] as const;
 
 /**
  * Loadout picker over what the player owns: base parts are always on offer,
- * loot parts/frames/styles only once owned. Saves the whole loadout at once.
+ * loot parts/frames/styles only once owned; skin and hair tones come from the
+ * manifest's swap groups. A small preview shows the draft before saving.
  */
 export function LoadoutPicker({
   manifest,
@@ -121,10 +125,27 @@ export function LoadoutPicker({
     else delete sprite[slot];
     setDraft({ ...draft, sprite });
   };
+  const setTone = (group: string, tone: string) =>
+    setDraft({ ...draft, tones: { ...draft.tones, [group]: tone } });
   const select = "rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1 text-sm";
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-5">
+        <div className="shrink-0 rounded-lg bg-neutral-950 p-1">
+          <SpriteCanvas loadout={draft} scale={2} label="Look preview" />
+        </div>
+        <div className="flex flex-wrap gap-x-8 gap-y-4">
+          {toneGroups(manifest).map((g) => (
+            <ToneRow
+              key={g.group}
+              group={g}
+              value={draft.tones?.[g.group]}
+              onChange={(t) => setTone(g.group, t)}
+            />
+          ))}
+        </div>
+      </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {PICK_SLOTS.map((slot) => {
           const options = manifest.parts.filter(
@@ -145,7 +166,7 @@ export function LoadoutPicker({
                 {hasBase && <option value="">Default</option>}
                 {options.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.id.replace(/-/g, " ")}
+                    {itemLabel({ kind: "sprite_part", ref: p.id })}
                   </option>
                 ))}
               </select>

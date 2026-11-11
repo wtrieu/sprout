@@ -3,9 +3,10 @@
  * `playerId:slug`: the same grant always rolls the same loot, so tests are
  * exact and a retried grant can never reroll for something better.
  *
- * The cosmetic ids below are the contract with the sprite manifest (built in
- * parallel in the atlas-sprites repo); change one here and the manifest's
- * `grantedBy` must follow. Item kinds are data like event verbs — nothing
+ * The cosmetic ids below are the contract with the sprite manifest (from the
+ * atlas-sprites repo); change one here and the manifest's `grantedBy` must
+ * follow. The pool is flat — every free cosmetic is equally likely — so
+ * there is no rarity tier to keep in step. Item kinds are data like event verbs — nothing
  * outside this file and items.ts needs to know what a kind does.
  */
 
@@ -21,10 +22,12 @@ export const LOOT = {
     { kind: "map_style", ref: "style-parchment" },
     { kind: "map_style", ref: "style-night" },
     { kind: "map_style", ref: "style-botanical" },
-    { kind: "sprite_part", ref: "cape-scholar" },
-    { kind: "sprite_part", ref: "item-lantern" },
-    { kind: "sprite_part", ref: "hair-laurel" },
-    { kind: "sprite_part", ref: "aura-spark" },
+    // Loot parts of the rendered style (lib/atlas/spriteStyle.ts); each is
+    // `grantedBy: "loot"` in its manifest — loadout.test.ts cross-checks.
+    { kind: "sprite_part", ref: "hair-hood" },
+    { kind: "sprite_part", ref: "item-staff" },
+    { kind: "sprite_part", ref: "outfit-vest-rare" },
+    { kind: "sprite_part", ref: "outfit-vest-epic" },
   ],
   /** Weights are relative: respec 2, fog reveal 2, rare key 1. */
   functional: [

@@ -7,7 +7,23 @@
 import { SLOT_ORDER, defaultSelection, type SlotId, type SpriteManifest } from "./sprite/manifest";
 import type { Selection } from "./sprite/compose";
 
-export type Loadout = { frame?: string; mapStyle?: string; sprite: Record<string, string> };
+export type Loadout = {
+  frame?: string;
+  mapStyle?: string;
+  sprite: Record<string, string>;
+  /** swap group → tone id (e.g. {skin: "tan", hair: "black"}); absent = manifest defaults. */
+  tones?: Record<string, string>;
+};
+
+const stringRecord = (v: unknown): Record<string, string> => {
+  const out: Record<string, string> = {};
+  if (v && typeof v === "object") {
+    for (const [k, id] of Object.entries(v as Record<string, unknown>)) {
+      if (typeof id === "string") out[k] = id;
+    }
+  }
+  return out;
+};
 
 /** The player's loadout arrives as an object or as the raw JSON column. */
 export const parseLoadout = (raw: unknown): Loadout => {
@@ -20,20 +36,20 @@ export const parseLoadout = (raw: unknown): Loadout => {
     }
   }
   const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
-  const sprite: Record<string, string> = {};
-  if (o.sprite && typeof o.sprite === "object") {
-    for (const [slot, id] of Object.entries(o.sprite as Record<string, unknown>)) {
-      if (typeof id === "string") sprite[slot] = id;
-    }
-  }
+  const tones = stringRecord(o.tones);
   return {
     frame: typeof o.frame === "string" ? o.frame : undefined,
     mapStyle: typeof o.mapStyle === "string" ? o.mapStyle : undefined,
-    sprite,
+    sprite: stringRecord(o.sprite),
+    ...(Object.keys(tones).length > 0 ? { tones } : {}),
   };
 };
 
-/** Base parts, overridden by whatever the loadout equips that the manifest knows. */
+/**
+ * Base parts, overridden by whatever the loadout equips that the manifest
+ * knows. Tones come from the explicit argument, else the loadout's own; an
+ * unknown group or tone is simply left unswapped by the compositor.
+ */
 export const selectionFromLoadout = (
   m: SpriteManifest,
   loadout: Loadout | null | undefined,
@@ -44,7 +60,7 @@ export const selectionFromLoadout = (
     const id = loadout?.sprite[slot];
     if (id && m.parts.some((p) => p.id === id && p.slot === slot)) parts[slot as SlotId] = id;
   }
-  return { parts, tones };
+  return { parts, tones: tones ?? loadout?.tones };
 };
 
 export type ClassOption = {
@@ -144,6 +160,11 @@ export const COSMETIC_LABELS: Record<string, string> = {
   "style-parchment": "Parchment map",
   "style-night": "Night map",
   "style-botanical": "Botanical map",
+  // Loot sprite parts: treasure names, never the ids' tier words.
+  "hair-hood": "Wanderer's hood",
+  "item-staff": "Wayfinder's staff",
+  "outfit-vest-rare": "Starlit vest",
+  "outfit-vest-epic": "Ember-stitch vest",
 };
 
 /** Friendly names for loot kinds the inventory and reveal show. */
@@ -160,6 +181,22 @@ export type LoadoutPatch = {
   frame?: string | null;
   mapStyle?: string | null;
   sprite?: Record<string, string | null>;
+  tones?: Record<string, string | null>;
+};
+
+/** Changed keys of a string map: new values, or null for removed ones. */
+const diffRecord = (
+  saved: Record<string, string> | undefined,
+  draft: Record<string, string> | undefined,
+): Record<string, string | null> | undefined => {
+  const a = saved ?? {};
+  const b = draft ?? {};
+  const out: Record<string, string | null> = {};
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const next = b[k] ?? null;
+    if (next !== (a[k] ?? null)) out[k] = next;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 };
 
 /**
@@ -172,12 +209,10 @@ export const loadoutPatch = (saved: Loadout, draft: Loadout): LoadoutPatch => {
   for (const k of ["frame", "mapStyle"] as const) {
     if (draft[k] !== saved[k]) patch[k] = draft[k] ?? null;
   }
-  const sprite: Record<string, string | null> = {};
-  for (const slot of new Set([...Object.keys(saved.sprite), ...Object.keys(draft.sprite)])) {
-    const next = draft.sprite[slot] ?? null;
-    if (next !== (saved.sprite[slot] ?? null)) sprite[slot] = next;
-  }
-  if (Object.keys(sprite).length > 0) patch.sprite = sprite;
+  const sprite = diffRecord(saved.sprite, draft.sprite);
+  if (sprite) patch.sprite = sprite;
+  const tones = diffRecord(saved.tones, draft.tones);
+  if (tones) patch.tones = tones;
   return patch;
 };
 

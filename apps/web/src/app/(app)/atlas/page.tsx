@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { FrontierCard } from "@/components/atlas/FrontierCard";
 import { CharacterCard, classTitleOf } from "@/components/atlas/CharacterCard";
+import { CharacterCreator, type CreateBody } from "@/components/atlas/CharacterCreator";
 import {
   AchievementGallery,
   Inventory,
@@ -87,8 +88,6 @@ export default function AtlasPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [me, setMe] = useState<Me | null>(null);
-  const [charName, setCharName] = useState("");
-  const [persona, setPersona] = useState<Persona | null>(null);
   const [charError, setCharError] = useState<string | null>(null);
   const [gameError, setGameError] = useState<string | null>(null);
   const manifest = useSpriteManifest();
@@ -115,14 +114,13 @@ export default function AtlasPage() {
     setLoaded(true);
   }, []);
 
-  const createCharacter = async () => {
-    if (!persona) return;
+  const createCharacter = async (body: CreateBody<Persona>) => {
     setBusy(true);
     setCharError(null);
     const res = await fetch("/api/atlas/players", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: charName.trim(), persona }),
+      body: JSON.stringify(body),
     });
     setBusy(false);
     if (!res.ok) {
@@ -261,50 +259,13 @@ export default function AtlasPage() {
       )}
 
       {loaded && me?.canCreate && (
-        <div className="space-y-4 rounded-xl border border-amber-500/30 bg-neutral-900 p-5">
-          <div>
-            <h2 className="text-sm font-medium text-neutral-200">Create your character</h2>
-            <p className="mt-1 text-xs text-neutral-500">
-              Maps are shared; progress, levels and your companion are yours. Pick a voice —
-              you can switch later.
-            </p>
-          </div>
-          <input
-            value={charName}
-            onChange={(e) => setCharName(e.target.value)}
-            minLength={2}
-            maxLength={40}
-            placeholder="Your name on the map"
-            className="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-amber-500"
-          />
-          <div className="grid gap-3 sm:grid-cols-2">
-            {(Object.keys(PERSONAS) as Persona[]).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setPersona(p)}
-                className={`rounded-lg border p-4 text-left transition ${
-                  persona === p
-                    ? "border-amber-500/70 bg-amber-500/5"
-                    : "border-neutral-800 hover:border-neutral-700"
-                }`}
-              >
-                <p className="text-sm font-medium text-neutral-100">{PERSONAS[p].title}</p>
-                <p className="mt-1 text-xs text-neutral-500">{PERSONAS[p].pitch}</p>
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              disabled={busy || charName.trim().length < 2 || !persona}
-              onClick={createCharacter}
-              className="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-amber-400 disabled:opacity-50"
-            >
-              Begin the expedition
-            </button>
-            {charError && <p className="text-sm text-red-400">{charError}</p>}
-          </div>
-        </div>
+        <CharacterCreator
+          manifest={manifest}
+          personas={PERSONAS}
+          busy={busy}
+          error={charError}
+          onCreate={createCharacter}
+        />
       )}
 
       {loaded && me && me.players.length > 0 && (

@@ -1,12 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { readManifest } from "./fsParts";
-import { SLOT_ORDER, SpriteManifestSchema, defaultSelection } from "./manifest";
+import { SLOT_ORDER, SpriteManifestSchema, defaultSelection, loadManifest } from "./manifest";
+import { RENDERED_SPRITE_STYLE } from "@/lib/atlas/spriteStyle";
 
 const BASE = ["body-default", "outfit-tunic", "hair-short"];
 const LOOT = ["cape-scholar", "item-lantern", "hair-laurel", "aura-spark"];
 
-describe("sprite manifest", () => {
-  const m = readManifest();
+describe("rendered style", () => {
+  it("is the atlas style, and loadManifest fetches it by default", async () => {
+    expect(RENDERED_SPRITE_STYLE).toBe("atlas");
+    const urls: string[] = [];
+    const spy = (async (url: string) => {
+      urls.push(url);
+      return new Response(JSON.stringify(readManifest(RENDERED_SPRITE_STYLE)));
+    }) as unknown as typeof fetch;
+    const m = await loadManifest(undefined, spy);
+    expect(urls).toEqual(["/sprite/atlas/manifest.json"]);
+    expect(m?.style).toBe(RENDERED_SPRITE_STYLE);
+  });
+
+  it("the rendered manifest parses, with skin and hair tone groups", () => {
+    const m = readManifest(RENDERED_SPRITE_STYLE);
+    expect(Object.keys(m.swapGroups)).toEqual(expect.arrayContaining(["skin", "hair"]));
+    expect(defaultSelection(m)).toEqual({ body: "body-default", hair: "hair-crop", outfit: "outfit-vest" });
+  });
+});
+
+// The classic style stays a committed, validated style; its contract is pinned here.
+describe("sprite manifest (classic)", () => {
+  const m = readManifest("classic");
 
   it("matches the agreed format", () => {
     expect(m.canvas).toEqual({ width: 64, height: 64 });

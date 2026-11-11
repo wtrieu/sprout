@@ -6,23 +6,30 @@ import { describe, expect, it } from "vitest";
 import * as schema from "../../../db/schema";
 import { meGamePayload } from "../progress";
 import { LOOT } from "./loot";
-import { BASE_LOADOUT, LoadoutPatchSchema, PART_SLOTS, SPRITE_SLOTS, equipLoadout } from "./loadout";
+import { RENDERED_SPRITE_STYLE } from "../spriteStyle";
+import { LoadoutPatchSchema, SPRITE_SLOTS, equipLoadout, lookToLoadout, manifestPath, spriteRules } from "./loadout";
 import { useItem } from "./items";
 import { makeDb, makePlayer, seedWorld } from "./testkit";
 
-const manifest = JSON.parse(
-  fs.readFileSync(
-    path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../../../../public/sprite/classic/manifest.json",
-    ),
-    "utf8",
-  ),
-) as {
+type ManifestJson = {
   slots: Array<{ id: string }>;
   parts: Array<{ id: string; slot: string; grantedBy: string | null }>;
+  swapGroups: Record<string, { tones: Record<string, string[]> }>;
   cosmetics: { frames: string[]; mapStyles: string[] };
 };
+const readManifest = (style: string): ManifestJson =>
+  JSON.parse(
+    fs.readFileSync(
+      path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        `../../../../public/sprite/${style}/manifest.json`,
+      ),
+      "utf8",
+    ),
+  ) as ManifestJson;
+const manifest = readManifest(RENDERED_SPRITE_STYLE);
+// Frames and map styles are not sprite parts; their ids live in the classic manifest.
+const classic = readManifest("classic");
 
 /** An item from a chest; revealed or not. */
 const chestItem = (db: ReturnType<typeof makeDb>, playerId: number, kind: string, ref: string | null, revealed: boolean) => {
@@ -45,29 +52,72 @@ const chestItem = (db: ReturnType<typeof makeDb>, playerId: number, kind: string
     .get();
 };
 
-describe("loadout constants match the sprite manifest", () => {
-  it("slots, part->slot, base parts and cosmetics agree with manifest.json", () => {
+describe("loadout rules come from the rendered sprite manifest", () => {
+  it("reads the rendered style's manifest", () => {
+    expect(manifestPath(RENDERED_SPRITE_STYLE)).toMatch(/public\/sprite\/atlas\/manifest\.json$/);
+    expect(spriteRules()).toBe(spriteRules()); // parsed once, cached
+  });
+
+  it("slots, part->slot, base parts and swap groups agree with manifest.json", () => {
+    const rules = spriteRules();
     expect([...SPRITE_SLOTS]).toEqual(manifest.slots.map((s) => s.id));
-    expect(PART_SLOTS).toEqual(Object.fromEntries(manifest.parts.map((p) => [p.id, p.slot])));
-    expect([...BASE_LOADOUT].sort()).toEqual(
+    expect(rules.partSlots).toEqual(Object.fromEntries(manifest.parts.map((p) => [p.id, p.slot])));
+    expect([...rules.baseParts].sort()).toEqual(
       manifest.parts.filter((p) => p.grantedBy === null).map((p) => p.id).sort(),
     );
-    const loot = LOOT.cosmetics.map((c) => c.ref).sort();
-    const known = [
-      ...manifest.cosmetics.frames,
-      ...manifest.cosmetics.mapStyles,
-      ...manifest.parts.filter((p) => p.grantedBy !== null).map((p) => p.id),
-    ].sort();
-    expect(loot).toEqual(known);
+    expect(rules.swapGroups).toEqual(
+      Object.fromEntries(Object.entries(manifest.swapGroups).map(([g, d]) => [g, Object.keys(d.tones)])),
+    );
+  });
+
+  it("every loot sprite part exists in the rendered manifest as a loot part, and vice versa", () => {
+    const lootParts = LOOT.cosmetics.filter((c) => c.kind === "sprite_part").map((c) => c.ref);
+    for (const ref of lootParts) {
+      const part = manifest.parts.find((p) => p.id === ref);
+      expect(part, `loot part ${ref} is missing from the ${RENDERED_SPRITE_STYLE} manifest`).toBeDefined();
+      expect(part!.grantedBy).toBe("loot");
+    }
+    expect([...lootParts].sort()).toEqual(
+      manifest.parts.filter((p) => p.grantedBy === "loot").map((p) => p.id).sort(),
+    );
+  });
+
+  it("frame and map-style loot match the cosmetics list", () => {
+    const of = (kind: string) => LOOT.cosmetics.filter((c) => c.kind === kind).map((c) => c.ref).sort();
+    expect(of("frame")).toEqual([...classic.cosmetics.frames].sort());
+    expect(of("map_style")).toEqual([...classic.cosmetics.mapStyles].sort());
   });
 });
 
 describe("LoadoutPatchSchema", () => {
-  it("accepts explicit nulls to clear frame, mapStyle and sprite slots", () => {
-    expect(LoadoutPatchSchema.safeParse({ frame: null, mapStyle: null, sprite: { cape: null, hair: "hair-short" } }).success).toBe(true);
+  it("accepts explicit nulls to clear frame, mapStyle, sprite slots and tones", () => {
+    expect(LoadoutPatchSchema.safeParse({ frame: null, mapStyle: null, sprite: { cape: null, hair: "hair-bob" } }).success).toBe(true);
+    expect(LoadoutPatchSchema.safeParse({ tones: null }).success).toBe(true);
+    expect(LoadoutPatchSchema.safeParse({ tones: { skin: "tan", hair: null } }).success).toBe(true);
   });
-  it("rejects unknown slots", () => {
-    expect(LoadoutPatchSchema.safeParse({ sprite: { wings: "hair-short" } }).success).toBe(false);
+  it("rejects unknown slots and unknown keys", () => {
+    expect(LoadoutPatchSchema.safeParse({ sprite: { wings: "hair-bob" } }).success).toBe(false);
+    expect(LoadoutPatchSchema.safeParse({ colors: {} }).success).toBe(false);
+    expect(LoadoutPatchSchema.safeParse({ tones: { skin: "Not An Id" } }).success).toBe(false);
+  });
+});
+
+describe("lookToLoadout", () => {
+  it("builds a loadout from base parts and tones", () => {
+    expect(
+      lookToLoadout({ sprite: { body: "body-girl", hair: "hair-pigtails" }, tones: { skin: "deep", hair: "red" } }),
+    ).toEqual({
+      ok: true,
+      loadout: { sprite: { body: "body-girl", hair: "hair-pigtails" }, tones: { skin: "deep", hair: "red" } },
+    });
+    expect(lookToLoadout({})).toEqual({ ok: true, loadout: { sprite: {} } });
+  });
+  it("rejects loot parts, wrong slots, unknown parts, groups and tones", () => {
+    expect(lookToLoadout({ sprite: { hair: "hair-hood" } })).toMatchObject({ ok: false });
+    expect(lookToLoadout({ sprite: { outfit: "hair-bob" } })).toMatchObject({ ok: false });
+    expect(lookToLoadout({ sprite: { hair: "hair-short" } })).toMatchObject({ ok: false });
+    expect(lookToLoadout({ tones: { eyes: "blue" } })).toMatchObject({ ok: false });
+    expect(lookToLoadout({ tones: { skin: "green" } })).toMatchObject({ ok: false });
   });
 });
 
@@ -75,13 +125,42 @@ describe("equipLoadout", () => {
   it("rejects a part in the wrong slot, even an owned one", () => {
     const db = makeDb();
     const p = makePlayer(db);
-    chestItem(db, p.id, "sprite_part", "cape-scholar", true);
-    expect(equipLoadout(db, p.id, { sprite: { hair: "cape-scholar" } })).toMatchObject({ ok: false });
-    expect(equipLoadout(db, p.id, { sprite: { cape: "cape-scholar" } })).toMatchObject({ ok: true });
-    expect(equipLoadout(db, p.id, { sprite: { cape: null }, frame: null, mapStyle: null })).toEqual({
+    chestItem(db, p.id, "sprite_part", "hair-hood", true);
+    expect(equipLoadout(db, p.id, { sprite: { outfit: "hair-hood" } })).toMatchObject({ ok: false });
+    expect(equipLoadout(db, p.id, { sprite: { hair: "hair-hood" } })).toMatchObject({ ok: true });
+    expect(equipLoadout(db, p.id, { sprite: { hair: null }, frame: null, mapStyle: null })).toEqual({
       ok: true,
       loadout: { sprite: {} },
     });
+  });
+
+  it("equips an atlas base part with tones, merges and clears tones", () => {
+    const db = makeDb();
+    const p = makePlayer(db);
+    expect(
+      equipLoadout(db, p.id, { sprite: { body: "body-girl", hair: "hair-curly" }, tones: { skin: "tan", hair: "gold" } }),
+    ).toEqual({
+      ok: true,
+      loadout: { sprite: { body: "body-girl", hair: "hair-curly" }, tones: { skin: "tan", hair: "gold" } },
+    });
+    expect(equipLoadout(db, p.id, { tones: { hair: null, skin: "fair" } })).toEqual({
+      ok: true,
+      loadout: { sprite: { body: "body-girl", hair: "hair-curly" }, tones: { skin: "fair" } },
+    });
+    expect(equipLoadout(db, p.id, { tones: null })).toEqual({
+      ok: true,
+      loadout: { sprite: { body: "body-girl", hair: "hair-curly" } },
+    });
+  });
+
+  it("rejects an unknown part, swap group or tone and stores nothing", () => {
+    const db = makeDb();
+    const p = makePlayer(db);
+    expect(equipLoadout(db, p.id, { sprite: { hair: "hair-short" } })).toMatchObject({ ok: false });
+    expect(equipLoadout(db, p.id, { tones: { eyes: "blue" } })).toMatchObject({ ok: false });
+    expect(equipLoadout(db, p.id, { tones: { skin: "green" } })).toMatchObject({ ok: false });
+    expect(equipLoadout(db, p.id, { sprite: { hair: "hair-bob" }, tones: { hair: "teal" } })).toMatchObject({ ok: false });
+    expect(db.select().from(schema.atlasPlayers).where(eq(schema.atlasPlayers.id, p.id)).get()!.loadout).toBeNull();
   });
 
   it("cannot equip loot from an unopened chest, until it is revealed", () => {

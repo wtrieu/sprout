@@ -4,6 +4,7 @@
  * decision and workflow"). Parts are data under public/sprite/<style>/.
  */
 import { z } from "zod";
+import { RENDERED_SPRITE_STYLE } from "@/lib/atlas/spriteStyle";
 
 const hex = z.string().regex(/^#[0-9a-f]{6}$/i);
 const anchorName = z.enum(["headTopRow", "shoulderRow", "leftHand", "rightHand", "footRow", "grip"]);
@@ -112,7 +113,7 @@ export const parseManifest = (raw: unknown): SpriteManifest => SpriteManifestSch
 
 /** Fetch + validate the manifest; null when it is missing or malformed. */
 export const loadManifest = async (
-  style = "classic",
+  style: string = RENDERED_SPRITE_STYLE,
   fetchImpl: typeof fetch = fetch,
 ): Promise<SpriteManifest | null> => {
   try {
