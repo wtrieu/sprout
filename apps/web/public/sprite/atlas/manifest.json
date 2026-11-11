@@ -7,6 +7,10 @@
   },
   "palette": [
     {
+      "name": "blush",
+      "hex": "#e8b796"
+    },
+    {
       "name": "c-0099db",
       "hex": "#0099db"
     },
@@ -51,10 +55,6 @@
       "hex": "#e4a672"
     },
     {
-      "name": "c-f6757a",
-      "hex": "#f6757a"
-    },
-    {
       "name": "c-ffffff",
       "hex": "#ffffff"
     },
@@ -65,6 +65,10 @@
     {
       "name": "hair-shade",
       "hex": "#3e2731"
+    },
+    {
+      "name": "lip",
+      "hex": "#f6757a"
     },
     {
       "name": "outline",
@@ -109,7 +113,7 @@
       "z": 2,
       "region": {
         "x0": 19,
-        "y0": 3,
+        "y0": 1,
         "x1": 42,
         "y1": 59
       },
@@ -127,9 +131,9 @@
       "z": 3,
       "region": {
         "x0": 22,
-        "y0": 25,
+        "y0": 23,
         "x1": 39,
-        "y1": 42
+        "y1": 44
       },
       "keepClear": [
         "leftHand",
@@ -143,8 +147,8 @@
       "region": {
         "x0": 18,
         "y0": 3,
-        "x1": 43,
-        "y1": 36
+        "x1": 45,
+        "y1": 38
       },
       "keepClear": [
         "leftHand",
@@ -157,7 +161,7 @@
       "z": 5,
       "region": {
         "x0": 8,
-        "y0": 6,
+        "y0": 4,
         "x1": 26,
         "y1": 59
       },
@@ -265,7 +269,20 @@
       "id": "body-default",
       "slot": "body",
       "animations": [
-        "idle"
+        "idle",
+        "celebrate"
+      ],
+      "swap": [
+        "skin"
+      ],
+      "grantedBy": null
+    },
+    {
+      "id": "body-girl",
+      "slot": "body",
+      "animations": [
+        "idle",
+        "celebrate"
       ],
       "swap": [
         "skin"
@@ -276,7 +293,21 @@
       "id": "hair-crop",
       "slot": "hair",
       "animations": [
-        "idle"
+        "idle",
+        "celebrate"
+      ],
+      "swap": [
+        "hair",
+        "skin"
+      ],
+      "grantedBy": null
+    },
+    {
+      "id": "hair-long",
+      "slot": "hair",
+      "animations": [
+        "idle",
+        "celebrate"
       ],
       "swap": [
         "hair"
@@ -284,10 +315,50 @@
       "grantedBy": null
     },
     {
+      "id": "hair-pigtails",
+      "slot": "hair",
+      "animations": [
+        "idle",
+        "celebrate"
+      ],
+      "swap": [
+        "hair",
+        "skin"
+      ],
+      "grantedBy": null
+    },
+    {
+      "id": "hair-curly",
+      "slot": "hair",
+      "animations": [
+        "idle",
+        "celebrate"
+      ],
+      "swap": [
+        "hair",
+        "skin"
+      ],
+      "grantedBy": null
+    },
+    {
+      "id": "hair-bob",
+      "slot": "hair",
+      "animations": [
+        "idle",
+        "celebrate"
+      ],
+      "swap": [
+        "hair",
+        "skin"
+      ],
+      "grantedBy": null
+    },
+    {
       "id": "hair-hood",
       "slot": "hair",
       "animations": [
-        "idle"
+        "idle",
+        "celebrate"
       ],
       "swap": [],
       "grantedBy": "loot"
@@ -296,16 +367,28 @@
       "id": "outfit-vest",
       "slot": "outfit",
       "animations": [
-        "idle"
+        "idle",
+        "celebrate"
       ],
       "swap": [],
       "grantedBy": null
     },
     {
+      "id": "item-staff",
+      "slot": "item",
+      "animations": [
+        "idle",
+        "celebrate"
+      ],
+      "swap": [],
+      "grantedBy": "loot"
+    },
+    {
       "id": "outfit-vest-rare",
       "slot": "outfit",
       "animations": [
-        "idle"
+        "idle",
+        "celebrate"
       ],
       "swap": [],
       "grantedBy": "loot"
@@ -314,16 +397,8 @@
       "id": "outfit-vest-epic",
       "slot": "outfit",
       "animations": [
-        "idle"
-      ],
-      "swap": [],
-      "grantedBy": "loot"
-    },
-    {
-      "id": "item-staff",
-      "slot": "item",
-      "animations": [
-        "idle"
+        "idle",
+        "celebrate"
       ],
       "swap": [],
       "grantedBy": "loot"
