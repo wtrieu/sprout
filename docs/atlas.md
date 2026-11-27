@@ -790,7 +790,10 @@ contact-sheet test.
   `status` drafting/ready/failed, `error`, `windowStart`, `windowEnd`,
   `grantsCount`, `createdAt`. `atlas_players.loadout` (nullable JSON text:
   `{frame?, mapStyle?, sprite: {slot → partId}, tones?: {swapGroup →
-  toneId}}` — tones since the creator PR; applied at compose time). `atlas_nodes.rare`
+  toneId}, hairUnder?: partId}` — tones since the creator PR; applied at
+  compose time. `hairUnder` is the base hair a headwear part (loot in the
+  hair slot) is covering, remembered so taking headwear off after a save
+  restores it; validated as a base hair part, never rendered). `atlas_nodes.rare`
   (0/1 default 0; drafted maps mark rares later — a learning-engine
   follow-up — so the engine's first run backfills one seeded child per
   branch on maps that have none).
@@ -871,7 +874,8 @@ contact-sheet test.
   `reveal_loot` / `offer_class`). `POST /api/atlas/offers/[id]` `{choice}`
   accepts (logs `accept_class`; title history is permanent via events).
   `POST /api/atlas/items/[id]/use`. `PATCH /api/atlas/players/me` gains
-  `loadout` (sprite parts and `tones`), validated against the RENDERED
+  `loadout` (sprite parts, `tones` and `hairUnder` — a base hair, null
+  clears), validated against the RENDERED
   style's manifest (`spriteRules` in `lib/atlas/game/loadout.ts` — fs read
   of the manifest, cached per style) and owned items; per-group tone nulls
   clear. `GET /api/atlas/me` adds achievements, items, class and class
@@ -910,8 +914,42 @@ contact-sheet test.
   Equipped frame and map style apply as data-driven accent treatments.
   `/atlas`: character card (sprite, class title, total level), the
   achievements gallery (hidden ones invisible until earned, then shown
-  with their flavor), the inventory row with Use buttons, and a loadout
-  picker over owned cosmetics.
+  with their flavor), the inventory row with Use buttons, and the Look
+  panel.
+- **Look panel** (`components/atlas/LookPanel.tsx`, model in `look.ts`).
+  A game-style inventory, prizes first: a live preview (sprite in its
+  frame, over the map-style backdrop) beside one slot button per prize
+  category — Outfit, Item, Headwear (loot parts in the sprite `hair`
+  slot), Frame, Map style, plus Cape / Aura only when the manifest has
+  prize parts for them. Each slot button shows what is on (thumbnail +
+  name) or an inviting empty state. Selecting a slot opens a grid of only
+  that category: owned tiles try on in the preview at once (a draft;
+  nothing persists until **Save look**, disabled while the draft equals
+  the saved look; **Undo changes** resets it). Tapping the equipped tile
+  of a slot that may be empty takes it off; outfit always has its base
+  part. Items that exist but are not owned show as locked silhouettes
+  (darkened thumbnail, lock mark, dashed border, "???", announced "Not
+  found yet") with an "N of M found" count. What exists: manifest parts
+  with `grantedBy` set; the `FRAME_ACCENTS` / `MAP_STYLE_ACCENTS` keys
+  (plus any owned ref they lack). Equipped = amber border + "On" badge.
+  No rarity marker: nothing client-side carries rarity (loot parts are
+  `grantedBy: "loot"`, and tier words in ids are never shown). Body, base
+  hair and tones sit behind **Change appearance** (collapsed by default;
+  the creator's `PartChoiceRow` / `ToneRow`) and edit the same draft.
+  Headwear vs hair: equipping headwear replaces the hair value and sets
+  the draft's `hairUnder` to the base hair it covered (swapping headwear
+  keeps it); taking it off restores `hairUnder` (else the saved base hair,
+  else the slot default) and clears it; picking a hairstyle in Appearance
+  takes headwear off and clears `hairUnder`. The draft's `hairUnder` is
+  the only memory, and it is saved with the loadout, so it survives the
+  panel remounting after Save. Save sends `loadoutPatch` (now with
+  `hairUnder`, null when cleared) and never a `hairUnder` that is not a
+  base hair. Grids list owned tiles first, then locked silhouettes.
+  Thumbnails compose on the player's own draft (body, tones, other parts)
+  with only that tile's slot swapped. Slot buttons are expand/collapse
+  controls (`aria-expanded`, `aria-controls` only while the picker is
+  open), named "Category: what is on"; owned tiles are named "Name" or
+  "Name, on".
 - **`scripts/atlas.ts engine [--player <id>] [--window-days <n>]`** +
   `infra/launchd/com.sprout.atlas-engine.plist` (daily 04:30 — after the
   2:30 nightly pipeline's SQLite bursts, before the 5:00 stories run —

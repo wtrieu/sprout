@@ -8,10 +8,10 @@ import { CharacterCreator, type CreateBody } from "@/components/atlas/CharacterC
 import {
   AchievementGallery,
   Inventory,
-  LoadoutPicker,
   type MeAchievement,
   type MeItem,
 } from "@/components/atlas/Collection";
+import { LookPanel } from "@/components/atlas/LookPanel";
 import { parseLoadout, type NextGate } from "@/components/atlas/loadout";
 import { useSpriteManifest } from "@/components/atlas/sprite/SpriteCanvas";
 
@@ -335,7 +335,7 @@ export default function AtlasPage() {
           {manifest && (
             <div>
               <h2 className="mb-2 text-sm font-medium text-neutral-200">Look</h2>
-              <LoadoutPicker
+              <LookPanel
                 // Remount when the saved loadout changes so the draft resyncs.
                 key={JSON.stringify(me.player.loadout ?? null)}
                 manifest={manifest}

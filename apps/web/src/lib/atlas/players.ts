@@ -69,12 +69,16 @@ export const updatePlayer = (
 ): PlayerRow | null => {
   const existing = db.select().from(atlasPlayers).where(eq(atlasPlayers.id, playerId)).get();
   if (!existing) return null;
+  const values = {
+    ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
+    ...(patch.persona !== undefined ? { persona: patch.persona } : {}),
+  };
+  // A loadout-only PATCH reaches here with nothing to set; Drizzle throws on
+  // an empty SET, so hand back the row as it stands.
+  if (Object.keys(values).length === 0) return existing;
   const updated = db
     .update(atlasPlayers)
-    .set({
-      ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
-      ...(patch.persona !== undefined ? { persona: patch.persona } : {}),
-    })
+    .set(values)
     .where(eq(atlasPlayers.id, playerId))
     .returning()
     .get();

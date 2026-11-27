@@ -1,7 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { CharacterCreator } from "./CharacterCreator";
-import { LoadoutPicker } from "./Collection";
 import { creatorSlots, defaultLook, lookBody, partLabel, toneGroups } from "./creator";
 import { FRAME_ACCENTS, MAP_STYLE_ACCENTS, itemLabel, loadoutPatch, parseLoadout } from "./loadout";
 import { readManifest } from "./sprite/fsParts";
@@ -116,68 +115,12 @@ describe("tones in the loadout", () => {
       tones: { skin: "fair" },
     });
   });
-
-  it("the Look picker shows tone swatches marked from the saved tones", () => {
-    const html = renderToStaticMarkup(
-      <LoadoutPicker
-        manifest={m}
-        items={[]}
-        loadout={parseLoadout({ sprite: {}, tones: { skin: "tan", hair: "black" } })}
-        onSave={() => {}}
-      />,
-    );
-    expect(html).toMatch(/aria-pressed="true" aria-label="Skin tone: Tan"/);
-    expect(html).toMatch(/aria-pressed="true" aria-label="Hair color: Black"/);
-    expect(html).toMatch(/aria-pressed="false" aria-label="Skin tone: Default"/);
-  });
-
-  it("the Look picker offers body (base parts) and names owned loot warmly", () => {
-    const html = renderToStaticMarkup(
-      <LoadoutPicker
-        manifest={m}
-        items={[{ id: 1, kind: "sprite_part", ref: "outfit-vest-epic", status: "owned" }]}
-        loadout={parseLoadout({ sprite: { body: "body-girl" } })}
-        onSave={() => {}}
-      />,
-    );
-    expect(html).toMatch(/>body<select/);
-    expect(html).toContain('<option value="body-girl" selected="">');
-    expect(html).toContain('value="body-default"');
-    expect(html).toContain("Ember-stitch vest");
-    expect(html).not.toMatch(/rare|epic</i);
-  });
 });
 
 describe("frames and map styles in the Look preview", () => {
   it("every frame and map style in the manifest has a visible accent", () => {
     for (const f of m.cosmetics.frames) expect(FRAME_ACCENTS[f]).toMatch(/ring-4/);
     for (const s of m.cosmetics.mapStyles) expect(MAP_STYLE_ACCENTS[s]).toMatch(/bg-gradient/);
-  });
-
-  it("the preview wears the drafted frame over the drafted map style", () => {
-    const html = renderToStaticMarkup(
-      <LoadoutPicker
-        manifest={m}
-        items={[
-          { id: 1, kind: "frame", ref: "frame-ivy", status: "owned" },
-          { id: 2, kind: "map_style", ref: "style-botanical", status: "owned" },
-        ]}
-        loadout={parseLoadout({ frame: "frame-ivy", mapStyle: "style-botanical", sprite: {} })}
-        onSave={() => {}}
-      />,
-    );
-    const preview = html.slice(html.indexOf('data-testid="look-preview"'));
-    expect(preview).toContain(MAP_STYLE_ACCENTS["style-botanical"]);
-    expect(preview).toContain(FRAME_ACCENTS["frame-ivy"]);
-  });
-
-  it("an unframed, plain look previews with neither accent", () => {
-    const html = renderToStaticMarkup(
-      <LoadoutPicker manifest={m} items={[]} loadout={parseLoadout({ sprite: {} })} onSave={() => {}} />,
-    );
-    for (const c of [...Object.values(FRAME_ACCENTS), ...Object.values(MAP_STYLE_ACCENTS)]) {
-      expect(html).not.toContain(c);
-    }
   });
 });
 

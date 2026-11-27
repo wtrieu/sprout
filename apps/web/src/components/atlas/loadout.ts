@@ -13,6 +13,12 @@ export type Loadout = {
   sprite: Record<string, string>;
   /** swap group → tone id (e.g. {skin: "tan", hair: "black"}); absent = manifest defaults. */
   tones?: Record<string, string>;
+  /**
+   * The base hair headwear is covering (headwear is a loot part in the hair
+   * slot). Remembered across saves so taking headwear off restores it; never
+   * rendered — selectionFromLoadout reads `sprite` only.
+   */
+  hairUnder?: string;
 };
 
 const stringRecord = (v: unknown): Record<string, string> => {
@@ -42,6 +48,7 @@ export const parseLoadout = (raw: unknown): Loadout => {
     mapStyle: typeof o.mapStyle === "string" ? o.mapStyle : undefined,
     sprite: stringRecord(o.sprite),
     ...(Object.keys(tones).length > 0 ? { tones } : {}),
+    ...(typeof o.hairUnder === "string" ? { hairUnder: o.hairUnder } : {}),
   };
 };
 
@@ -195,6 +202,7 @@ export type LoadoutPatch = {
   mapStyle?: string | null;
   sprite?: Record<string, string | null>;
   tones?: Record<string, string | null>;
+  hairUnder?: string | null;
 };
 
 /** Changed keys of a string map: new values, or null for removed ones. */
@@ -219,7 +227,7 @@ const diffRecord = (
  */
 export const loadoutPatch = (saved: Loadout, draft: Loadout): LoadoutPatch => {
   const patch: LoadoutPatch = {};
-  for (const k of ["frame", "mapStyle"] as const) {
+  for (const k of ["frame", "mapStyle", "hairUnder"] as const) {
     if (draft[k] !== saved[k]) patch[k] = draft[k] ?? null;
   }
   const sprite = diffRecord(saved.sprite, draft.sprite);

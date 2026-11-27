@@ -153,6 +153,22 @@ describe("equipLoadout", () => {
     });
   });
 
+  it("remembers the base hair under headwear, and only a base hair", () => {
+    const db = makeDb();
+    const p = makePlayer(db);
+    chestItem(db, p.id, "sprite_part", "hair-hood", true);
+    expect(equipLoadout(db, p.id, { sprite: { hair: "hair-hood" }, hairUnder: "hair-pigtails" })).toEqual({
+      ok: true,
+      loadout: { sprite: { hair: "hair-hood" }, hairUnder: "hair-pigtails" },
+    });
+    expect(equipLoadout(db, p.id, { hairUnder: "hair-hood" })).toMatchObject({ ok: false });
+    expect(equipLoadout(db, p.id, { hairUnder: "outfit-vest" })).toMatchObject({ ok: false });
+    expect(equipLoadout(db, p.id, { sprite: { hair: "hair-pigtails" }, hairUnder: null })).toEqual({
+      ok: true,
+      loadout: { sprite: { hair: "hair-pigtails" } },
+    });
+  });
+
   it("rejects an unknown part, swap group or tone and stores nothing", () => {
     const db = makeDb();
     const p = makePlayer(db);

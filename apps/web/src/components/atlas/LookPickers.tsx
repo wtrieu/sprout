@@ -9,18 +9,20 @@ import type { SlotId, SpriteManifest } from "./sprite/manifest";
  * The character cropped to one slot's region (e.g. just the head for hair),
  * so a row of thumbnails reads as "this hair on you", tones included.
  */
-function PartThumb({
+export function PartThumb({
   manifest,
   loadout,
   slot,
   label,
   size = 64,
+  still = false,
 }: {
   manifest: SpriteManifest;
   loadout: Loadout;
   slot: SlotId;
   label: string;
   size?: number;
+  still?: boolean;
 }) {
   const r = manifest.slots.find((s) => s.id === slot)?.region ?? {
     x0: 0,
@@ -38,7 +40,7 @@ function PartThumb({
         className="absolute"
         style={{ left: size / 2 - (r.x0 + w / 2) * scale, top: size / 2 - (r.y0 + h / 2) * scale }}
       >
-        <SpriteCanvas loadout={loadout} scale={scale} label={label} />
+        <SpriteCanvas loadout={loadout} scale={scale} label={label} still={still} />
       </div>
     </div>
   );
