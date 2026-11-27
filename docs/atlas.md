@@ -719,7 +719,10 @@ a persona chosen at character creation speaks in hand-written lines.
 - **Persona — `lib/atlas/persona.ts`.** No model calls in PR-C: hand-written
   template lines per persona per moment (creation, map greeting with live
   counts, quiz pass, quiz fail), seeded pick so renders are stable and tests
-  deterministic. Family-friendly; humor at the material, never the learner.
+  deterministic. Map greetings also name the map's own nodes — last touched,
+  last mastered, and an unopened frontier node (`mapGreetingContext`) — so
+  each topic gets its own line; a line whose context is missing drops out of
+  the pick. Family-friendly; humor at the material, never the learner.
   Switchable from `/atlas` (logged as `choose_persona`).
 - **Routes.** `GET /api/atlas/me` (player + household summaries), `POST
   /api/atlas/players` (409 when the email has one), `PATCH

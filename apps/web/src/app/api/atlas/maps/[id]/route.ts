@@ -7,7 +7,7 @@ import { getAuthenticatedEmail } from "@/lib/auth";
 import { personaLine } from "@/lib/atlas/persona";
 import { playerForEmail } from "@/lib/atlas/players";
 import { defaultLapsedOffers } from "@/lib/atlas/game/classes";
-import { mapGamePayload, mapGreetingCounts, mapProgressFor } from "@/lib/atlas/progress";
+import { mapGamePayload, mapGreetingContext, mapProgressFor } from "@/lib/atlas/progress";
 import { promoteNextQueuedMap, reapStaleKids, reapStaleMaps } from "@/lib/atlas/runner";
 import { setSetting } from "@/lib/settings";
 
@@ -74,6 +74,8 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
   if (player) defaultLapsedOffers(db, player.id);
   const progress = player ? mapProgressFor(db, player.id, map.id) : null;
   const game = player && progress ? mapGamePayload(db, player, progress.totalLevel) : null;
+  // Stable for the day, fresh tomorrow.
+  const greetingSeed = `${map.id}:${new Date().toISOString().slice(0, 10)}`;
   const greeting = player
     ? personaLine(
         player.persona,
@@ -81,10 +83,9 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
         {
           name: player.name,
           mapTitle: map.title,
-          ...mapGreetingCounts(db, player.id, map.id),
+          ...mapGreetingContext(db, player.id, map.id, greetingSeed),
         },
-        // Stable for the day, fresh tomorrow.
-        `${map.id}:${new Date().toISOString().slice(0, 10)}`,
+        greetingSeed,
       )
     : null;
 
