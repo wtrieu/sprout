@@ -790,7 +790,10 @@ contact-sheet test.
   `status` drafting/ready/failed, `error`, `windowStart`, `windowEnd`,
   `grantsCount`, `createdAt`. `atlas_players.loadout` (nullable JSON text:
   `{frame?, mapStyle?, sprite: {slot → partId}, tones?: {swapGroup →
-  toneId}}` — tones since the creator PR; applied at compose time). `atlas_nodes.rare`
+  toneId}, hairUnder?: partId}` — tones since the creator PR; applied at
+  compose time. `hairUnder` is the base hair a headwear part (loot in the
+  hair slot) is covering, remembered so taking headwear off after a save
+  restores it; validated as a base hair part, never rendered). `atlas_nodes.rare`
   (0/1 default 0; drafted maps mark rares later — a learning-engine
   follow-up — so the engine's first run backfills one seeded child per
   branch on maps that have none).
@@ -871,7 +874,8 @@ contact-sheet test.
   `reveal_loot` / `offer_class`). `POST /api/atlas/offers/[id]` `{choice}`
   accepts (logs `accept_class`; title history is permanent via events).
   `POST /api/atlas/items/[id]/use`. `PATCH /api/atlas/players/me` gains
-  `loadout` (sprite parts and `tones`), validated against the RENDERED
+  `loadout` (sprite parts, `tones` and `hairUnder` — a base hair, null
+  clears), validated against the RENDERED
   style's manifest (`spriteRules` in `lib/atlas/game/loadout.ts` — fs read
   of the manifest, cached per style) and owned items; per-group tone nulls
   clear. `GET /api/atlas/me` adds achievements, items, class and class
@@ -932,11 +936,20 @@ contact-sheet test.
   `grantedBy: "loot"`, and tier words in ids are never shown). Body, base
   hair and tones sit behind **Change appearance** (collapsed by default;
   the creator's `PartChoiceRow` / `ToneRow`) and edit the same draft.
-  Headwear vs hair: equipping headwear replaces the hair value and
-  remembers the base hair it covered; taking it off restores that, else
-  the saved base hair, else the slot default; picking a hairstyle in
-  Appearance takes headwear off. Save sends the unchanged `loadoutPatch`
-  contract.
+  Headwear vs hair: equipping headwear replaces the hair value and sets
+  the draft's `hairUnder` to the base hair it covered (swapping headwear
+  keeps it); taking it off restores `hairUnder` (else the saved base hair,
+  else the slot default) and clears it; picking a hairstyle in Appearance
+  takes headwear off and clears `hairUnder`. The draft's `hairUnder` is
+  the only memory, and it is saved with the loadout, so it survives the
+  panel remounting after Save. Save sends `loadoutPatch` (now with
+  `hairUnder`, null when cleared) and never a `hairUnder` that is not a
+  base hair. Grids list owned tiles first, then locked silhouettes.
+  Thumbnails compose on the player's own draft (body, tones, other parts)
+  with only that tile's slot swapped. Slot buttons are expand/collapse
+  controls (`aria-expanded`, `aria-controls` only while the picker is
+  open), named "Category: what is on"; owned tiles are named "Name" or
+  "Name, on".
 - **`scripts/atlas.ts engine [--player <id>] [--window-days <n>]`** +
   `infra/launchd/com.sprout.atlas-engine.plist` (daily 04:30 — after the
   2:30 nightly pipeline's SQLite bursts, before the 5:00 stories run —

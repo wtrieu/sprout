@@ -49,6 +49,32 @@ describe("LookPanel", () => {
     expect(html).not.toMatch(/rare|epic</i);
   });
 
+  it("slot buttons expand the picker and name what is on", () => {
+    const closed = render();
+    // No dangling aria-controls while the picker is not rendered.
+    expect(closed).not.toContain("aria-controls");
+    expect(closed).toContain('aria-expanded="false" aria-label="Headwear: Still out there"');
+    expect(closed).toContain('aria-label="Frame: No frame"');
+    expect(closed).toContain('aria-label="Outfit: Vest"');
+    expect(closed).not.toContain("truncate");
+    const open = renderToStaticMarkup(
+      <LookPanel
+        manifest={m}
+        items={[...items, { id: 3, kind: "sprite_part", ref: "hair-hood", status: "owned" }]}
+        loadout={parseLoadout({ sprite: { hair: "hair-hood" }, frame: "frame-ivy" })}
+        onSave={() => {}}
+        initial={{ open: "frame" }}
+      />,
+    );
+    expect(open).toContain('aria-expanded="true" aria-controls="look-picker" aria-label="Frame: Ivy frame"');
+    expect(open).toContain('aria-label="Headwear: Wanderer&#x27;s hood"');
+    expect(open).toContain('id="look-picker"');
+    expect(open).toContain('aria-pressed="true" aria-label="Ivy frame, on"');
+    // Owned tiles come before locked silhouettes.
+    const grid = open.slice(open.indexOf('id="look-picker"'));
+    expect(grid.indexOf("Ivy frame, on")).toBeLessThan(grid.indexOf("Not found yet"));
+  });
+
   it("frames grid shows swatches; locked ones darkened", () => {
     const html = render({ open: "frame" });
     const grid = html.slice(html.indexOf('id="look-picker"'));
@@ -68,7 +94,7 @@ describe("LookPanel", () => {
     ] as const) {
       s = lookReducer(m, s, { type: "tap", category: cats.find((c) => c.id === cid)!, id });
     }
-    expect(savePatch(s)).toEqual({ frame: "frame-ivy", sprite: { outfit: "outfit-vest-epic" } });
+    expect(savePatch(m, s)).toEqual({ frame: "frame-ivy", sprite: { outfit: "outfit-vest-epic" } });
     const html = render({ draft: s.draft, open: "outfit" });
     const preview = html.slice(html.indexOf('data-testid="look-preview"'));
     expect(preview).toContain(FRAME_ACCENTS["frame-ivy"]);
@@ -95,7 +121,7 @@ describe("LookPanel", () => {
       group: "skin",
       tone: "deep",
     });
-    expect(savePatch(s)).toEqual({ tones: { skin: "deep" } });
+    expect(savePatch(m, s)).toEqual({ tones: { skin: "deep" } });
     expect(render({ appearanceOpen: true, draft: s.draft })).toMatch(
       /aria-pressed="true" aria-label="Skin tone: Deep"/,
     );

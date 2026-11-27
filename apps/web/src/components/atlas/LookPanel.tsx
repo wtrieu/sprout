@@ -16,9 +16,10 @@ import {
   equippedIn,
   initLook,
   lookCategories,
+  isClean,
   lookReducer,
-  sameLook,
   savePatch,
+  tileLook,
   type Category,
   type LookState,
   type Tile,
@@ -30,16 +31,6 @@ import { defaultSelection, type SpriteManifest } from "./sprite/manifest";
 
 const FOCUS =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400";
-
-/** The look with one tile swapped in: what the tile's thumbnail shows. */
-const tryOn = (look: Loadout, c: Category, t: Tile): Loadout => {
-  if (c.kind === "frame") return { ...look, frame: t.id };
-  if (c.kind === "mapStyle") return { ...look, mapStyle: t.id };
-  const sprite = { ...look.sprite };
-  for (const slot of c.slots) delete sprite[slot];
-  if (t.slot) sprite[t.slot] = t.id;
-  return { ...look, sprite };
-};
 
 function FrameSwatch({ id, small }: { id: string; small?: boolean }) {
   return (
@@ -92,19 +83,30 @@ function SlotButton({
 }) {
   const on = equippedIn(manifest, c, draft);
   const tile = on ? c.tiles.find((t) => t.id === on) : undefined;
+  const value = tile ? tile.label : c.found > 0 ? c.emptyLabel : "Still out there";
   let thumb = <EmptyThumb />;
   if (tile && c.kind === "frame") thumb = <FrameSwatch id={tile.id} small />;
   else if (tile && c.kind === "mapStyle") thumb = <StyleSwatch id={tile.id} small />;
   else if (tile?.slot) {
+    // The player's own draft (body, tones, other parts), cropped to the slot.
     thumb = (
-      <PartThumb manifest={manifest} loadout={draft} slot={tile.slot} label="" size={40} still />
+      <PartThumb
+        manifest={manifest}
+        loadout={tileLook(draft, c, tile)}
+        slot={tile.slot}
+        label=""
+        size={40}
+        still
+      />
     );
   }
   return (
     <button
       type="button"
-      aria-pressed={selected}
-      aria-controls="look-picker"
+      aria-expanded={selected}
+      // Points at the picker only while it is rendered for this slot.
+      aria-controls={selected ? "look-picker" : undefined}
+      aria-label={`${c.label}: ${value}`}
       onClick={onSelect}
       className={`flex min-h-[56px] w-full items-center gap-2.5 rounded-lg border-2 bg-neutral-950 px-2 py-1.5 text-left transition ${FOCUS} ${
         selected ? "border-amber-500/80 bg-amber-500/5" : "border-neutral-800 hover:border-neutral-600"
@@ -115,8 +117,12 @@ function SlotButton({
       </span>
       <span className="min-w-0">
         <span className="block text-[11px] uppercase tracking-wide text-neutral-500">{c.label}</span>
-        <span className={`block truncate text-sm ${tile ? "text-neutral-100" : "text-neutral-500"}`}>
-          {tile ? tile.label : c.found > 0 ? c.emptyLabel : "Still out there"}
+        <span
+          className={`line-clamp-2 block break-words text-sm leading-snug ${
+            tile ? "text-neutral-100" : "text-neutral-500"
+          }`}
+        >
+          {value}
         </span>
       </span>
     </button>
@@ -146,7 +152,7 @@ function PickTile({
   else {
     thumb = (
       <SpriteCanvas
-        loadout={tryOn(draft, c, tile)}
+        loadout={tileLook(draft, c, tile)}
         scale={64 / manifest.canvas.width}
         label={locked ? "Not found yet" : tile.label}
         still
@@ -179,6 +185,7 @@ function PickTile({
     <button
       type="button"
       aria-pressed={on}
+      aria-label={on ? `${tile.label}, on` : tile.label}
       onClick={onTap}
       className={`relative flex min-h-[44px] flex-col items-center gap-1 rounded-lg border-2 p-1.5 transition ${FOCUS} ${
         on ? "border-amber-500 bg-amber-500/10" : "border-neutral-800 bg-neutral-950 hover:border-neutral-600"
@@ -228,7 +235,7 @@ export function LookPanel({
   );
   const categories = lookCategories(manifest, items);
   const open = categories.find((c) => c.id === s.open) ?? null;
-  const dirty = !sameLook(s.saved, s.draft);
+  const dirty = !isClean(manifest, s);
   const appearance = creatorSlots(manifest);
   const tones = toneGroups(manifest);
   const headwear = categories.find((c) => c.id === "headwear");
@@ -302,7 +309,7 @@ export function LookPanel({
           <button
             type="button"
             aria-expanded={s.appearanceOpen}
-            aria-controls="look-appearance"
+            aria-controls={s.appearanceOpen ? "look-appearance" : undefined}
             onClick={() => dispatch({ type: "toggleAppearance" })}
             className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-neutral-700 px-3 text-sm text-neutral-300 hover:border-neutral-500 hover:text-neutral-100 ${FOCUS}`}
           >
@@ -356,7 +363,7 @@ export function LookPanel({
           type="button"
           disabled={busy || !dirty}
           onClick={() => {
-            const patch = savePatch(s);
+            const patch = savePatch(manifest, s);
             if (patch) onSave(patch);
           }}
           className={`min-h-[44px] rounded-md bg-amber-500 px-4 text-sm font-medium text-neutral-950 hover:bg-amber-400 disabled:opacity-50 ${FOCUS}`}

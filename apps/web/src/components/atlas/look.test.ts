@@ -10,13 +10,14 @@ import {
   removeHeadwear,
   sameLook,
   savePatch,
+  tileLook,
   wearHeadwear,
   type Category,
   type CategoryId,
   type LookAction,
   type LookState,
 } from "./look";
-import { FRAME_ACCENTS, MAP_STYLE_ACCENTS, parseLoadout } from "./loadout";
+import { FRAME_ACCENTS, MAP_STYLE_ACCENTS, loadoutPatch, parseLoadout, selectionFromLoadout } from "./loadout";
 import { readManifest } from "./sprite/fsParts";
 import type { SpriteManifest } from "./sprite/manifest";
 import { RENDERED_SPRITE_STYLE } from "@/lib/atlas/spriteStyle";
@@ -62,10 +63,11 @@ describe("lookCategories", () => {
       own("frame", "frame-ivy"),
     ]);
     const outfit = cat(cats, "outfit");
+    // Owned first (manifest order within), locked silhouettes after.
     expect(outfit.tiles.map((t) => [t.id, t.owned])).toEqual([
       ["outfit-vest", true],
-      ["outfit-vest-rare", false],
       ["outfit-vest-epic", true],
+      ["outfit-vest-rare", false],
     ]);
     expect([outfit.found, outfit.total, outfit.canEmpty]).toEqual([1, 2, false]);
     // Headwear lists loot hair only; a non-owned status does not count.
@@ -73,7 +75,10 @@ describe("lookCategories", () => {
     expect(hw.tiles.map((t) => t.id)).toEqual(["hair-hood"]);
     expect([hw.found, hw.total, hw.canEmpty]).toEqual([0, 1, true]);
     const frame = cat(cats, "frame");
-    expect(frame.tiles.map((t) => t.id)).toEqual(Object.keys(FRAME_ACCENTS));
+    expect(frame.tiles.map((t) => t.id)).toEqual([
+      "frame-ivy",
+      ...Object.keys(FRAME_ACCENTS).filter((f) => f !== "frame-ivy"),
+    ]);
     expect([frame.found, frame.total]).toEqual([1, 4]);
     expect(cat(cats, "mapStyle").total).toBe(Object.keys(MAP_STYLE_ACCENTS).length);
   });
@@ -93,7 +98,7 @@ describe("lookCategories", () => {
 
   it("keeps an owned frame the accent table does not know", () => {
     const frame = cat(lookCategories(m, [own("frame", "frame-cork")]), "frame");
-    expect(frame.tiles.at(-1)).toMatchObject({ id: "frame-cork", label: "Cork", owned: true });
+    expect(frame.tiles[0]).toMatchObject({ id: "frame-cork", label: "Cork", owned: true });
   });
 
   it("ownedRefs keeps only owned items of the kind", () => {
@@ -120,29 +125,67 @@ describe("equippedIn", () => {
   });
 });
 
+describe("tileLook (thumbnails)", () => {
+  const cats = lookCategories(m, []);
+  const mine = parseLoadout({
+    sprite: { body: "body-girl", hair: "hair-curly", item: "item-staff" },
+    tones: { skin: "deep", hair: "red" },
+  });
+  it("composes on the player's own body, tones and parts, swapping only that slot", () => {
+    const outfit = cat(cats, "outfit").tiles.find((t) => t.id === "outfit-vest-epic")!;
+    expect(tileLook(mine, cat(cats, "outfit"), outfit)).toEqual({
+      sprite: { body: "body-girl", hair: "hair-curly", item: "item-staff", outfit: "outfit-vest-epic" },
+      tones: { skin: "deep", hair: "red" },
+    });
+    const hood = cat(cats, "headwear").tiles[0];
+    expect(selectionFromLoadout(m, tileLook(mine, cat(cats, "headwear"), hood)).parts).toMatchObject({
+      body: "body-girl",
+      hair: "hair-hood",
+      item: "item-staff",
+    });
+  });
+});
+
+describe("loadoutPatch carries hairUnder", () => {
+  it("diffs hairUnder: new value out, removed as null, unchanged omitted", () => {
+    const a = parseLoadout({ sprite: {} });
+    const b = parseLoadout({ sprite: {}, hairUnder: "hair-bob" });
+    expect(loadoutPatch(a, b)).toEqual({ hairUnder: "hair-bob" });
+    expect(loadoutPatch(b, a)).toEqual({ hairUnder: null });
+    expect(loadoutPatch(b, { ...b })).toEqual({});
+  });
+});
+
 describe("headwear helper", () => {
   const saved = parseLoadout({ sprite: { hair: "hair-long" } });
-  it("wearing remembers the covered hair; removing restores it", () => {
-    const on = wearHeadwear(m, { look: parseLoadout({ sprite: { hair: "hair-bob" } }), hairUnderHeadwear: undefined }, "hair-hood");
-    expect(on.look.sprite.hair).toBe("hair-hood");
-    expect(on.hairUnderHeadwear).toBe("hair-bob");
+  it("wearing records the covered hair in hairUnder; removing restores and clears it", () => {
+    const on = wearHeadwear(m, parseLoadout({ sprite: { hair: "hair-bob" } }), "hair-hood");
+    expect(on).toEqual({ sprite: { hair: "hair-hood" }, hairUnder: "hair-bob" });
     const off = removeHeadwear(m, on, saved);
-    expect(off.look.sprite.hair).toBe("hair-bob");
-    expect(off.hairUnderHeadwear).toBeUndefined();
+    expect(off).toEqual({ sprite: { hair: "hair-bob" } });
+    expect("hairUnder" in off).toBe(false);
   });
   it("falls back to the saved base hair, then the slot default", () => {
     const hooded = parseLoadout({ sprite: { hair: "hair-hood" } });
-    expect(removeHeadwear(m, { look: hooded, hairUnderHeadwear: undefined }, saved).look.sprite.hair).toBe(
-      "hair-long",
-    );
-    const off = removeHeadwear(m, { look: hooded, hairUnderHeadwear: undefined }, hooded);
-    expect("hair" in off.look.sprite).toBe(false);
+    expect(removeHeadwear(m, hooded, saved).sprite.hair).toBe("hair-long");
+    expect("hair" in removeHeadwear(m, hooded, hooded).sprite).toBe(false);
   });
-  it("swapping headwear keeps the original hair memory", () => {
-    const d = { look: parseLoadout({ sprite: { hair: "hair-hood" } }), hairUnderHeadwear: "hair-curly" };
-    expect(wearHeadwear(m, d, "hair-hood").hairUnderHeadwear).toBe("hair-curly");
+  it("swapping headwear keeps the original memory; only base hair is remembered", () => {
+    const d = parseLoadout({ sprite: { hair: "hair-hood" }, hairUnder: "hair-curly" });
+    expect(wearHeadwear(m, d, "hair-hood").hairUnder).toBe("hair-curly");
+    // Headwear over headwear with no memory: nothing non-base gets recorded.
+    expect("hairUnder" in wearHeadwear(m, parseLoadout({ sprite: { hair: "hair-hood" } }), "hair-hood")).toBe(
+      false,
+    );
     expect(baseHairOf(m, "hair-hood")).toBeUndefined();
     expect(baseHairOf(m, "hair-bob")).toBe("hair-bob");
+  });
+  it("hairUnder is data only: never rendered, never sent by the creator", () => {
+    const look = parseLoadout({ sprite: { hair: "hair-hood" }, hairUnder: "hair-bob" });
+    expect(look.hairUnder).toBe("hair-bob");
+    expect(selectionFromLoadout(m, look).parts.hair).toBe("hair-hood");
+    expect(Object.values(selectionFromLoadout(m, look).parts)).not.toContain("hair-bob");
+    expect(parseLoadout({ sprite: {}, hairUnder: 7 }).hairUnder).toBeUndefined();
   });
 });
 
@@ -161,10 +204,10 @@ describe("lookReducer", () => {
     const s = run(initLook(saved), tap("outfit", "outfit-vest-epic"), tap("frame", "frame-oak"));
     expect(s.saved).toBe(saved);
     expect(s.draft.sprite.outfit).toBe("outfit-vest-epic");
-    expect(savePatch(s)).toEqual({ frame: "frame-oak", sprite: { outfit: "outfit-vest-epic" } });
+    expect(savePatch(m, s)).toEqual({ frame: "frame-oak", sprite: { outfit: "outfit-vest-epic" } });
     const undone = run(s, { type: "undo" });
     expect(sameLook(saved, undone.draft)).toBe(true);
-    expect(savePatch(undone)).toBeNull();
+    expect(savePatch(m, undone)).toBeNull();
   });
 
   it("locked tiles do nothing; the equipped outfit cannot be emptied", () => {
@@ -182,18 +225,45 @@ describe("lookReducer", () => {
   it("headwear on and off returns to the hair underneath", () => {
     const on = run(initLook(saved), { type: "part", slot: "hair", id: "hair-bob" }, tap("headwear", "hair-hood"));
     expect(on.draft.sprite.hair).toBe("hair-hood");
+    expect(on.draft.hairUnder).toBe("hair-bob");
     expect(appearanceHair(m, on)).toBe("hair-bob");
     expect(run(on, tap("headwear", "hair-hood")).draft.sprite.hair).toBe("hair-bob");
-    // Picking a hairstyle in Appearance takes the headwear off.
+    // Picking a hairstyle in Appearance takes the headwear off and forgets the memory.
     const picked = run(on, { type: "part", slot: "hair", id: "hair-curly" });
     expect(picked.draft.sprite.hair).toBe("hair-curly");
-    expect(picked.hairUnderHeadwear).toBeUndefined();
+    expect("hairUnder" in picked.draft).toBe(false);
+  });
+
+  it("the hair under headwear survives a save and a fresh panel", () => {
+    // Session 1: hood on over pigtails, save.
+    const first = run(initLook(saved), tap("headwear", "hair-hood"));
+    const patch = savePatch(m, first);
+    expect(patch).toEqual({ sprite: { hair: "hair-hood" }, hairUnder: "hair-pigtails" });
+    // The server applies the patch; the page remounts the panel from the stored loadout.
+    const stored = parseLoadout(JSON.stringify({ ...saved, sprite: { hair: "hair-hood" }, hairUnder: "hair-pigtails" }));
+    // Session 2: take the hood off.
+    const later = run(initLook(stored), tap("headwear", "hair-hood"));
+    expect(later.draft.sprite.hair).toBe("hair-pigtails");
+    expect(savePatch(m, later)).toEqual({ sprite: { hair: "hair-pigtails" }, hairUnder: null });
+  });
+
+  it("never sends a hairUnder that is not a base hair", () => {
+    const bad = initLook(saved, { draft: { ...saved, sprite: { hair: "hair-hood" }, hairUnder: "hair-hood" } });
+    expect(savePatch(m, bad)).toEqual({ sprite: { hair: "hair-hood" } });
+    // A stale non-base memory in the saved look does not light Save, and
+    // clears with the next real change rather than being echoed.
+    const stale = parseLoadout({ sprite: { hair: "hair-hood" }, hairUnder: "outfit-vest" });
+    expect(savePatch(m, initLook(stale))).toBeNull();
+    expect(savePatch(m, run(initLook(stale), { type: "tone", group: "skin", tone: "deep" }))).toEqual({
+      tones: { skin: "deep" },
+      hairUnder: null,
+    });
   });
 
   it("tones, slot selection and the appearance toggle", () => {
     const s = run(initLook(saved), { type: "tone", group: "hair", tone: "gold" }, { type: "open", category: "item" });
     expect(s.draft.tones).toEqual({ skin: "tan", hair: "gold" });
-    expect(savePatch(s)).toEqual({ tones: { hair: "gold" } });
+    expect(savePatch(m, s)).toEqual({ tones: { hair: "gold" } });
     expect(s.open).toBe("item");
     expect(run(s, { type: "open", category: "item" }).open).toBeNull();
     expect(s.appearanceOpen).toBe(false);

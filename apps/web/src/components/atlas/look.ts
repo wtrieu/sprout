@@ -81,6 +81,12 @@ const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(
 export const prizeLabel = (id: string, slotOrPrefix: string): string =>
   COSMETIC_LABELS[id] ?? partLabel(id, slotOrPrefix);
 
+/** Owned tiles first, locked silhouettes after; order kept within each. */
+export const ownedFirst = (tiles: Tile[]): Tile[] => [
+  ...tiles.filter((t) => t.owned),
+  ...tiles.filter((t) => !t.owned),
+];
+
 const spriteCategory = (m: SpriteManifest, def: SpriteCategoryDef, owned: Set<string>): Category => {
   const parts = m.parts.filter(
     (p) => def.slots.includes(p.slot) && !(def.lootOnly && p.grantedBy === null),
@@ -100,7 +106,7 @@ const spriteCategory = (m: SpriteManifest, def: SpriteCategoryDef, owned: Set<st
     slots: def.slots,
     canEmpty: !tiles.some((t) => !t.prize),
     emptyLabel: def.emptyLabel,
-    tiles,
+    tiles: ownedFirst(tiles),
     found: prizes.filter((t) => t.owned).length,
     total: prizes.length,
   };
@@ -127,7 +133,7 @@ const cosmeticCategory = (
     slots: [],
     canEmpty: true,
     emptyLabel: id === "frame" ? "No frame" : "Plain map",
-    tiles,
+    tiles: ownedFirst(tiles),
     found: tiles.filter((t) => t.owned).length,
     total: tiles.length,
   };
@@ -171,33 +177,54 @@ export const equippedIn = (m: SpriteManifest, c: Category, look: Loadout): strin
   return null;
 };
 
+/**
+ * What a tile's thumbnail shows: the player's own draft (body, tones, every
+ * other part) with only this tile's category swapped in.
+ */
+export const tileLook = (look: Loadout, c: Category, t: Tile): Loadout => {
+  if (c.kind === "frame") return { ...look, frame: t.id };
+  if (c.kind === "mapStyle") return { ...look, mapStyle: t.id };
+  const sprite = { ...look.sprite };
+  for (const slot of c.slots) delete sprite[slot];
+  if (t.slot) sprite[t.slot] = t.id;
+  return { ...look, sprite };
+};
+
 /** Same look as far as a save is concerned: nothing to PATCH. */
 export const sameLook = (saved: Loadout, draft: Loadout): boolean =>
   Object.keys(loadoutPatch(saved, draft)).length === 0;
 
 // --- headwear vs hair: both live in the sprite `hair` slot --------------------
 
-export type HairDraft = { look: Loadout; hairUnderHeadwear: string | undefined };
-
-/**
- * Put headwear on: it replaces the hair value, remembering the base hair it
- * covered. Swapping one headwear for another keeps the original memory.
- */
-export const wearHeadwear = (m: SpriteManifest, d: HairDraft, id: string): HairDraft => {
-  const covered = baseHairOf(m, d.look.sprite.hair) ?? d.hairUnderHeadwear;
-  return { look: { ...d.look, sprite: { ...d.look.sprite, hair: id } }, hairUnderHeadwear: covered };
+/** The look with `hairUnder` set to the given id, or the key removed. */
+const withHairUnder = (look: Loadout, id: string | undefined): Loadout => {
+  const rest = { ...look };
+  delete rest.hairUnder;
+  return id ? { ...rest, hairUnder: id } : rest;
 };
 
 /**
- * Take headwear off: back to the hair it covered, else the saved loadout's
- * base hair, else the slot default (key removed).
+ * Put headwear on: it replaces the hair value, and `hairUnder` (persisted
+ * with the loadout) remembers the base hair it covered. Swapping one
+ * headwear for another keeps the existing memory.
  */
-export const removeHeadwear = (m: SpriteManifest, d: HairDraft, saved: Loadout): HairDraft => {
-  const back = d.hairUnderHeadwear ?? baseHairOf(m, saved.sprite.hair);
-  const sprite = { ...d.look.sprite };
+export const wearHeadwear = (m: SpriteManifest, look: Loadout, id: string): Loadout =>
+  withHairUnder(
+    { ...look, sprite: { ...look.sprite, hair: id } },
+    baseHairOf(m, look.sprite.hair) ?? baseHairOf(m, look.hairUnder),
+  );
+
+/**
+ * Take headwear off: back to the `hairUnder` it covered, else the saved
+ * loadout's base hair, else the slot default (key removed). `hairUnder`
+ * clears.
+ */
+export const removeHeadwear = (m: SpriteManifest, look: Loadout, saved: Loadout): Loadout => {
+  const back = baseHairOf(m, look.hairUnder) ?? baseHairOf(m, saved.sprite.hair);
+  const sprite = { ...look.sprite };
   if (back) sprite.hair = back;
   else delete sprite.hair;
-  return { look: { ...d.look, sprite }, hairUnderHeadwear: undefined };
+  return withHairUnder({ ...look, sprite }, undefined);
 };
 
 // --- the draft reducer --------------------------------------------------------
@@ -205,7 +232,6 @@ export const removeHeadwear = (m: SpriteManifest, d: HairDraft, saved: Loadout):
 export type LookState = {
   saved: Loadout;
   draft: Loadout;
-  hairUnderHeadwear: string | undefined;
   /** The slot whose picker grid is showing. */
   open: CategoryId | null;
   appearanceOpen: boolean;
@@ -222,7 +248,6 @@ export type LookAction =
 export const initLook = (saved: Loadout, initial?: Partial<Omit<LookState, "saved">>): LookState => ({
   saved,
   draft: saved,
-  hairUnderHeadwear: undefined,
   open: null,
   appearanceOpen: false,
   ...initial,
@@ -247,9 +272,7 @@ const tap = (m: SpriteManifest, s: LookState, c: Category, id: string): LookStat
   if (c.kind === "frame") return { ...s, draft: { ...s.draft, frame: on ? undefined : id } };
   if (c.kind === "mapStyle") return { ...s, draft: { ...s.draft, mapStyle: on ? undefined : id } };
   if (c.id === "headwear") {
-    const hair = { look: s.draft, hairUnderHeadwear: s.hairUnderHeadwear };
-    const next = on ? removeHeadwear(m, hair, s.saved) : wearHeadwear(m, hair, id);
-    return { ...s, draft: next.look, hairUnderHeadwear: next.hairUnderHeadwear };
+    return { ...s, draft: on ? removeHeadwear(m, s.draft, s.saved) : wearHeadwear(m, s.draft, id) };
   }
   // One part per category: clear its slots (aura spans two), then set.
   return {
@@ -267,31 +290,44 @@ export const lookReducer = (m: SpriteManifest, s: LookState, a: LookAction): Loo
       return { ...s, open: s.open === a.category ? null : a.category };
     case "tap":
       return tap(m, s, a.category, a.id);
-    case "part":
+    case "part": {
       // A base hair picked in Appearance replaces any headwear (same slot).
-      return {
-        ...s,
-        draft: withSprite(s.draft, (sp) => {
-          sp[a.slot] = a.id;
-        }),
-        hairUnderHeadwear: a.slot === "hair" ? undefined : s.hairUnderHeadwear,
-      };
+      const draft = withSprite(s.draft, (sp) => {
+        sp[a.slot] = a.id;
+      });
+      return { ...s, draft: a.slot === "hair" ? withHairUnder(draft, undefined) : draft };
+    }
     case "tone":
       return { ...s, draft: { ...s.draft, tones: { ...s.draft.tones, [a.group]: a.tone } } };
     case "toggleAppearance":
       return { ...s, appearanceOpen: !s.appearanceOpen };
     case "undo":
-      return { ...s, draft: s.saved, hairUnderHeadwear: undefined };
+      return { ...s, draft: s.saved };
   }
 };
 
-/** The PATCH body Save sends: unchanged from the old picker's contract. */
-export const savePatch = (s: LookState): LoadoutPatch | null =>
-  sameLook(s.saved, s.draft) ? null : loadoutPatch(s.saved, s.draft);
+/** The draft as Save sends it: a `hairUnder` that is not a base hair part clears. */
+const sendable = (m: SpriteManifest, draft: Loadout): Loadout =>
+  draft.hairUnder === undefined ? draft : withHairUnder(draft, baseHairOf(m, draft.hairUnder));
+
+/**
+ * Nothing to save. Compared on sendable looks, so a stale non-base
+ * `hairUnder` alone does not light Save; any real change also clears it.
+ */
+export const isClean = (m: SpriteManifest, s: LookState): boolean =>
+  sameLook(sendable(m, s.saved), sendable(m, s.draft));
+
+/**
+ * The PATCH body Save sends: the `loadoutPatch` contract (now carrying
+ * `hairUnder`), or null when there is nothing to save. Never sends a
+ * `hairUnder` pointing at a non-base part.
+ */
+export const savePatch = (m: SpriteManifest, s: LookState): LoadoutPatch | null =>
+  isClean(m, s) ? null : loadoutPatch(s.saved, sendable(m, s.draft));
 
 /** The base hair the Appearance row marks while headwear covers it. */
 export const appearanceHair = (m: SpriteManifest, s: LookState): string | undefined =>
   baseHairOf(m, s.draft.sprite.hair) ??
-  s.hairUnderHeadwear ??
+  baseHairOf(m, s.draft.hairUnder) ??
   baseHairOf(m, s.saved.sprite.hair) ??
   defaultSelection(m).hair;
