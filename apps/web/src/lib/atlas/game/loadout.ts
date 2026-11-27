@@ -1,6 +1,6 @@
 /**
  * The equipped look: `{frame?, mapStyle?, sprite: {slot → partId}, tones?:
- * {swapGroup → toneId}}` stored as JSON on the player. Validation lives
+ * {swapGroup → toneId}, hairUnder?}` stored as JSON on the player. Validation lives
  * here, not in the route. Which parts exist, which slot each fits, which are
  * free from the start and which tones exist all come from the rendered
  * style's sprite manifest (public/sprite/<style>/manifest.json), read once
@@ -78,6 +78,8 @@ export const LoadoutPatchSchema = z
     mapStyle: Ref.nullable().optional(),
     sprite: z.record(z.enum(SPRITE_SLOTS), Ref.nullable()).optional(),
     tones: z.record(Ref, Ref.nullable()).nullable().optional(),
+    /** The base hair that headwear (a loot part in the hair slot) is covering. */
+    hairUnder: Ref.nullable().optional(),
   })
   .strict();
 export type LoadoutPatch = z.infer<typeof LoadoutPatchSchema>;
@@ -96,6 +98,8 @@ export type Loadout = {
   mapStyle?: string;
   sprite: Record<string, string>;
   tones?: Record<string, string>;
+  /** Base hair remembered while headwear fills the hair slot; never rendered. */
+  hairUnder?: string;
 };
 
 export const parseLoadout = (raw: string | null | undefined): Loadout | null => {
@@ -196,6 +200,17 @@ export const equipLoadout = (
     const allowed = rules.baseParts.includes(part) || owns(db, playerId, "sprite_part", part);
     if (!allowed) return { ok: false, error: `you do not own part ${part}` };
     next.sprite[slot] = part;
+  }
+  if (patch.hairUnder !== undefined) {
+    if (patch.hairUnder === null) delete next.hairUnder;
+    else {
+      const bad = slotError(rules, "hair", patch.hairUnder);
+      if (bad) return { ok: false, error: bad };
+      if (!rules.baseParts.includes(patch.hairUnder)) {
+        return { ok: false, error: `${patch.hairUnder} is not a base hair` };
+      }
+      next.hairUnder = patch.hairUnder;
+    }
   }
   if (patch.tones !== undefined) {
     const tones: Record<string, string> = patch.tones === null ? {} : { ...(next.tones ?? {}) };
