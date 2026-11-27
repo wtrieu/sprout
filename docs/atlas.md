@@ -910,8 +910,33 @@ contact-sheet test.
   Equipped frame and map style apply as data-driven accent treatments.
   `/atlas`: character card (sprite, class title, total level), the
   achievements gallery (hidden ones invisible until earned, then shown
-  with their flavor), the inventory row with Use buttons, and a loadout
-  picker over owned cosmetics.
+  with their flavor), the inventory row with Use buttons, and the Look
+  panel.
+- **Look panel** (`components/atlas/LookPanel.tsx`, model in `look.ts`).
+  A game-style inventory, prizes first: a live preview (sprite in its
+  frame, over the map-style backdrop) beside one slot button per prize
+  category — Outfit, Item, Headwear (loot parts in the sprite `hair`
+  slot), Frame, Map style, plus Cape / Aura only when the manifest has
+  prize parts for them. Each slot button shows what is on (thumbnail +
+  name) or an inviting empty state. Selecting a slot opens a grid of only
+  that category: owned tiles try on in the preview at once (a draft;
+  nothing persists until **Save look**, disabled while the draft equals
+  the saved look; **Undo changes** resets it). Tapping the equipped tile
+  of a slot that may be empty takes it off; outfit always has its base
+  part. Items that exist but are not owned show as locked silhouettes
+  (darkened thumbnail, lock mark, dashed border, "???", announced "Not
+  found yet") with an "N of M found" count. What exists: manifest parts
+  with `grantedBy` set; the `FRAME_ACCENTS` / `MAP_STYLE_ACCENTS` keys
+  (plus any owned ref they lack). Equipped = amber border + "On" badge.
+  No rarity marker: nothing client-side carries rarity (loot parts are
+  `grantedBy: "loot"`, and tier words in ids are never shown). Body, base
+  hair and tones sit behind **Change appearance** (collapsed by default;
+  the creator's `PartChoiceRow` / `ToneRow`) and edit the same draft.
+  Headwear vs hair: equipping headwear replaces the hair value and
+  remembers the base hair it covered; taking it off restores that, else
+  the saved base hair, else the slot default; picking a hairstyle in
+  Appearance takes headwear off. Save sends the unchanged `loadoutPatch`
+  contract.
 - **`scripts/atlas.ts engine [--player <id>] [--window-days <n>]`** +
   `infra/launchd/com.sprout.atlas-engine.plist` (daily 04:30 — after the
   2:30 nightly pipeline's SQLite bursts, before the 5:00 stories run —

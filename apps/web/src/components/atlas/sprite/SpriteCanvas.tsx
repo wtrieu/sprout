@@ -100,6 +100,7 @@ export function SpriteCanvas({
   scale = 3,
   style = DEFAULT_SPRITE_STYLE,
   label = "Your character",
+  still = false,
 }: {
   loadout?: Loadout | null;
   /** Overrides the loadout's own tones (e.g. a creator preview). */
@@ -108,6 +109,8 @@ export function SpriteCanvas({
   scale?: number;
   style?: string;
   label?: string;
+  /** Paint the first frame only (thumbnails): no idle loop. */
+  still?: boolean;
 }) {
   const manifest = useSpriteManifest(style);
   const [frames, setFrames] = useState<ImageData[] | null>(null);
@@ -149,15 +152,15 @@ export function SpriteCanvas({
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx || !frames || !manifest) return;
     ctx.putImageData(frames[0], 0, 0);
-    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (still || frames.length < 2) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (still || reduced || frames.length < 2) return;
     let i = 0;
     const t = setInterval(() => {
       i = (i + 1) % frames.length;
       ctx.putImageData(frames[i], 0, 0);
     }, 1000 / manifest.animations[anim].fps);
     return () => clearInterval(t);
-  }, [frames, manifest, anim]);
+  }, [frames, manifest, anim, still]);
 
   if (manifest === undefined) return <SpriteFallback scale={scale} label={label} />;
   if (manifest === null) return <SpriteFallback scale={scale} label={label} missing />;
