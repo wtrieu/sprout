@@ -144,14 +144,9 @@ ${topTags.length ? `Topics: ${topTags.join(", ")}` : ""}`;
   // digest — once its one-pager is ready (the week is claimed before drafting).
   const atlasCard =
     getSetting(db, "atlasDelivery") === "digest" ? deliverablePickView(db, atlasWeekStart(new Date())) : null;
-  // Model-written text goes through mdToHtml, which neither escapes HTML nor
-  // knows the "links never written in prose" rule — flatten both here.
-  const mdSafe = (s: string) =>
-    s
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+  // mdToHtml escapes HTML itself; it doesn't know the "links never written in
+  // prose" rule for model-written text, so flatten links here.
+  const mdSafe = (s: string) => s.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
   const atlasSection = atlasCard
     ? `### This week in Atlas\n**${mdSafe(atlasCard.node.title)}**${atlasCard.node.hook ? ` — ${mdSafe(atlasCard.node.hook)}` : ""}\n[Open it in Atlas](${BASE_URL}/atlas/${atlasCard.node.mapId}/${atlasCard.node.id}?from=note)\n\n`
     : "";

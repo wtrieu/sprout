@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs";
-import path from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { stories, storyPages } from "@/db/schema";
 import { normalizePageText } from "@/lib/stories/text";
-
-const IMAGES_DIR = path.resolve(process.cwd(), process.env.IMAGES_DIR ?? "../../data/images");
+import { resolveImagePath } from "@/lib/stories/files";
 
 /** Landscape picture-book PDF: image left, large text right. */
 export const GET = async (
@@ -43,7 +41,7 @@ export const GET = async (
 
   for (const page of pages) {
     const p = pdf.addPage([W, H]);
-    const imgFile = page.imagePath ? path.join(IMAGES_DIR, page.imagePath) : null;
+    const imgFile = page.imagePath ? resolveImagePath(page.imagePath) : null;
     if (imgFile && fs.existsSync(imgFile)) {
       const bytes = fs.readFileSync(imgFile);
       // Legacy FLUX renders are PNG; curated uploads are normalized to JPEG.
