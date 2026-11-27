@@ -3,12 +3,13 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import * as schema from "../../db/schema";
 import type { DB } from "../../db/client";
 import { eventData, eventsForPlayer, logEvent } from "./events";
 import { createPlayer, playerForEmail, updatePlayer } from "./players";
-import { mapProgressFor, nodeProgressFor, playerSummaries } from "./progress";
+import { mapGreetingContext, mapProgressFor, nodeProgressFor, playerSummaries } from "./progress";
 
 const migrationsFolder = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -158,5 +159,36 @@ describe("progress payloads", () => {
     const summaries = playerSummaries(db);
     expect(summaries).toHaveLength(1);
     expect(summaries[0].totalLevel).toBe(5);
+  });
+});
+
+describe("mapGreetingContext", () => {
+  it("names this map's own nodes: last touched, last mastered, and the next unopened", () => {
+    const db = makeDb();
+    const { map, branch, kid1, kid2 } = seed(db);
+    // A second character: no imported history, so the log is only what we write.
+    createPlayer(db, { email: "owner@x.y", name: "Way", persona: "cartographer" });
+    const created = createPlayer(db, { email: "a@b.c", name: "Min", persona: "protege" });
+    if (!created.ok) throw new Error(created.error);
+    const pid = created.player.id;
+
+    const fresh = mapGreetingContext(db, pid, map.id, "day-1");
+    expect(fresh).toEqual({ unexploredCount: 3, masteredCount: 0, nextNodeTitle: "The Stoics" });
+
+    logEvent(db, { playerId: pid, verb: "open_node", mapId: map.id, nodeId: branch.id });
+    logEvent(db, { playerId: pid, verb: "pass_quiz", mapId: map.id, nodeId: kid1.id });
+    logEvent(db, { playerId: pid, verb: "open_node", mapId: map.id, nodeId: branch.id });
+    const ctx = mapGreetingContext(db, pid, map.id, "day-1");
+    expect(ctx).toEqual({
+      unexploredCount: 1,
+      masteredCount: 1,
+      lastNodeTitle: "The Stoics",
+      masteredNodeTitle: "Epictetus",
+      nextNodeTitle: kid2.title,
+    });
+
+    // A skipped subtree is never suggested; everything else opened → no next.
+    db.update(schema.atlasNodes).set({ skipped: true }).where(eq(schema.atlasNodes.id, kid2.id)).run();
+    expect(mapGreetingContext(db, pid, map.id, "day-1").nextNodeTitle).toBeUndefined();
   });
 });

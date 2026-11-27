@@ -134,19 +134,32 @@ export const chestBannerList = (p: Pending): string => {
 export type NextGate = { level: number; at: number } | null;
 export type PlayerClass = { classId?: string; title?: string } | null;
 
-/** Frame accents: a ring around the character and the header card. */
+/**
+ * Frame accents: a bordered ring around the character, on the character card
+ * and in the Look preview. Each frame is a border + ring + offset in its own
+ * colours so it reads as a frame on any background, not a hairline.
+ */
 export const FRAME_ACCENTS: Record<string, string> = {
-  "frame-oak": "ring-2 ring-amber-900/70",
-  "frame-brass": "ring-2 ring-yellow-600/70",
-  "frame-ivy": "ring-2 ring-emerald-700/70",
-  "frame-stellar": "ring-2 ring-indigo-400/70 shadow-[0_0_12px_rgba(129,140,248,0.35)]",
+  "frame-oak": "border-2 border-amber-950 ring-4 ring-amber-800 ring-offset-2 ring-offset-amber-950",
+  "frame-brass":
+    "border-2 border-yellow-200/80 ring-4 ring-yellow-500 ring-offset-2 ring-offset-amber-900 shadow-[0_0_14px_rgba(234,179,8,0.45)]",
+  "frame-ivy":
+    "border-2 border-dashed border-lime-400 ring-4 ring-emerald-600 ring-offset-2 ring-offset-green-950",
+  "frame-stellar":
+    "border-2 border-indigo-200/70 ring-4 ring-indigo-400 ring-offset-2 ring-offset-indigo-950 shadow-[0_0_18px_rgba(129,140,248,0.6)]",
 };
 
-/** Map-style accents: a quiet wash on the map header. */
+/**
+ * Map-style accents: a tinted wash and edge on the map page header (and the
+ * Look preview's backdrop), strong enough to tell the styles apart.
+ */
 export const MAP_STYLE_ACCENTS: Record<string, string> = {
-  "style-parchment": "bg-gradient-to-br from-amber-950/30 to-neutral-900",
-  "style-night": "bg-gradient-to-br from-indigo-950/50 to-neutral-900",
-  "style-botanical": "bg-gradient-to-br from-emerald-950/40 to-neutral-900",
+  "style-parchment":
+    "border border-amber-600/50 bg-gradient-to-br from-amber-800/60 via-amber-950/50 to-neutral-900",
+  "style-night":
+    "border border-indigo-400/40 bg-gradient-to-br from-indigo-800/60 via-slate-950/80 to-neutral-950",
+  "style-botanical":
+    "border border-emerald-500/50 bg-gradient-to-br from-emerald-800/60 via-emerald-950/50 to-neutral-900",
 };
 
 export const accentFor = (table: Record<string, string>, id: string | undefined): string =>

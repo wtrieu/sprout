@@ -3,6 +3,9 @@
 import { useState } from "react";
 import {
   COSMETIC_LABELS,
+  FRAME_ACCENTS,
+  MAP_STYLE_ACCENTS,
+  accentFor,
   itemLabel,
   loadoutPatch,
   type Loadout,
@@ -97,7 +100,8 @@ const PICK_SLOTS = ["body", "outfit", "hair", "cape", "item", "aura-front"] as c
 /**
  * Loadout picker over what the player owns: base parts are always on offer,
  * loot parts/frames/styles only once owned; skin and hair tones come from the
- * manifest's swap groups. A small preview shows the draft before saving.
+ * manifest's swap groups. A small preview shows the draft before saving: the
+ * sprite in its frame, over the map style's backdrop.
  */
 export function LoadoutPicker({
   manifest,
@@ -132,8 +136,16 @@ export function LoadoutPicker({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-5">
-        <div className="shrink-0 rounded-lg bg-neutral-950 p-1">
-          <SpriteCanvas loadout={draft} scale={2} label="Look preview" />
+        {/* The draft as it will look: frame around the sprite, map style behind it. */}
+        <div
+          data-testid="look-preview"
+          className={`shrink-0 rounded-xl p-4 ${
+            accentFor(MAP_STYLE_ACCENTS, draft.mapStyle) || "border border-neutral-800"
+          }`}
+        >
+          <div className={`rounded-lg bg-neutral-950 p-1 ${accentFor(FRAME_ACCENTS, draft.frame)}`}>
+            <SpriteCanvas loadout={draft} scale={2} label="Look preview" />
+          </div>
         </div>
         <div className="flex flex-wrap gap-x-8 gap-y-4">
           {toneGroups(manifest).map((g) => (
@@ -187,6 +199,7 @@ export function LoadoutPicker({
               </option>
             ))}
           </select>
+          <span className="text-[11px] text-neutral-600">Borders your character card.</span>
         </label>
         <label className="flex flex-col gap-1 text-xs text-neutral-500">
           Map style
@@ -202,6 +215,7 @@ export function LoadoutPicker({
               </option>
             ))}
           </select>
+          <span className="text-[11px] text-neutral-600">Tints the header of every map.</span>
         </label>
       </div>
       <button

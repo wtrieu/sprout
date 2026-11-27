@@ -10,6 +10,8 @@
  * Lines are picked with a caller-supplied seed so tests are deterministic
  * and the same page render keeps the same line. PR-D replaces none of this:
  * it adds the nightly model pass on top (loot framing, expeditions, gifts).
+ * Map greetings can also carry model-written lines about the map's field
+ * (`topicLines`, drafted once per map by lib/atlas/greetings.ts).
  */
 import type { AtlasPersona } from "../../db/schema";
 
@@ -34,9 +36,25 @@ export type PersonaContext = {
   mapTitle?: string;
   unexploredCount?: number;
   masteredCount?: number;
+  /** The map node this player touched most recently (greeting). */
+  lastNodeTitle?: string;
+  /** The map node this player most recently passed a quiz on (greeting). */
+  masteredNodeTitle?: string;
+  /** An unopened node on the edge of what they've explored (greeting). */
+  nextNodeTitle?: string;
+  /**
+   * Model-written greetings about this map's field, in this persona's voice
+   * (lib/atlas/greetings). When present they take half the days.
+   */
+  topicLines?: string[];
 };
 
-type LineFn = (ctx: PersonaContext) => string;
+/**
+ * A line, or null when it needs context the caller didn't have (a greeting
+ * that names the last node on a map nobody has opened yet). Null lines drop
+ * out of the pick, so every moment keeps at least one context-free line.
+ */
+type LineFn = (ctx: PersonaContext) => string | null;
 
 const CARTOGRAPHER: Record<PersonaMoment, LineFn[]> = {
   creation: [
@@ -55,6 +73,40 @@ const CARTOGRAPHER: Record<PersonaMoment, LineFn[]> = {
         ? `${c.masteredCount} entries properly verified and stamped. The rest are hearsay until you get there.`
         : `Nothing verified yet. A map of rumors is not a map; it is gossip with coordinates.`,
     (c) => `The ${c.mapTitle ?? "field"} shelf again. Good. The dust in the unexplored regions bothers me professionally.`,
+    (c) => `The ${c.mapTitle ?? "field"} drawers rattle when you walk in. They know there is filing ahead.`,
+    // Topic-specific: these name the map's own nodes, so no two maps share them.
+    (c) =>
+      c.nextNodeTitle
+        ? `"${c.nextNodeTitle}" is still a blank on my ${c.mapTitle ?? "field"} sheet. I have drawn a small, sulking sea monster there in protest.`
+        : null,
+    (c) =>
+      c.nextNodeTitle
+        ? `Field report requested: "${c.nextNodeTitle}". My current entry reads, in full, "probably important?"`
+        : null,
+    (c) =>
+      c.nextNodeTitle
+        ? `I reserved a fresh page for "${c.nextNodeTitle}" some time ago. It is still blank. It is starting to look smug.`
+        : null,
+    (c) =>
+      c.lastNodeTitle
+        ? `I've inked over your notes on "${c.lastNodeTitle}". Tidy work; only two smudges, and both of them are mine.`
+        : null,
+    (c) =>
+      c.lastNodeTitle
+        ? `Still cross-referencing your findings from "${c.lastNodeTitle}". The index cards have begun to multiply.`
+        : null,
+    (c) =>
+      c.lastNodeTitle && c.nextNodeTitle && c.lastNodeTitle !== c.nextNodeTitle
+        ? `From "${c.lastNodeTitle}" the trail runs on to "${c.nextNodeTitle}". I have marked the path in pencil; you supply the ink.`
+        : null,
+    (c) =>
+      c.masteredNodeTitle
+        ? `"${c.masteredNodeTitle}" sits stamped and verified in the ${c.mapTitle ?? "field"} ledger. I check on it now and then. Still there. Lovely.`
+        : null,
+    (c) =>
+      c.masteredNodeTitle
+        ? `I've had "${c.masteredNodeTitle}" bound in leather. Excessive, perhaps. The archive has standards.`
+        : null,
   ],
   quiz_pass: [
     (c) => `Verified. "${c.nodeTitle ?? "This entry"}" gets the good ink and a proper stamp. A fine day for the archive.`,
@@ -93,6 +145,40 @@ const PROTEGE: Record<PersonaMoment, LineFn[]> = {
         ? `I can properly explain ${c.masteredCount} of these now. The others I explain confidently and wrongly.`
         : `So far I know nothing from this map. Teach me one thing and I'll repeat it to everyone, forever.`,
     (c) => `Back to ${c.mapTitle ?? "the map"}! I reread my notes. Some of them are just drawings of you pointing.`,
+    (c) => `Ooh, ${c.mapTitle ?? "this map"}. I saved up a question about it for you. I forgot it. It'll come back.`,
+    // Topic-specific: these name the map's own nodes, so no two maps share them.
+    (c) =>
+      c.nextNodeTitle
+        ? `I've been staring at "${c.nextNodeTitle}" all week. My best guess is that it's a kind of sandwich. Please confirm or deny.`
+        : null,
+    (c) =>
+      c.nextNodeTitle
+        ? `Is "${c.nextNodeTitle}" next? I already made it a name tag. I spelled it three different ways.`
+        : null,
+    (c) =>
+      c.nextNodeTitle
+        ? `Can we do "${c.nextNodeTitle}" today? I tried learning it alone and accidentally reorganized my socks instead.`
+        : null,
+    (c) =>
+      c.lastNodeTitle
+        ? `I've been practicing "${c.lastNodeTitle}" since last time. Mostly on the cat. The cat remains unconvinced.`
+        : null,
+    (c) =>
+      c.lastNodeTitle
+        ? `I explained "${c.lastNodeTitle}" to a houseplant. It grew a tiny bit, so I think I got it mostly right.`
+        : null,
+    (c) =>
+      c.lastNodeTitle && c.nextNodeTitle && c.lastNodeTitle !== c.nextNodeTitle
+        ? `We stopped at "${c.lastNodeTitle}", and "${c.nextNodeTitle}" is right next door. I can see its porch light from here.`
+        : null,
+    (c) =>
+      c.masteredNodeTitle
+        ? `"${c.masteredNodeTitle}" is officially ours. I say it out loud sometimes just to feel clever.`
+        : null,
+    (c) =>
+      c.masteredNodeTitle
+        ? `Now that I know "${c.masteredNodeTitle}", I'm basically the world expert on ${c.mapTitle ?? "this"}. I'm told there is more of it. Rude.`
+        : null,
   ],
   quiz_pass: [
     (c) => `Wait — I got it right because YOU got it right. "${c.nodeTitle ?? "That one"}" is ours now.`,
@@ -122,7 +208,7 @@ const VOICES: Record<AtlasPersona, Record<PersonaMoment, LineFn[]>> = {
 };
 
 /** Tiny deterministic hash so a given seed always picks the same line. */
-const hashSeed = (seed: string): number => {
+export const hashSeed = (seed: string): number => {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i += 1) {
     h ^= seed.charCodeAt(i);
@@ -137,8 +223,17 @@ export const personaLine = (
   ctx: PersonaContext = {},
   seed = "",
 ): string => {
-  const lines = VOICES[persona][moment];
-  return lines[hashSeed(`${persona}:${moment}:${seed}`) % lines.length](ctx);
+  const h = hashSeed(`${persona}:${moment}:${seed}`);
+  // Map greetings: on half the days, a line written for this field; on the
+  // rest, a template line that knows the player's progress on it.
+  const topic = moment === "map_greeting" ? (ctx.topicLines ?? []) : [];
+  // The low bit picks the pool, so each pool indexes with the remaining bits
+  // (h alone would only ever reach odd template lines on topic maps).
+  if (topic.length > 0 && h % 2 === 0) return topic[Math.floor(h / 2) % topic.length];
+  const lines = VOICES[persona][moment]
+    .map((line) => line(ctx))
+    .filter((line): line is string => line !== null);
+  return lines[(topic.length > 0 ? Math.floor(h / 2) : h) % lines.length];
 };
 
 export const PERSONA_LABELS: Record<AtlasPersona, { title: string; pitch: string }> = {

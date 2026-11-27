@@ -4,10 +4,11 @@ import { asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { atlasBookmarks, atlasMaps, atlasNodes, atlasRungLevels, atlasRungs } from "@/db/schema";
 import { getAuthenticatedEmail } from "@/lib/auth";
+import { greetingsFor } from "@/lib/atlas/greetings";
 import { personaLine } from "@/lib/atlas/persona";
 import { playerForEmail } from "@/lib/atlas/players";
 import { defaultLapsedOffers } from "@/lib/atlas/game/classes";
-import { mapGamePayload, mapGreetingCounts, mapProgressFor } from "@/lib/atlas/progress";
+import { mapGamePayload, mapGreetingContext, mapProgressFor } from "@/lib/atlas/progress";
 import { promoteNextQueuedMap, reapStaleKids, reapStaleMaps } from "@/lib/atlas/runner";
 import { setSetting } from "@/lib/settings";
 
@@ -74,6 +75,8 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
   if (player) defaultLapsedOffers(db, player.id);
   const progress = player ? mapProgressFor(db, player.id, map.id) : null;
   const game = player && progress ? mapGamePayload(db, player, progress.totalLevel) : null;
+  // Stable for the day, fresh tomorrow.
+  const greetingSeed = `${map.id}:${new Date().toISOString().slice(0, 10)}`;
   const greeting = player
     ? personaLine(
         player.persona,
@@ -81,15 +84,17 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
         {
           name: player.name,
           mapTitle: map.title,
-          ...mapGreetingCounts(db, player.id, map.id),
+          ...mapGreetingContext(db, player.id, map.id, greetingSeed),
+          topicLines: greetingsFor(map.greetings, player.persona),
         },
-        // Stable for the day, fresh tomorrow.
-        `${map.id}:${new Date().toISOString().slice(0, 10)}`,
+        greetingSeed,
       )
     : null;
 
+  // The raw greetings column stays server-side; the page gets today's line.
+  const { greetings: _greetings, ...mapOut } = map;
   return NextResponse.json({
-    map,
+    map: mapOut,
     nodes: nodes.map((n) => ({
       ...n,
       rungs: byNode.get(n.id) ?? Object.fromEntries(atlasRungLevels.map((l) => [l, null])),

@@ -28,6 +28,7 @@ import { classHistory, currentClass, hasFogBonus, nextGateFor, perkMarksFor, typ
 import { loadPlayerState } from "./game/data";
 import { parseLoadout, type Loadout } from "./game/loadout";
 import { pendingFor, type Pending } from "./game/pending";
+import { hashSeed } from "./persona";
 import { listPlayers, type PlayerRow } from "./players";
 import { quizState, type QuizState } from "./quiz";
 
@@ -115,18 +116,41 @@ export const playerSummaries = (db: DB): PlayerSummary[] => {
   });
 };
 
-/** Node count a map greeting can grumble about: unexplored = never opened. */
-export const mapGreetingCounts = (
+/**
+ * What a map greeting can talk about: counts to grumble at (unexplored =
+ * never opened), plus the map's own node titles so the line is about this
+ * topic, not any topic — the node touched last, the node mastered last, and
+ * an unopened node on the edge of what's been explored (picked by `seed`, so
+ * it holds for the day and moves on tomorrow). Titles are absent when the
+ * player has no such node yet.
+ */
+export const mapGreetingContext = (
   db: DB,
   playerId: number,
   mapId: number,
-): { unexploredCount: number; masteredCount: number } => {
-  const tiers = deriveTiers(eventsForPlayer(db, playerId));
+  seed = "",
+): {
+  unexploredCount: number;
+  masteredCount: number;
+  lastNodeTitle?: string;
+  masteredNodeTitle?: string;
+  nextNodeTitle?: string;
+} => {
+  const events = eventsForPlayer(db, playerId);
+  const tiers = deriveTiers(events);
   const mapNodes = db
-    .select({ id: atlasNodes.id })
+    .select({
+      id: atlasNodes.id,
+      parentId: atlasNodes.parentId,
+      title: atlasNodes.title,
+      skipped: atlasNodes.skipped,
+    })
     .from(atlasNodes)
     .where(eq(atlasNodes.mapId, mapId))
+    .orderBy(asc(atlasNodes.position), asc(atlasNodes.id))
     .all();
+  const byId = new Map(mapNodes.map((n) => [n.id, n]));
+
   let unexploredCount = 0;
   let masteredCount = 0;
   for (const n of mapNodes) {
@@ -134,7 +158,37 @@ export const mapGreetingCounts = (
     if (!t.seen) unexploredCount += 1;
     if (t.mastered) masteredCount += 1;
   }
-  return { unexploredCount, masteredCount };
+
+  // Events come oldest first, so the last match wins.
+  let lastNodeTitle: string | undefined;
+  let masteredNodeTitle: string | undefined;
+  for (const e of events) {
+    const n = e.nodeId != null ? byId.get(e.nodeId) : undefined;
+    if (!n) continue;
+    lastNodeTitle = n.title;
+    if (e.verb === "pass_quiz") masteredNodeTitle = n.title;
+  }
+
+  // The frontier: unopened nodes outside any skipped subtree, either a branch
+  // (top level, never fogged) or hanging off something already opened. Any
+  // unopened node will do when the frontier is empty.
+  const inSkipped = (n: (typeof mapNodes)[number] | undefined): boolean =>
+    !!n && (n.skipped || inSkipped(n.parentId !== null ? byId.get(n.parentId) : undefined));
+  const candidates = mapNodes.filter((n) => !tierFor(tiers, n.id).seen && !inSkipped(n));
+  const frontier = candidates.filter(
+    (n) => n.parentId === null || tierFor(tiers, n.parentId).seen,
+  );
+  const pool = frontier.length > 0 ? frontier : candidates;
+  const nextNodeTitle =
+    pool.length > 0 ? pool[hashSeed(`next:${mapId}:${seed}`) % pool.length].title : undefined;
+
+  return {
+    unexploredCount,
+    masteredCount,
+    ...(lastNodeTitle ? { lastNodeTitle } : {}),
+    ...(masteredNodeTitle ? { masteredNodeTitle } : {}),
+    ...(nextNodeTitle ? { nextNodeTitle } : {}),
+  };
 };
 
 export type PlayerGameView = {

@@ -20,6 +20,9 @@ export const atlasModels = () => ({
   // Eli10s are drafted at map creation and prefetched too: same fast model,
   // never judged (the judge only ever runs for deep dives).
   eli10: process.env.ATLAS_MODEL_ELI10 ?? "claude-sonnet-5",
+  // Persona map greetings: one call per map, and the jokes are the product,
+  // so the writer model rather than the bulk one.
+  greetings: process.env.ATLAS_MODEL_GREETINGS ?? "claude-fable-5",
 });
 
 export type AtlasLlm = <S extends ZodTypeAny>(
