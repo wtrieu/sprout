@@ -673,6 +673,10 @@ export const atlasMaps = sqliteTable("atlas_maps", {
   // Set once by the preload shard that found every one-pager ready-or-failed:
   // the atomic claim that makes "map is ready" a single email.
   notifiedAt: integer("notified_at", { mode: "timestamp" }),
+  // Model-written map greetings in each persona's voice, about this field:
+  // JSON `{cartographer: string[], protege: string[]}` (lib/atlas/greetings).
+  // Null until drafted; the template lines cover the gap.
+  greetings: text("greetings"),
 });
 
 export const atlasNodeKinds = ["branch", "school", "thinker", "concept", "text"] as const;

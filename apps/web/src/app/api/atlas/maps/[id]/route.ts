@@ -4,6 +4,7 @@ import { asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { atlasBookmarks, atlasMaps, atlasNodes, atlasRungLevels, atlasRungs } from "@/db/schema";
 import { getAuthenticatedEmail } from "@/lib/auth";
+import { greetingsFor } from "@/lib/atlas/greetings";
 import { personaLine } from "@/lib/atlas/persona";
 import { playerForEmail } from "@/lib/atlas/players";
 import { defaultLapsedOffers } from "@/lib/atlas/game/classes";
@@ -84,13 +85,16 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ id: 
           name: player.name,
           mapTitle: map.title,
           ...mapGreetingContext(db, player.id, map.id, greetingSeed),
+          topicLines: greetingsFor(map.greetings, player.persona),
         },
         greetingSeed,
       )
     : null;
 
+  // The raw greetings column stays server-side; the page gets today's line.
+  const { greetings: _greetings, ...mapOut } = map;
   return NextResponse.json({
-    map,
+    map: mapOut,
     nodes: nodes.map((n) => ({
       ...n,
       rungs: byNode.get(n.id) ?? Object.fromEntries(atlasRungLevels.map((l) => [l, null])),

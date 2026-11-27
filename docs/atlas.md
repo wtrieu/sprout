@@ -112,7 +112,8 @@ readings rule for pictures).
   (default `claude-sonnet-5`), `ATLAS_JUDGE=false` to skip the editor-judge
   on deep dives (faster, less checked), `ATLAS_MODEL_ONEPAGER` (default
   `claude-sonnet-5`; one-pagers are never judged), `ATLAS_MODEL_ELI10`
-  (default `claude-sonnet-5`; eli10s are never judged), `ATLAS_PRELOAD_WORKERS`
+  (default `claude-sonnet-5`; eli10s are never judged), `ATLAS_MODEL_GREETINGS`
+  (default `claude-fable-5`; one call per map for persona greetings), `ATLAS_PRELOAD_WORKERS`
   (default 3). The web plist must carry `RESEND_API_KEY`, `DIGEST_FROM`,
   `DIGEST_TO` and `SPROUT_BASE_URL` for the "map is ready" email.
 - By hand: `pnpm --filter web run job:atlas draft-map --map <id>`,
@@ -121,7 +122,10 @@ readings rule for pictures).
   (also the eli10 backfill for maps preloaded before PR-E),
   `pnpm --filter web run job:atlas prefetch --node <id>` (PR-E; normally
   spawned by the visit route) and `pnpm --filter web run job:atlas disciplines --map <id> [--force]` (the
-  PR-C backfill for maps drafted before discipline tags).
+  PR-C backfill for maps drafted before discipline tags), and
+  `pnpm --filter web run job:atlas greetings (--map <id> [--force] | --missing)`
+  (persona greetings about the map's field; new maps get them right after
+  drafting, `--missing` backfills every ready map without them).
   Detached runs started from the web process log nothing; run by hand to watch.
   The nightly achievement pass is
   `pnpm --filter web run job:atlas engine [--player <id>] [--window-days <n>]`
@@ -722,7 +726,10 @@ a persona chosen at character creation speaks in hand-written lines.
   deterministic. Map greetings also name the map's own nodes — last touched,
   last mastered, and an unopened frontier node (`mapGreetingContext`) — so
   each topic gets its own line; a line whose context is missing drops out of
-  the pick. Family-friendly; humor at the material, never the learner.
+  the pick. On top of the templates, one model call per map
+  (`lib/atlas/greetings.ts`, after the draft) writes ~6 lines per persona
+  about the field itself, stored as `atlas_maps.greetings`; when present they
+  take half the days and the progress-aware templates the rest. Family-friendly; humor at the material, never the learner.
   Switchable from `/atlas` (logged as `choose_persona`).
 - **Routes.** `GET /api/atlas/me` (player + household summaries), `POST
   /api/atlas/players` (409 when the email has one), `PATCH

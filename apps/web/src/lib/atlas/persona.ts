@@ -10,6 +10,8 @@
  * Lines are picked with a caller-supplied seed so tests are deterministic
  * and the same page render keeps the same line. PR-D replaces none of this:
  * it adds the nightly model pass on top (loot framing, expeditions, gifts).
+ * Map greetings can also carry model-written lines about the map's field
+ * (`topicLines`, drafted once per map by lib/atlas/greetings.ts).
  */
 import type { AtlasPersona } from "../../db/schema";
 
@@ -40,6 +42,11 @@ export type PersonaContext = {
   masteredNodeTitle?: string;
   /** An unopened node on the edge of what they've explored (greeting). */
   nextNodeTitle?: string;
+  /**
+   * Model-written greetings about this map's field, in this persona's voice
+   * (lib/atlas/greetings). When present they take half the days.
+   */
+  topicLines?: string[];
 };
 
 /**
@@ -216,10 +223,17 @@ export const personaLine = (
   ctx: PersonaContext = {},
   seed = "",
 ): string => {
+  const h = hashSeed(`${persona}:${moment}:${seed}`);
+  // Map greetings: on half the days, a line written for this field; on the
+  // rest, a template line that knows the player's progress on it.
+  const topic = moment === "map_greeting" ? (ctx.topicLines ?? []) : [];
+  // The low bit picks the pool, so each pool indexes with the remaining bits
+  // (h alone would only ever reach odd template lines on topic maps).
+  if (topic.length > 0 && h % 2 === 0) return topic[Math.floor(h / 2) % topic.length];
   const lines = VOICES[persona][moment]
     .map((line) => line(ctx))
     .filter((line): line is string => line !== null);
-  return lines[hashSeed(`${persona}:${moment}:${seed}`) % lines.length];
+  return lines[(topic.length > 0 ? Math.floor(h / 2) : h) % lines.length];
 };
 
 export const PERSONA_LABELS: Record<AtlasPersona, { title: string; pitch: string }> = {

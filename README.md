@@ -126,6 +126,7 @@ batch time.
 | Atlas prefetch (on a node visit: eli10 + one-pager of the next 3 unvisited nodes; never deep dives) | after each node visit, detached | `pnpm --filter web run job:atlas prefetch --node <id>` |
 | Atlas preload (every one-pager + quiz + eli10, then one "map is ready" email) | after each map draft, detached | `pnpm --filter web run job:atlas preload --map <id> [--shard <k> --shards <n>]` |
 | Atlas discipline backfill (tag pre-PR-C maps for the game layer) | once per old map, by hand | `pnpm --filter web run job:atlas disciplines --map <id> [--force]` |
+| Atlas persona greetings (backfill maps drafted before model-written greetings) | once, by hand | `pnpm --filter web run job:atlas greetings --missing` |
 | Atlas engine (nightly achievement pass: base-rule sweep + model grants) | 04:30 daily | `pnpm --filter web run job:atlas engine [--player <id>] [--window-days <n>]` |
 | Atlas weekly frontier note (one unvisited node, one-pager + deep dive pre-drafted, emailed) | Wed 06:30 | `EMAIL_DRY_RUN=true pnpm --filter web run job:atlas note [--force]` |
 | Atlas kid version (re-tell a saved node for the child + one thing to try today) | after each "Save for <child>", detached | `pnpm --filter web run job:atlas kid --bookmark <id>` |

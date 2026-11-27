@@ -11,6 +11,7 @@
  *   pnpm --filter web run job:atlas engine [--player <id>] [--window-days <n>]
  *   pnpm --filter web run job:atlas note [--force]
  *   pnpm --filter web run job:atlas kid --bookmark <id> [--stamp <ms>]
+ *   pnpm --filter web run job:atlas greetings (--map <id> [--force] | --missing)
  *
  * Exit codes: 0 done · 1 usage or unexpected error · 2 the work itself failed
  * (the map/rung row carries the reason for the UI).
@@ -21,6 +22,7 @@ import { db } from "../apps/web/src/db/client";
 import { atlasNodes } from "../apps/web/src/db/schema";
 import { assignDisciplines } from "../apps/web/src/lib/atlas/disciplines";
 import { runDraftMapJob } from "../apps/web/src/lib/atlas/draftMap";
+import { draftMapGreetings, mapsMissingGreetings } from "../apps/web/src/lib/atlas/greetings";
 import { activeMapId, runWeeklyFrontier } from "../apps/web/src/lib/atlas/frontier";
 import { generateKidVersion } from "../apps/web/src/lib/atlas/kid";
 import { maybeNotifyMapReady, preloadMap } from "../apps/web/src/lib/atlas/preload";
@@ -60,6 +62,7 @@ const usage = (): never => {
       "  job:atlas engine [--player <id>] [--window-days <n>]",
       "  job:atlas note [--force]",
       "  job:atlas kid --bookmark <id> [--stamp <ms>]",
+      "  job:atlas greetings (--map <id> [--force] | --missing)",
     ].join("\n"),
   );
   process.exit(1);
@@ -84,6 +87,9 @@ const main = async (): Promise<number> => {
           // land in the background.
           const shards = spawnPreloadShards(mapId);
           console.log(`spawned ${shards} preload shards for map #${mapId}`);
+          // Persona greetings for this field, while the shards write. Best-
+          // effort: a failure leaves the template lines speaking alone.
+          draftMapGreetings(db, mapId, { log: (msg) => console.log(msg) });
         },
       });
       return res.ok ? 0 : 2;
@@ -164,6 +170,20 @@ const main = async (): Promise<number> => {
         stamp: stampMs === undefined ? undefined : new Date(stampMs),
       });
       return res.ok ? 0 : 2;
+    }
+    case "greetings": {
+      // Model-written persona greetings for a map's field. New maps get them
+      // right after drafting; --missing backfills every ready map without.
+      const ids = has("missing") ? mapsMissingGreetings(db) : [Number(flag("map"))];
+      if (!ids.every((id) => Number.isInteger(id))) usage();
+      console.log(`atlas greetings for ${ids.length} map(s) starting ${startedAt}`);
+      let failed = 0;
+      for (const id of ids) {
+        const res = draftMapGreetings(db, id, { force: has("force"), log: (msg) => console.log(msg) });
+        if (!res.ok) failed += 1;
+        else if (res.status === "exists") console.log(`map #${id} already has greetings (--force to redraft)`);
+      }
+      return failed > 0 ? 2 : 0;
     }
     case "rung": {
       const nodeId = Number(flag("node"));

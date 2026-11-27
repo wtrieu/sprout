@@ -1,0 +1,1 @@
+ALTER TABLE `atlas_maps` ADD `greetings` text;
