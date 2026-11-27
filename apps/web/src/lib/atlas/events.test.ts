@@ -136,6 +136,16 @@ describe("players and the legacy import", () => {
       .map((e) => e.verb);
     expect(verbs).toEqual(["create_character", "choose_persona"]);
   });
+
+  it("an empty profile patch returns the row unchanged instead of throwing", () => {
+    const db = makeDb();
+    seed(db);
+    const created = createPlayer(db, { email: "a@b.c", name: "A", persona: "protege" });
+    if (!created.ok) throw new Error(created.error);
+    const same = updatePlayer(db, created.player.id, {});
+    expect(same?.name).toBe("A");
+    expect(same?.persona).toBe("protege");
+  });
 });
 
 describe("progress payloads", () => {
