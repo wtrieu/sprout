@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { CharacterCreator } from "./CharacterCreator";
 import { LoadoutPicker } from "./Collection";
 import { creatorSlots, defaultLook, lookBody, partLabel, toneGroups } from "./creator";
-import { itemLabel, loadoutPatch, parseLoadout } from "./loadout";
+import { FRAME_ACCENTS, MAP_STYLE_ACCENTS, itemLabel, loadoutPatch, parseLoadout } from "./loadout";
 import { readManifest } from "./sprite/fsParts";
 import type { SpriteManifest } from "./sprite/manifest";
 import { RENDERED_SPRITE_STYLE } from "@/lib/atlas/spriteStyle";
@@ -145,6 +145,39 @@ describe("tones in the loadout", () => {
     expect(html).toContain('value="body-default"');
     expect(html).toContain("Ember-stitch vest");
     expect(html).not.toMatch(/rare|epic</i);
+  });
+});
+
+describe("frames and map styles in the Look preview", () => {
+  it("every frame and map style in the manifest has a visible accent", () => {
+    for (const f of m.cosmetics.frames) expect(FRAME_ACCENTS[f]).toMatch(/ring-4/);
+    for (const s of m.cosmetics.mapStyles) expect(MAP_STYLE_ACCENTS[s]).toMatch(/bg-gradient/);
+  });
+
+  it("the preview wears the drafted frame over the drafted map style", () => {
+    const html = renderToStaticMarkup(
+      <LoadoutPicker
+        manifest={m}
+        items={[
+          { id: 1, kind: "frame", ref: "frame-ivy", status: "owned" },
+          { id: 2, kind: "map_style", ref: "style-botanical", status: "owned" },
+        ]}
+        loadout={parseLoadout({ frame: "frame-ivy", mapStyle: "style-botanical", sprite: {} })}
+        onSave={() => {}}
+      />,
+    );
+    const preview = html.slice(html.indexOf('data-testid="look-preview"'));
+    expect(preview).toContain(MAP_STYLE_ACCENTS["style-botanical"]);
+    expect(preview).toContain(FRAME_ACCENTS["frame-ivy"]);
+  });
+
+  it("an unframed, plain look previews with neither accent", () => {
+    const html = renderToStaticMarkup(
+      <LoadoutPicker manifest={m} items={[]} loadout={parseLoadout({ sprite: {} })} onSave={() => {}} />,
+    );
+    for (const c of [...Object.values(FRAME_ACCENTS), ...Object.values(MAP_STYLE_ACCENTS)]) {
+      expect(html).not.toContain(c);
+    }
   });
 });
 
